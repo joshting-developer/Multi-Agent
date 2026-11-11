@@ -59,3 +59,12 @@ npm run package:vsix
 CLI 路徑自動尋找 PATH、`~/.local/bin`、Homebrew 及官方 Codex 插件 binary；也可於設定「進階」指定絕對路徑。實測 Claude 2.1.319、Codex 0.164.0-alpha.11.1；版本／能力不足會報錯。
 
 目前不支援多資料夾、Remote SSH、Dev Containers 或 VS Code Web。獨立 Participant 討論、原生 Session 恢復、工程記憶與 Auto Work 尚未實作。[測試紀錄](docs/testing.md)、[架構](docs/architecture.md)、[UI skills](skills/README.md)
+
+
+## 專案工作追蹤
+
+本專案以 [TaskTracker／Multi-Agent](http://localhost:5174/#/projects/796d764a-e7fb-4eb2-a99d-8b7cc249b98b) 管理已完成與待辦工項。後續工作須先建／認領卡片，再更新狀態、決策及驗證結果；規則見 [AGENTS.md](AGENTS.md)。
+
+例行 commit／push 不另開卡，已有對應工項時更新該卡。
+
+使用 `npm run tracker -- list` 查詢；`get`、`create`、`update`、`comment` 的用法見 AGENTS。工具使用本機私有設定 `.local/tasktracker.json` 的專用 Developer 帳號，設定檔不提交、不打包。這是既有 session RPC 的暫時客戶端，正式 API／Webhook 由 TaskTracker 後續補齊。
