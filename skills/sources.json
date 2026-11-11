@@ -1,0 +1,103 @@
+{
+  "repository": "https://github.com/vuejs-ai/skills",
+  "commit": "198f0cd8f7f9c0a3d9b566ccc16de6677519ee78",
+  "copiedFrom": "/Users/josh/Projects/workspace/SideProjects/TaskTracker/skills/vendor/vue-best-practices",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "2ea4e714425cf682879c4dea3d0d0a1a379a1418f463063f9eea1aa709ad946d"
+    },
+    {
+      "path": "SKILL.md",
+      "sha256": "3a601da4b2cc46b1712fcedb1ce434f0c263e29c2a8193ccf84dcbd0b7c03378"
+    },
+    {
+      "path": "references/animation-class-based-technique.md",
+      "sha256": "3d59a496337d412870464c502a3b60c590c60b7047254abddb141b62ae7bd42e"
+    },
+    {
+      "path": "references/animation-state-driven-technique.md",
+      "sha256": "d780b876e5bb18b52b7646660b2e5fff1cd672a07a1c40b5809227d6893eb90e"
+    },
+    {
+      "path": "references/component-async.md",
+      "sha256": "e20036c6622a1647d9e1c23f1fe871b2465cf4bab434422e17eb05710c8878f3"
+    },
+    {
+      "path": "references/component-data-flow.md",
+      "sha256": "ce31aafce44a5e455f0c0a4e32833ef2c3d74730c110aa108b179f27b597e537"
+    },
+    {
+      "path": "references/component-fallthrough-attrs.md",
+      "sha256": "62d291508df9997d3b6c5adfde251d6c722926ecf5f7168dea0272564f119919"
+    },
+    {
+      "path": "references/component-keep-alive.md",
+      "sha256": "8738608665ad42baa6d2d7548d46b3ecd318a85f4ec3a0afac5f728948ade3ca"
+    },
+    {
+      "path": "references/component-slots.md",
+      "sha256": "726fdac036fcdb6071e669f1ed90af5b3bdc5fc150ad82ff41afa0af5e39f481"
+    },
+    {
+      "path": "references/component-suspense.md",
+      "sha256": "6a5a98dcc6a2093f038f877eb6fefeedb199aba058a5dea71b139017c557bdd1"
+    },
+    {
+      "path": "references/component-teleport.md",
+      "sha256": "4e48748842262df50c293ab23857c22c107e3e8360c87da482d23f0eb88b2c3f"
+    },
+    {
+      "path": "references/component-transition-group.md",
+      "sha256": "4b05ae5474ea9e298016202d791c96e6b149d0395bb36427cd77ca9cdc52fd75"
+    },
+    {
+      "path": "references/component-transition.md",
+      "sha256": "bc59a19f2e8eed7a228bdb6383d423a57c6dd75704ae11c9596018c9fb1cac42"
+    },
+    {
+      "path": "references/composables.md",
+      "sha256": "4ae8492ca6ad62ba48281923da115e660c91ab3b4e2e1905cfafdb45928f9b7a"
+    },
+    {
+      "path": "references/directives.md",
+      "sha256": "70d4c68ea15a961eec6471c42b4c44d37adfeb094f694b6811fb718eab7b2cf7"
+    },
+    {
+      "path": "references/perf-avoid-component-abstraction-in-lists.md",
+      "sha256": "8f14401852672527918a4d9e21fed49826e0fe78e0b5584907f689ca648cac71"
+    },
+    {
+      "path": "references/perf-v-once-v-memo-directives.md",
+      "sha256": "88ac485f1cc3b59698266dccfd0f581a56ce5cd77a4bade3f135cb90c60d5d8c"
+    },
+    {
+      "path": "references/perf-virtualize-large-lists.md",
+      "sha256": "51e6870226284398db9f6762179e730d2ac424d939869e3386a2d66732c5bda3"
+    },
+    {
+      "path": "references/plugins.md",
+      "sha256": "b1583522aca059c4295708517ba987530dd6a13134f6046aed9fd7327fb9c936"
+    },
+    {
+      "path": "references/reactivity.md",
+      "sha256": "9794443cd6018408fd16b03a7ba7a6918d8d054404a19b72478e3b84c6648573"
+    },
+    {
+      "path": "references/render-functions.md",
+      "sha256": "01b35e671f7890939fa5acda52c5cf0a50b398e153d80cc9fc9f74c19e460357"
+    },
+    {
+      "path": "references/sfc.md",
+      "sha256": "dfe09f28869a2bc44e618068c3b6269f55d925d096714df25e253d2bbb58c28f"
+    },
+    {
+      "path": "references/state-management.md",
+      "sha256": "9e98a1c6d9009c0c8ef7228b6b3bcf10d30be6b713ffcef448ab7db3b419a851"
+    },
+    {
+      "path": "references/updated-hook-performance.md",
+      "sha256": "ded08ce93f9b23082538846f84e8d159d84af757c27b2c6b43a9283df803a32b"
+    }
+  ]
+}
