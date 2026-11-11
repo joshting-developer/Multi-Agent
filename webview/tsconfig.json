@@ -1,0 +1,6 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "types": ["vite/client", "node"], "lib": ["ES2022", "DOM", "DOM.Iterable"] },
+  "include": ["src/**/*.ts", "src/**/*.vue", "../src/bridge/**/*.ts", "../test/webview.test.ts", "../test/settings-ui.test.ts"],
+  "exclude": []
+}

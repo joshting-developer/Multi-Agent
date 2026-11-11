@@ -1,0 +1,226 @@
+{
+  "name": "multi-agent-workspace",
+  "displayName": "Multi-Agent Workspace",
+  "description": "Claude Code and Codex in a simple chat beside VS Code Chat.",
+  "version": "0.1.4",
+  "publisher": "local-workspace",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "vscode": "^1.95.0",
+    "node": ">=22.12.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.cjs",
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onView:multiAgent.chat",
+    "onView:multiAgent.chatSecondary"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "multiAgent.open",
+        "title": "Multi-Agent: Open Chat"
+      },
+      {
+        "command": "multiAgent.options",
+        "title": "Multi-Agent: Settings and Connections",
+        "icon": "$(gear)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "multiAgent",
+          "title": "Multi-Agent",
+          "icon": "media/workspace.svg",
+          "when": "multiAgent.legacySidebar"
+        }
+      ],
+      "secondarySidebar": [
+        {
+          "id": "multiAgentChat",
+          "title": "Multi-Agent",
+          "icon": "media/workspace.svg",
+          "when": "!multiAgent.legacySidebar"
+        }
+      ]
+    },
+    "views": {
+      "multiAgent": [
+        {
+          "id": "multiAgent.chat",
+          "name": "Multi-Agent",
+          "type": "webview",
+          "when": "multiAgent.legacySidebar"
+        }
+      ],
+      "multiAgentChat": [
+        {
+          "id": "multiAgent.chatSecondary",
+          "name": "Multi-Agent",
+          "type": "webview",
+          "when": "!multiAgent.legacySidebar"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "multiAgent.options",
+          "when": "view == multiAgent.chat || view == multiAgent.chatSecondary",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Multi-Agent Workspace",
+      "properties": {
+        "multiAgent.claudePath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Absolute Claude executable path, or empty for automatic detection."
+        },
+        "multiAgent.codexPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Absolute Codex executable path, or empty for automatic detection."
+        },
+        "multiAgent.timeoutSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 10,
+          "maximum": 3600,
+          "description": "Maximum task duration."
+        },
+        "multiAgent.codexModel": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Explicit codex model ID. Choose a model in Multi-Agent settings."
+        },
+        "multiAgent.claudeModel": {
+          "type": "string",
+          "default": "sonnet",
+          "scope": "machine",
+          "description": "Explicit claude model ID. Choose a model in Multi-Agent settings."
+        },
+        "multiAgent.codexEffort": {
+          "type": "string",
+          "default": "medium",
+          "enum": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "scope": "machine",
+          "description": "Codex reasoning effort. Available levels depend on the model."
+        },
+        "multiAgent.claudeEffort": {
+          "type": "string",
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "scope": "machine",
+          "description": "Claude effort level, subject to model and account support."
+        },
+        "multiAgent.sendShortcut": {
+          "type": "string",
+          "default": "enter",
+          "enum": [
+            "enter",
+            "modifier-enter"
+          ],
+          "description": "Send with Enter or Cmd/Ctrl+Enter."
+        },
+        "multiAgent.defaultMode": {
+          "type": "string",
+          "default": "workspace-write",
+          "enum": [
+            "workspace-write",
+            "read-only"
+          ],
+          "description": "Default permission mode for new chat views."
+        },
+        "multiAgent.approvalMode": {
+          "type": "string",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "auto-review",
+            "full-access"
+          ],
+          "enumDescriptions": [
+            "Show native approval requests in chat.",
+            "Use the official provider auto-review mode.",
+            "Allow access beyond the workspace after confirmation."
+          ],
+          "description": "Who approves agent actions. Read-only tasks remain read-only."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "npm run typecheck && node scripts/build.mjs && vite build --config webview/vite.config.ts && node scripts/check-webview.mjs && node scripts/notices.mjs",
+    "typecheck": "tsc --noEmit && vue-tsc --noEmit -p webview/tsconfig.json",
+    "lint": "eslint src webview/src test scripts webview/vite.config.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:live": "node --import tsx scripts/live-smoke.ts",
+    "test:host": "npm run build && node scripts/host-smoke.mjs",
+    "test:workspace": "node --import tsx scripts/workspace-smoke.ts",
+    "test:models": "node --import tsx scripts/model-smoke.ts",
+    "package:vsix": "vsce package --no-dependencies --allow-missing-repository --no-rewrite-relative-links --skip-license",
+    "vscode:prepublish": "npm run build",
+    "test:approvals": "node --import tsx scripts/approval-smoke.ts"
+  },
+  "dependencies": {
+    "markdown-it": "^14.1.0",
+    "sql.js": "^1.16.0",
+    "vue": "^3.5.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.0",
+    "@types/node": "^22.0.0",
+    "@types/sql.js": "^1.4.11",
+    "@types/vscode": "^1.95.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "@vscode/vsce": "^3.6.0",
+    "@vue/test-utils": "^2.4.6",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-vue": "^10.0.0",
+    "jsdom": "^26.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.0.0",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.0",
+    "vue-tsc": "^3.0.0"
+  }
+}

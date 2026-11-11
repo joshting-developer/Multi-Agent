@@ -1,0 +1,16 @@
+**
+!package.json
+!README.md
+!CHANGELOG.md
+!Multi_Agent_VSCode_Extension_SPEC.md
+!THIRD_PARTY_NOTICES.txt
+!media/**
+!dist/extension.cjs
+!dist/webview/**
+!docs/**
+!skills/README.md
+
+!dist/sqlite/**
+!Multi_Agent_AI_Workspace_SPEC_v0.2.md
+
+!skills/quiet-workspace-ui/**

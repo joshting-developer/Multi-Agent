@@ -1,0 +1,39 @@
+# 架構與目前範圍
+
+正式產品基準為 [v0.2 規格](../Multi_Agent_AI_Workspace_SPEC_v0.2.md)。0.1.4 完成單 Agent 對話的歷史基礎、官方核准與帳號資訊，尚未實作獨立 Participant 討論。
+
+| 模組 | 責任 |
+| --- | --- |
+| Vue Webview | 聊天、模型／強度、核准卡片、歷史搜尋／切換、帳號與設定 |
+| Typed IPC / Controller | Zod 驗證、請求關聯、原生工作區授權、完整存取確認、刪除確認 |
+| Orchestrator | 單一執行者、對話切換鎖、Provider 資料政策、有限歷史上下文、核准等待／取消 |
+| AgentAdapter | 官方 CLI 的能力偵測、登入與帳號、模型／權限映射、事件及完成狀態 |
+| ProcessManager | argv + stdin、程序樹取消、逾時、輸出上限及清理 |
+| SettingsService / Catalog | VS Code 設定、模型探索、支援強度驗證 |
+| SessionRepository / ConversationDatabase | 舊紀錄遷移、SQLite 交易、歷史、搜尋、interrupted recovery |
+
+## 官方引擎
+
+Codex 的產品執行路徑使用 `CodexAppServerAdapter`，透過本機 stdio 的官方 App Server 執行 initialize → thread/start → turn/start，承接文字 delta 與互動核准。`approvalsReviewer=auto_review` 使用官方審查者；不以 Extension 自己的一般模型假扮審查。原 `CodexAdapter` 的非互動 exec 實作保留為底層相容性及獨立測試用途。
+
+Claude 使用官方 stream-json 輸入／輸出與 control_request/control_response；`--permission-prompt-tool stdio` 為官方 SDK 使用的核准傳輸通道。Manual / auto / bypassPermissions 對應核准模式。只讀時不提供寫入與 Bash 工具。
+
+每次執行建立隔離的原生任務，Session ID 保存在 run；產品 Conversation ID 與原生 ID 分開。續聊透過目前對話／Provider 的有限歷史重播，不自動跨 Provider 傳遞上下文，不宣稱已承接原生完整 resume。
+
+帳號來自 Codex `account/read` 或 Claude `auth status`，只選取公開的身分欄位。Extension 不讀認證檔、不保存 Token。帳號只送至設定 Webview，不寫入聊天資料庫。
+
+## SQLite
+
+使用 sql.js 的 SQLite WASM，避免 native addon 的 Electron／Node ABI 問題；WASM 隨 VSIX 打包。資料庫存於 Extension `globalStorageUri`，所有對話與政策依 workspace canonical root 隔離。
+
+目前 schema version 1：`conversations`、`runs`、`metadata`。Run 保存完整使用者／Agent 訊息、模型、強度、核准模式、狀態及原生 Session 參照。資料庫新版本不會被舊插件降版。
+
+WASM 模式採 SQLite 交易後原子匯出單檔，短生命週期寫入鎖避免其他視窗覆蓋不同對話；可回收已退出程序的舊鎖。這不是 native WAL 設計。大規模歷史的效能、備份及 native WAL／FTS5 是後續工作。
+
+目前搜尋是參數化 SQL 的子字串查詢；中英文字面查詢已測試。日期／Provider 篩選、FTS5、工程記憶與來源引用依 v0.2 後續里程碑增加。
+
+## UI
+
+保留 VS Code Secondary Sidebar 原生分頁，VS Code 1.106 前有 Activity Bar fallback。齒輪設定使用獨立 Vue 編輯分頁。
+
+依 [quiet-workspace-ui](../skills/quiet-workspace-ui/SKILL.md)，常用介面顯示工作、選項及結果；不加填充式空狀態、重複操作教學。CLI 路徑、版本、模型來源、自訂 ID 放展開區。保留實際錯誤、必要欄位限制與高影響操作確認。

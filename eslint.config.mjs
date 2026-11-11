@@ -1,0 +1,10 @@
+import ts from 'typescript-eslint';
+import vue from 'eslint-plugin-vue';
+export default ts.config(
+  { ignores: ['dist/**', 'node_modules/**', 'skills/**'] },
+  ...ts.configs.recommended,
+  ...vue.configs['flat/recommended'],
+  { files: ['test/fixtures/*.cjs'], rules: { '@typescript-eslint/no-require-imports': 'off' } },
+  { files: ['**/*.vue'], languageOptions: { parserOptions: { parser: ts.parser } } },
+  { rules: { 'vue/multi-word-component-names': 'off', 'vue/html-self-closing': 'off', 'vue/max-attributes-per-line': 'off', 'vue/singleline-html-element-content-newline': 'off' } }
+);
