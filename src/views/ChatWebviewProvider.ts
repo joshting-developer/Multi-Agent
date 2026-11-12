@@ -15,11 +15,13 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
   private readonly disposables: vscode.Disposable[] = [];
   private approvalPending = false;
   private readonly fullAccessGrants = new Set<AgentId>();
+  private readonly discussions: DiscussionCoordinator;
   private resolveReady: () => void = () => undefined;
   readonly whenReady = new Promise<void>(resolve => { this.resolveReady = resolve; });
   private resolveSettingsReady: () => void = () => undefined;
   readonly whenSettingsReady = new Promise<void>(resolve => { this.resolveSettingsReady = resolve; });
   constructor(private readonly extensionUri: vscode.Uri, private readonly orchestrator: Orchestrator, private readonly settings?: SettingsService) {
+    this.discussions = new DiscussionCoordinator(orchestrator);
     this.unsubscribe = orchestrator.subscribe(() => {
       if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; this.snapshot(); }, 40);
     });
@@ -65,7 +67,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       }
       case 'answer-approval': this.orchestrator.answerApproval(message.approvalId, message.allow); break;
       case 'check-providers': await this.orchestrator.checkProviders(); break;
-      case 'cancel-task': await this.orchestrator.cancel(message.taskId); break;
+      case 'cancel-task': if (this.orchestrator.state.discussionId) await this.discussions.cancel(); else await this.orchestrator.cancel(message.taskId); break;
       case 'clear-conversation': {
         const answer = await vscode.window.showWarningMessage('刪除目前對話的本機聊天紀錄？其他對話與官方 CLI 紀錄不受影響。', { modal: true }, '清除');
         if (answer === '清除') await this.orchestrator.clear();
@@ -95,12 +97,18 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
           if (preferences) this.settings?.validate(message.provider, preferences);
           if (this.settings && !preferences?.model) throw new Error('請先選擇明確的模型。');
           // 每次討論使用新的 Participant，避免沿用前一次討論的上下文。
-          const run = new DiscussionCoordinator(this.orchestrator).run(message.text, [
+          const run = this.discussions.run(message.text, [
             { id: randomUUID(), provider: message.provider, role: 'architect' }, { id: randomUUID(), provider: message.provider, role: 'critic' }
           ], message.rounds, preferences);
           this.snapshot();
           await run;
         }
+        finally { this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); }
+        break;
+      }
+      case 'extend-discussion': {
+        if (this.approvalPending) throw new Error('請先完成目前的授權對話框。');
+        try { const run = this.discussions.extend(message.discussionId, message.rounds); this.snapshot(); await run; }
         finally { this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); }
         break;
       }

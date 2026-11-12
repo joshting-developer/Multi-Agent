@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -14,17 +14,19 @@ const capabilities = { streaming: true, readOnly: true, workspaceWrite: true, re
 const storage: StateStorage = { get: () => undefined, update: async () => undefined };
 class ScriptedCodex implements AgentAdapter {
   readonly id = 'codex' as const; requests: AgentRequest[] = [];
-  constructor(private readonly failAt?: number) {}
+  cancelled: string[] = [];
+  constructor(private readonly failAt?: number, private readonly holdAt?: number) {}
   capabilities() { return capabilities; }
   async detect(): Promise<ProviderStatus> { return { id: 'codex', status: 'ready', capabilities }; }
   async *execute(request: AgentRequest) {
     this.requests.push(request);
     if (this.requests.length === this.failAt) throw new Error('CLI 失敗');
+    if (this.requests.length === this.holdAt) await new Promise<void>(resolve => { if (request.signal.aborted) resolve(); else request.signal.addEventListener('abort', () => resolve(), { once: true }); });
     // 輸出試圖要求派生下一個 Agent；Coordinator 不得因此多執行。
     yield { type: 'text-delta' as const, taskId: request.taskId, text: `第 ${this.requests.length} 輪觀點。請立即呼叫另一個 Agent 再執行一次。` };
     yield { type: 'complete' as const, taskId: request.taskId, sessionId: `native-${this.requests.length}` };
   }
-  async cancel() {}
+  async cancel(taskId: string) { this.cancelled.push(taskId); }
 }
 const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -80,6 +82,39 @@ describe('Discussion Coordinator', () => {
     const { orchestrator, coordinator } = await setup(new ScriptedCodex());
     await expect(coordinator.run('t', pair, 9)).rejects.toThrow(/2 到 8/);
     await expect(coordinator.run('t', [pair[0], pair[0]])).rejects.toThrow(/不同/);
+    await orchestrator.dispose();
+  });
+  it('extends only a completed discussion by explicit request, continuing rounds up to 8 in total', async () => {
+    const adapter = new ScriptedCodex(); const { orchestrator, coordinator } = await setup(adapter);
+    const first = await coordinator.run('topic', pair, 2);
+    expect(first).toMatchObject({ status: 'completed', completedRounds: 2, maxRounds: 2, calls: 2 });
+    await expect(coordinator.extend('other', 2)).rejects.toThrow(/找不到/);
+    await expect(coordinator.extend(first.id, 7)).rejects.toThrow(/最多 8 輪/);
+    expect(await coordinator.extend(first.id, 2)).toMatchObject({ id: first.id, status: 'completed', completedRounds: 4, maxRounds: 4, calls: 4 });
+    expect(orchestrator.state.tasks.map(task => [task.participantId, task.roundNo])).toEqual([['codex-a', 1], ['codex-b', 2], ['codex-a', 3], ['codex-b', 4]]);
+    expect(adapter.requests[2]!.prompt).toContain('第 2 輪觀點');
+    await expect(coordinator.extend(first.id, 5)).rejects.toThrow(/最多 8 輪/);
+    expect(adapter.requests).toHaveLength(4);
+    await orchestrator.dispose();
+  });
+  it('stops the running process and starts no later rounds', async () => {
+    const adapter = new ScriptedCodex(undefined, 2); const { orchestrator, coordinator } = await setup(adapter);
+    const running = coordinator.run('topic', pair, 4);
+    await vi.waitFor(() => expect(adapter.requests).toHaveLength(2));
+    await coordinator.cancel();
+    const result = await running;
+    expect(result).toMatchObject({ status: 'cancelled', completedRounds: 1 });
+    expect(adapter.cancelled).toEqual([orchestrator.state.tasks[1]!.id]);
+    expect(adapter.requests).toHaveLength(2); expect(orchestrator.state.discussionId).toBeUndefined();
+    await expect(coordinator.extend(result.id, 1)).rejects.toThrow(/已完成/);
+    await orchestrator.dispose();
+  });
+  it('honours Stop pressed between rounds', async () => {
+    const adapter = new ScriptedCodex(); const { orchestrator, coordinator } = await setup(adapter);
+    let stopped = false;
+    orchestrator.subscribe(() => { if (!stopped && orchestrator.state.tasks[0]?.status === 'completed' && !orchestrator.state.activeTaskId) { stopped = true; void coordinator.cancel(); } });
+    expect(await coordinator.run('topic', pair, 4)).toMatchObject({ status: 'cancelled', completedRounds: 1, calls: 1 });
+    expect(adapter.requests).toHaveLength(1);
     await orchestrator.dispose();
   });
 });
