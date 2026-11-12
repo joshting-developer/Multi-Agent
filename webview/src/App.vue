@@ -7,6 +7,7 @@ import Composer from './components/Composer.vue';
 import ChatIcon from './components/ChatIcon.vue';
 import HistoryPanel from './components/HistoryPanel.vue';
 import ApprovalCard from './components/ApprovalCard.vue';
+import DiscussionBar from './components/DiscussionBar.vue';
 import { defaultSettings, type ProviderPreferences } from '../../src/bridge/preferences';
 const { snapshot, error, running, submitting, draftRevision, post, send, draft, saveDraft, searchConversations, searchResults, historySearching, navigating, navigate } = useHost();
 const selected = ref<AgentId>('codex');
@@ -52,6 +53,15 @@ function submit(text: string, mode: ExecutionMode, approvalMode: import('../../s
 function discuss(text: string, rounds: number) {
   send({ version: 1, type: 'start-discussion', requestId: crypto.randomUUID(), provider: selected.value, text, rounds, preferences: { ...preferences.value } });
 }
+// 只在目前對話含有該討論時顯示進度或延長，失敗與停止由該回合自身狀態呈現。
+const discussion = computed(() => {
+  const value = snapshot.value.discussion;
+  if (!value || (value.status !== 'running' && value.status !== 'completed')) return undefined;
+  return snapshot.value.tasks.some(task => task.discussionId === value.id) ? value : undefined;
+});
+function extendDiscussion(rounds: number) {
+  if (discussion.value) send({ version: 1, type: 'extend-discussion', requestId: crypto.randomUUID(), discussionId: discussion.value.id, rounds });
+}
 function selectPreferences(value: ProviderPreferences) {
   preferences.value = value;
   post({ version: 1, type: 'set-provider-preferences', requestId: crypto.randomUUID(), provider: selected.value, preferences: value });
@@ -71,6 +81,7 @@ function cancel() {
     <div v-if="!historyShown" class="input-area">
       <p v-if="error" class="error notice" role="alert">{{ error }}</p>
       <div v-else-if="notice" class="notice" role="status"><span>{{ notice.text }}</span><button v-if="notice.action" type="button" class="text-button" :disabled="busy" @click="action(notice.action)">{{ notice.action === 'authorize-workspace' ? '授權' : '設定' }}</button></div>
+      <DiscussionBar v-if="discussion && !error && !notice" :discussion="discussion" :busy="busy" @extend="extendDiscussion" />
       <ApprovalCard v-for="request in snapshot.approvals ?? []" :key="request.id" :request="request" @answer="answerApproval" />
       <Composer :approval-mode="settings.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="busy" :running="running || !!snapshot.discussionId" :can-send="canSend" :can-write="canWrite" :provider="selected" :preferences="preferences" :models="snapshot.models?.[selected] ?? []" :models-loading="snapshot.models?.loading ?? false" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="submit" @discuss="discuss" @cancel="cancel" @draft="saveDraft" @select="selected = $event; userSelected = true" @preferences="selectPreferences" @settings="action('show-options')" @refresh-models="action('refresh-models')" />
     </div>

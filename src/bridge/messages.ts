@@ -29,10 +29,13 @@ export interface ProviderStatus {
 }
 export interface Snapshot {
   workspace: string; policy: WorkspacePolicy; providers: ProviderStatus[]; tasks: Task[];
-  activeTaskId?: string; discussionId?: string; checking: boolean; trusted: boolean;
+  activeTaskId?: string; discussionId?: string; discussion?: DiscussionSummary; checking: boolean; trusted: boolean;
   settings?: WorkspaceSettings; models?: ModelCatalog;
   conversations?: ConversationSummary[]; conversationId?: string; approvals?: ApprovalRequest[];
 }
+/** 規格 §7：討論最多 8 輪，超出不可延長。 */
+export const maxDiscussionRounds = 8;
+export interface DiscussionSummary { id: string; status: 'running' | 'completed' | 'failed' | 'cancelled'; completedRounds: number; maxRounds: number }
 export interface ConversationSummary { id: string; title: string; createdAt: number; updatedAt: number; provider?: AgentId; preview?: string }
 export interface ApprovalRequest { id: string; taskId: string; provider: AgentId; title: string; detail: string }
 const base = { version: z.literal(1), requestId: z.string().min(1).max(100) };

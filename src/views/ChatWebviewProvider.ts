@@ -44,7 +44,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     for (const webview of target ? [target] : this.webviews) void webview.postMessage(message);
   }
   private snapshot(target?: vscode.Webview): void {
-    this.post({ version: 1, type: 'snapshot', snapshot: { ...this.orchestrator.state,
+    this.post({ version: 1, type: 'snapshot', snapshot: { ...this.orchestrator.state, discussion: this.discussions.summary(),
       settings: this.settings?.read() ?? defaultSettings,
       models: this.settings?.models ?? { codex: [], claude: claudeModels, loading: false }
     } }, target);

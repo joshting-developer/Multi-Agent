@@ -1,13 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentId, Task } from '../bridge/messages';
+import { maxDiscussionRounds, type AgentId, type DiscussionSummary, type Task } from '../bridge/messages';
 import type { ProviderPreferences } from '../bridge/settings';
 import type { Orchestrator, ParticipantRef } from './Orchestrator';
 
 export interface DiscussionParticipant extends ParticipantRef { provider: AgentId }
-export type DiscussionStatus = 'running' | 'completed' | 'failed' | 'cancelled';
-export interface DiscussionResult { id: string; status: DiscussionStatus; completedRounds: number; maxRounds: number; calls: number }
-/** 規格 §7：最大 8 輪，超出不可延長；另保留 1 次總結呼叫。上限只在這裡以程式強制。 */
-export const maxDiscussionRounds = 8;
+export type DiscussionStatus = DiscussionSummary['status'];
+export interface DiscussionResult extends DiscussionSummary { calls: number }
+/** 另保留 1 次總結呼叫；回合與呼叫上限只在這裡以程式強制。 */
 const summaryCalls = 1;
 interface DiscussionState {
   id: string; topic: string; participants: [DiscussionParticipant, DiscussionParticipant]; preferences?: ProviderPreferences;
@@ -28,6 +27,11 @@ export class DiscussionCoordinator {
     if (this.current?.status === 'running') throw new Error('目前已有討論執行中。');
     this.current = { id: randomUUID(), topic, participants, preferences, status: 'running', completedRounds: 0, maxRounds: rounds, calls: 0 };
     return this.advance(this.current);
+  }
+  summary(): DiscussionSummary | undefined {
+    if (!this.current) return undefined;
+    const { id, status, completedRounds, maxRounds } = this.current;
+    return { id, status, completedRounds, maxRounds };
   }
   async extend(id: string, rounds: number): Promise<DiscussionResult> {
     const discussion = this.current;

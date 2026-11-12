@@ -56,6 +56,7 @@ describe('Webview to native agent execution', () => {
       receive!({ version: 1, requestId: 'extend-1', type: 'extend-discussion', discussionId: rounds[0]!.discussionId, rounds: 1 });
       await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith({ version: 1, type: 'request-settled', requestId: 'extend-1' }));
       expect(orchestrator.state.tasks.at(-1)).toMatchObject({ discussionId: rounds[0]!.discussionId, roundNo: 3, participantRole: 'architect', mode: 'read-only' });
+      await vi.waitFor(() => expect(postMessage.mock.calls.map(([message]) => message).filter(message => message.type === 'snapshot').at(-1)?.snapshot.discussion).toEqual({ id: rounds[0]!.discussionId, status: 'completed', completedRounds: 3, maxRounds: 3 }));
       receive!({ version: 1, requestId: 'options-1', type: 'show-options' });
       await vi.waitFor(() => expect(vscode.window.createWebviewPanel).toHaveBeenCalledWith('multiAgent.settings', 'Multi-Agent 設定', vscode.ViewColumn.Active, expect.anything()));
       expect(createdPanels.at(-1)?.webview.html).toContain('data-surface="settings"');

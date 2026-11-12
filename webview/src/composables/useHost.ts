@@ -52,7 +52,7 @@ export function useHost() {
     searchRequestId = crypto.randomUUID(); historySearching.value = true;
     post({ version: 1, type: 'search-conversations', requestId: searchRequestId, query });
   }
-  function send(message: Extract<WebviewToHost, { type: 'send-message' | 'start-discussion' }>) {
+  function send(message: Extract<WebviewToHost, { type: 'send-message' | 'start-discussion' | 'extend-discussion' }>) {
     submitting.value = true; pendingRequestId = message.requestId; post(message);
   }
   function saveSettings(settings: WorkspaceSettings) {

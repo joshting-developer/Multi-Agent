@@ -6,6 +6,7 @@ import Composer from '../webview/src/components/Composer.vue';
 import MessageBody from '../webview/src/components/MessageBody.vue';
 import ProviderPicker from '../webview/src/components/ProviderPicker.vue';
 import Conversation from '../webview/src/components/Conversation.vue';
+import DiscussionBar from '../webview/src/components/DiscussionBar.vue';
 import { webviewMessageSchema } from '../src/bridge/messages';
 
 describe('Vue chat', () => {
@@ -33,6 +34,18 @@ describe('Vue chat', () => {
     expect(timeline.findAll('.message-label strong').map(label => label.text())).toEqual(['Claude Code A · 提案 · 第 1 輪', 'Claude Code B · 審查 · 第 2 輪']);
     expect(timeline.text()).toContain('主題'); expect(timeline.text()).not.toContain('內部轉交內容');
     timeline.unmount();
+  });
+  it('shows the current round and offers extension only for a completed discussion under 8 rounds', async () => {
+    const bar = mount(DiscussionBar, { props: { busy: false, discussion: { id: 'd', status: 'running' as const, completedRounds: 1, maxRounds: 4 } } });
+    expect(bar.text()).toContain('第 2／4 輪'); expect(bar.find('button').exists()).toBe(false);
+    await bar.setProps({ discussion: { id: 'd', status: 'completed' as const, completedRounds: 4, maxRounds: 4 } });
+    expect(bar.text()).toContain('第 4／4 輪');
+    expect(bar.findAll('select[aria-label="延長回合"] option').map(option => option.text())).toEqual(['+1 輪', '+2 輪', '+3 輪', '+4 輪']);
+    await bar.get('select[aria-label="延長回合"]').setValue('2'); await bar.get('button').trigger('click');
+    expect(bar.emitted('extend')).toEqual([[2]]);
+    await bar.setProps({ discussion: { id: 'd', status: 'completed' as const, completedRounds: 8, maxRounds: 8 } });
+    expect(bar.find('button').exists()).toBe(false);
+    bar.unmount();
   });
   it('opens workspace read/write by default and keeps a read-only option', async () => {
     const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: 'edit file', canWrite: true } });
