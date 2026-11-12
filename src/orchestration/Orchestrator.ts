@@ -18,7 +18,6 @@ export class Orchestrator {
   readonly state: Snapshot;
   private active?: { task: Task; controller: AbortController; finished: Promise<void> };
   private navigating = false;
-  private discussionId?: string;
   private readonly listeners = new Set<() => void>();
   private readonly approvalAnswers = new Map<string, (allow: boolean) => void>();
   private persistTimer?: ReturnType<typeof setTimeout>;
@@ -53,7 +52,7 @@ export class Orchestrator {
   }
   assertCanSend(provider: AgentId, mode: ExecutionMode, discussionId?: string): void {
     if (this.navigating) throw new Error('正在切換對話，請稍候。');
-    if (this.discussionId !== discussionId) throw new Error(this.discussionId ? '討論進行中，請等待完成或停止討論。' : '討論尚未開始。');
+    if (this.state.discussionId !== discussionId) throw new Error(this.state.discussionId ? '討論進行中，請等待完成或停止討論。' : '討論尚未開始。');
     if (this.active) throw new Error('目前已有任務執行中。請等待完成或按 Stop。');
     if (this.state.checking) throw new Error('正在檢查 Provider，請稍候。');
     assertAuthorized(this.state.policy, provider, this.state.trusted && this.isTrusted());
@@ -80,10 +79,10 @@ export class Orchestrator {
   }
   /** 討論期間只接受該討論的輪次；一般送出與切換對話都會被拒絕。 */
   beginDiscussion(id: string): void {
-    if (this.active || this.navigating || this.discussionId) throw new Error('目前已有任務或討論執行中。');
-    this.discussionId = id;
+    if (this.active || this.navigating || this.state.discussionId) throw new Error('目前已有任務或討論執行中。');
+    this.state.discussionId = id; this.changed();
   }
-  endDiscussion(id: string): void { if (this.discussionId === id) this.discussionId = undefined; }
+  endDiscussion(id: string): void { if (this.state.discussionId === id) { this.state.discussionId = undefined; this.changed(); } }
   private async execute(task: Task, controller: AbortController): Promise<void> {
     try {
       await this.flush();
@@ -147,7 +146,7 @@ export class Orchestrator {
     answer(allow);
   }
   private async navigate(operation: () => Promise<void>): Promise<void> {
-    if (this.active || this.navigating || this.discussionId) throw new Error('請先停止目前任務或等候切換完成。');
+    if (this.active || this.navigating || this.state.discussionId) throw new Error('請先停止目前任務或等候切換完成。');
     this.navigating = true;
     try { await operation(); } finally { this.navigating = false; this.changed(); }
   }

@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { webviewMessageSchema, type AgentId, type HostToWebview, type WebviewToHost } from '../bridge/messages';
 import { Orchestrator } from '../orchestration/Orchestrator';
+import { DiscussionCoordinator } from '../orchestration/DiscussionCoordinator';
+import { randomUUID } from 'node:crypto';
 import { SettingsService } from '../settings/SettingsService';
 import { claudeModels, defaultSettings } from '../bridge/settings';
 import { configureWebview } from './WebviewDocument';
@@ -85,6 +87,23 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         break;
       }
       case 'authorize-workspace': await this.authorize(); break;
+      case 'start-discussion': {
+        if (this.approvalPending) throw new Error('請先完成目前的授權對話框。');
+        this.orchestrator.assertCanSend(message.provider, 'read-only');
+        try {
+          const preferences = message.preferences ?? this.settings?.read()[message.provider];
+          if (preferences) this.settings?.validate(message.provider, preferences);
+          if (this.settings && !preferences?.model) throw new Error('請先選擇明確的模型。');
+          // 每次討論使用新的 Participant，避免沿用前一次討論的上下文。
+          const run = new DiscussionCoordinator(this.orchestrator).run(message.text, [
+            { id: randomUUID(), provider: message.provider, role: 'architect' }, { id: randomUUID(), provider: message.provider, role: 'critic' }
+          ], message.rounds, preferences);
+          this.snapshot();
+          await run;
+        }
+        finally { this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); }
+        break;
+      }
       case 'send-message': {
         if (this.approvalPending) throw new Error('請先完成目前的授權對話框。');
         this.orchestrator.assertCanSend(message.provider, message.mode);

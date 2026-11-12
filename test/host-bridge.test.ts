@@ -47,6 +47,12 @@ describe('Webview to native agent execution', () => {
       await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith({ version: 1, type: 'request-settled', requestId: 'full-allow' }));
       expect(requests.at(-1)?.approvalMode).toBe('full-access');
       expect(requests).toHaveLength(2);
+      receive!({ version: 1, requestId: 'discuss-1', type: 'start-discussion', provider: 'codex', text: 'Synthetic topic', rounds: 2 });
+      await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith({ version: 1, type: 'request-settled', requestId: 'discuss-1' }));
+      const rounds = orchestrator.state.tasks.slice(-2);
+      expect(rounds.map(task => [task.mode, task.participantRole, task.roundNo])).toEqual([['read-only', 'architect', 1], ['read-only', 'critic', 2]]);
+      expect(rounds[0]!.participantId).not.toBe(rounds[1]!.participantId); expect(orchestrator.state.discussionId).toBeUndefined();
+      expect(requests.slice(-2).map(request => request.mode)).toEqual(['read-only', 'read-only']);
       receive!({ version: 1, requestId: 'options-1', type: 'show-options' });
       await vi.waitFor(() => expect(vscode.window.createWebviewPanel).toHaveBeenCalledWith('multiAgent.settings', 'Multi-Agent 設定', vscode.ViewColumn.Active, expect.anything()));
       expect(createdPanels.at(-1)?.webview.html).toContain('data-surface="settings"');

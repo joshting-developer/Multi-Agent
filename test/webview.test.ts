@@ -5,6 +5,7 @@ import { mount } from '@vue/test-utils';
 import Composer from '../webview/src/components/Composer.vue';
 import MessageBody from '../webview/src/components/MessageBody.vue';
 import ProviderPicker from '../webview/src/components/ProviderPicker.vue';
+import Conversation from '../webview/src/components/Conversation.vue';
 import { webviewMessageSchema } from '../src/bridge/messages';
 
 describe('Vue chat', () => {
@@ -15,6 +16,23 @@ describe('Vue chat', () => {
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter', ctrlKey: true });
     expect(wrapper.emitted('send')).toEqual([['hello', 'workspace-write', 'ask']]);
     wrapper.unmount();
+  });
+  it('starts a read-only discussion with the chosen round count and labels each speaker', async () => {
+    const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: 'Repository Pattern？' } });
+    await wrapper.get('button.discussion-toggle').trigger('click');
+    expect(wrapper.find('select[aria-label="任務權限"]').exists()).toBe(false);
+    await wrapper.get('select[aria-label="討論回合"]').setValue('2');
+    await wrapper.get('form').trigger('submit');
+    expect(wrapper.emitted('discuss')).toEqual([['Repository Pattern？', 2]]); expect(wrapper.emitted('send')).toBeUndefined();
+    wrapper.unmount();
+    const base = { provider: 'claude' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, discussionId: 'd' };
+    const timeline = mount(Conversation, { props: { tasks: [
+      { ...base, id: '1', prompt: '主題', output: '提案', participantId: 'a', participantRole: 'architect' as const, roundNo: 1 },
+      { ...base, id: '2', prompt: '內部轉交內容', output: '審查', participantId: 'b', participantRole: 'critic' as const, roundNo: 2 }
+    ] } });
+    expect(timeline.findAll('.message-label strong').map(label => label.text())).toEqual(['Claude Code A · 提案 · 第 1 輪', 'Claude Code B · 審查 · 第 2 輪']);
+    expect(timeline.text()).toContain('主題'); expect(timeline.text()).not.toContain('內部轉交內容');
+    timeline.unmount();
   });
   it('opens workspace read/write by default and keeps a read-only option', async () => {
     const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: 'edit file', canWrite: true } });

@@ -20,7 +20,7 @@ watch(() => snapshot.value.conversationId, () => { const last = snapshot.value.t
 const preferences = ref<ProviderPreferences>({ model: '', effort: 'medium' });
 const settings = computed(() => snapshot.value.settings ?? defaultSettings);
 watch(() => `${selected.value}:${JSON.stringify(settings.value[selected.value])}`, () => { preferences.value = { ...settings.value[selected.value] }; }, { immediate: true });
-const busy = computed(() => running.value || submitting.value || navigating.value);
+const busy = computed(() => running.value || submitting.value || navigating.value || !!snapshot.value.discussionId);
 const canWrite = computed(() => snapshot.value.providers.find(provider => provider.id === selected.value)?.capabilities.workspaceWrite);
 const canSend = computed(() => !!preferences.value.model && snapshot.value.trusted && snapshot.value.policy.allowedProviders.includes(selected.value) && snapshot.value.providers.some(provider => provider.id === selected.value && provider.status === 'ready') && !snapshot.value.checking);
 const notice = computed(() => {
@@ -49,6 +49,9 @@ function answerApproval(id: string, allow: boolean) { post({ version: 1, type: '
 function submit(text: string, mode: ExecutionMode, approvalMode: import('../../src/bridge/preferences').ApprovalMode) {
   send({ version: 1, type: 'send-message', requestId: crypto.randomUUID(), provider: selected.value, text, mode, approvalMode, preferences: { ...preferences.value } });
 }
+function discuss(text: string, rounds: number) {
+  send({ version: 1, type: 'start-discussion', requestId: crypto.randomUUID(), provider: selected.value, text, rounds, preferences: { ...preferences.value } });
+}
 function selectPreferences(value: ProviderPreferences) {
   preferences.value = value;
   post({ version: 1, type: 'set-provider-preferences', requestId: crypto.randomUUID(), provider: selected.value, preferences: value });
@@ -68,7 +71,7 @@ function cancel() {
       <p v-if="error" class="error notice" role="alert">{{ error }}</p>
       <div v-else-if="notice" class="notice" role="status"><span>{{ notice.text }}</span><button v-if="notice.action" type="button" class="text-button" :disabled="busy" @click="action(notice.action)">{{ notice.action === 'authorize-workspace' ? '授權' : '設定' }}</button></div>
       <ApprovalCard v-for="request in snapshot.approvals ?? []" :key="request.id" :request="request" @answer="answerApproval" />
-      <Composer :approval-mode="settings.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="busy" :running="running" :can-send="canSend" :can-write="canWrite" :provider="selected" :preferences="preferences" :models="snapshot.models?.[selected] ?? []" :models-loading="snapshot.models?.loading ?? false" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="submit" @cancel="cancel" @draft="saveDraft" @select="selected = $event; userSelected = true" @preferences="selectPreferences" @settings="action('show-options')" @refresh-models="action('refresh-models')" />
+      <Composer :approval-mode="settings.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="busy" :running="running" :can-send="canSend" :can-write="canWrite" :provider="selected" :preferences="preferences" :models="snapshot.models?.[selected] ?? []" :models-loading="snapshot.models?.loading ?? false" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="submit" @discuss="discuss" @cancel="cancel" @draft="saveDraft" @select="selected = $event; userSelected = true" @preferences="selectPreferences" @settings="action('show-options')" @refresh-models="action('refresh-models')" />
     </div>
   </main>
 </template>

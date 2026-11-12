@@ -26,6 +26,7 @@
 | 0.1.4 真實官方核准 | 通過 | Codex 三種模式各自建立合成測試檔；要求核准有 1 次往返、代我核准有官方 reviewer 事件；Claude 三種模式皆寫入成功、Manual 有 1 次 stdio 核准往返 |
 | 0.1.4 真實帳號 metadata | 通過 | 兩個 CLI 皆回傳帳號資訊與 email；測試只記錄欄位是否存在，未輸出真實 email 或 Token |
 | 0.1.4 真實歷史 Webview | 通過 | 隔離 VS Code 開啟既存 SQLite 對話、中文訊息搜尋、新增獨立對話後再回歷史開啟；已完成原生側邊欄截圖 |
+| 真實 Claude 同 Agent 討論 | 通過 | `TEST_PROVIDER=claude npm run test:discussion`：合成題目 2 輪與 3 輪，A／B 各有原生 Session、回合依序保存 |
 | 正式相依套件 audit | 通過 | npm audit --omit=dev：0 個已知漏洞 |
 
 真實 CLI 測試只傳送固定訊息與隨機合成資料，沒有傳送此專案原始碼或真實機密。不是僅檢查 Adapter 假資料。

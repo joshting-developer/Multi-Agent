@@ -29,7 +29,7 @@ export interface ProviderStatus {
 }
 export interface Snapshot {
   workspace: string; policy: WorkspacePolicy; providers: ProviderStatus[]; tasks: Task[];
-  activeTaskId?: string; checking: boolean; trusted: boolean;
+  activeTaskId?: string; discussionId?: string; checking: boolean; trusted: boolean;
   settings?: WorkspaceSettings; models?: ModelCatalog;
   conversations?: ConversationSummary[]; conversationId?: string; approvals?: ApprovalRequest[];
 }
@@ -39,6 +39,7 @@ const base = { version: z.literal(1), requestId: z.string().min(1).max(100) };
 export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('ready') }),
   z.object({ ...base, type: z.literal('send-message'), provider: agentIdSchema, text: z.string().trim().min(1).max(32000), mode: modeSchema, preferences: providerPreferencesSchema.optional(), approvalMode: z.enum(approvalModes).optional() }),
+  z.object({ ...base, type: z.literal('start-discussion'), provider: agentIdSchema, text: z.string().trim().min(1).max(32000), rounds: z.number().int().min(2).max(8), preferences: providerPreferencesSchema.optional() }),
   z.object({ ...base, type: z.literal('answer-approval'), approvalId: z.string().min(1).max(100), allow: z.boolean() }),
   z.object({ ...base, type: z.literal('new-conversation') }),
   z.object({ ...base, type: z.literal('open-conversation'), conversationId: z.string().min(1).max(100) }),
