@@ -37,16 +37,16 @@ button:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground);
 textarea { display: block; border: 0; padding: 3px 2px; width: 100%; min-height: 62px; max-height: 220px; resize: vertical; background: transparent; color: var(--vscode-input-foreground); line-height: 1.6; }
 textarea:focus-visible { outline: 0; }
 textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
-.composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 7px; }
+.composer-footer { display: flex; align-items: flex-end; justify-content: space-between; gap: 6px; margin-top: 7px; }
 .composer-options, .composer-actions { display: flex; align-items: center; min-width: 0; gap: 4px; }
 select { min-width: 0; max-width: 100%; border: 0; border-radius: 5px; padding: 5px 2px; font-size: 11px; color: var(--vscode-descriptionForeground); background: var(--vscode-input-background); cursor: pointer; }
 .provider-picker { color: var(--vscode-input-foreground); max-width: 135px; }
 .permission-picker { max-width: 76px; }
 .partner-picker { max-width: 104px; }
 .discussion-toggle[aria-pressed="true"] { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
-.composer-options { flex: 1; }
+.composer-options { flex: 1; flex-wrap: wrap; row-gap: 2px; }
 .provider-picker, .permission-picker { flex-shrink: 0; }
-.model-menu { position: relative; min-width: 35px; flex: 1; max-width: 190px; }
+.model-menu { position: relative; min-width: 90px; flex: 1; max-width: 190px; }
 .model-menu > summary { list-style: none; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--vscode-input-foreground); padding: 5px 6px; border: 1px solid transparent; border-radius: 12px; }
 .model-menu > summary::-webkit-details-marker { display: none; }
 .model-menu > summary:hover { border-color: var(--vscode-widget-border, var(--vscode-panel-border)); }
