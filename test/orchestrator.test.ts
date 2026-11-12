@@ -82,14 +82,14 @@ describe('Independent participants', () => {
       const orchestrator = new Orchestrator(new AgentRegistry([codex]), repository, '/project', () => true, () => 5000);
       await orchestrator.setPolicy({ classification: 'personal', allowedProviders: ['codex'] }); await orchestrator.checkProviders();
       const a = { id: 'codex-a', role: 'architect' as const }; const b = { id: 'codex-b', role: 'critic' as const };
-      await orchestrator.send('codex', 'A 的方案草稿', 'read-only', undefined, 'ask', a);
+      await orchestrator.send('codex', 'A 的方案草稿', 'read-only', undefined, 'ask', { participant: a });
       expect(codex.requests).toHaveLength(1);
-      await orchestrator.send('codex', 'B 的審查題目', 'read-only', undefined, 'ask', b);
-      await orchestrator.send('codex', 'A 的追問', 'read-only', undefined, 'ask', a);
+      await orchestrator.send('codex', 'B 的審查題目', 'read-only', undefined, 'ask', { participant: b });
+      await orchestrator.send('codex', 'A 的追問', 'read-only', undefined, 'ask', { participant: a });
       const [, toB, toA] = codex.requests.map(request => request.prompt);
       expect(toB).toContain('Critic'); expect(toB).not.toContain('A 的方案草稿');
       expect(toA).toContain('Architect'); expect(toA).toContain('A 的方案草稿'); expect(toA).not.toContain('B 的審查題目');
-      await expect(orchestrator.send('codex', 'x', 'read-only', undefined, 'ask', { id: 'codex-a', role: 'critic' })).rejects.toThrow(/Participant/);
+      await expect(orchestrator.send('codex', 'x', 'read-only', undefined, 'ask', { participant: { id: 'codex-a', role: 'critic' } })).rejects.toThrow(/Participant/);
       await orchestrator.flush();
       const participants = db.participants(orchestrator.state.conversationId!);
       expect(participants.map(p => [p.id, p.provider, p.role])).toEqual([['codex-a', 'codex', 'architect'], ['codex-b', 'codex', 'critic']]);

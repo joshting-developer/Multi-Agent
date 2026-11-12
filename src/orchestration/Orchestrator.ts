@@ -7,6 +7,7 @@ import { SessionRepository } from '../storage/SessionRepository';
 import type { ApprovalMode, ProviderPreferences } from '../bridge/settings';
 
 export interface ParticipantRef { id: string; role: ParticipantRole }
+export interface SendOptions { participant?: ParticipantRef; discussion?: { id: string; roundNo: number } }
 const roleInstructions: Record<ParticipantRole, string> = {
   architect: 'Your role in this discussion: Architect. Propose a concrete, well-reasoned approach and state its trade-offs.',
   critic: 'Your role in this discussion: Critic. Challenge the proposal on performance, testing, security and maintainability, and suggest corrections.'
@@ -17,6 +18,7 @@ export class Orchestrator {
   readonly state: Snapshot;
   private active?: { task: Task; controller: AbortController; finished: Promise<void> };
   private navigating = false;
+  private discussionId?: string;
   private readonly listeners = new Set<() => void>();
   private readonly approvalAnswers = new Map<string, (allow: boolean) => void>();
   private persistTimer?: ReturnType<typeof setTimeout>;
@@ -49,8 +51,9 @@ export class Orchestrator {
     if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
     this.state.policy = policy; this.changed(); await this.flush();
   }
-  assertCanSend(provider: AgentId, mode: ExecutionMode): void {
+  assertCanSend(provider: AgentId, mode: ExecutionMode, discussionId?: string): void {
     if (this.navigating) throw new Error('正在切換對話，請稍候。');
+    if (this.discussionId !== discussionId) throw new Error(this.discussionId ? '討論進行中，請等待完成或停止討論。' : '討論尚未開始。');
     if (this.active) throw new Error('目前已有任務執行中。請等待完成或按 Stop。');
     if (this.state.checking) throw new Error('正在檢查 Provider，請稍候。');
     assertAuthorized(this.state.policy, provider, this.state.trusted && this.isTrusted());
@@ -59,10 +62,11 @@ export class Orchestrator {
     if (mode === 'workspace-write' && !status.capabilities.workspaceWrite) throw new Error('此 CLI 版本不支援工作區寫入。');
   }
   /** 每次只執行一個 Participant；不會自動接續另一方，下一輪由呼叫端（Coordinator）決定。 */
-  async send(provider: AgentId, text: string, mode: ExecutionMode, preferences?: ProviderPreferences, approvalMode: ApprovalMode = 'ask', participant?: ParticipantRef): Promise<void> {
-    this.assertCanSend(provider, mode);
+  async send(provider: AgentId, text: string, mode: ExecutionMode, preferences?: ProviderPreferences, approvalMode: ApprovalMode = 'ask', { participant, discussion }: SendOptions = {}): Promise<Task> {
+    this.assertCanSend(provider, mode, discussion?.id);
+    if (discussion && (mode !== 'read-only' || !participant)) throw new Error('討論輪次必須為唯讀且指定 Participant。');
     if (participant && this.state.tasks.some(item => item.participantId === participant.id && (item.provider !== provider || item.participantRole !== participant.role))) throw new Error('Participant 已綁定其他 Provider 或角色。');
-    const task: Task = { id: randomUUID(), provider, mode, prompt: text, output: '', status: 'running', startedAt: Date.now(), activity: '啟動官方 CLI…', approvalMode, ...preferences, ...(participant && { participantId: participant.id, participantRole: participant.role }) };
+    const task: Task = { id: randomUUID(), provider, mode, prompt: text, output: '', status: 'running', startedAt: Date.now(), activity: '啟動官方 CLI…', approvalMode, ...preferences, ...(participant && { participantId: participant.id, participantRole: participant.role }), ...(discussion && { discussionId: discussion.id, roundNo: discussion.roundNo }) };
     const controller = new AbortController();
     // Set the lock before the first await, including persistence and CLI detection.
     const active = { task, controller, finished: Promise.resolve() };
@@ -72,7 +76,14 @@ export class Orchestrator {
     this.changed();
     active.finished = this.execute(task, controller);
     await active.finished;
+    return task;
   }
+  /** 討論期間只接受該討論的輪次；一般送出與切換對話都會被拒絕。 */
+  beginDiscussion(id: string): void {
+    if (this.active || this.navigating || this.discussionId) throw new Error('目前已有任務或討論執行中。');
+    this.discussionId = id;
+  }
+  endDiscussion(id: string): void { if (this.discussionId === id) this.discussionId = undefined; }
   private async execute(task: Task, controller: AbortController): Promise<void> {
     try {
       await this.flush();
@@ -136,7 +147,7 @@ export class Orchestrator {
     answer(allow);
   }
   private async navigate(operation: () => Promise<void>): Promise<void> {
-    if (this.active || this.navigating) throw new Error('請先停止目前任務或等候切換完成。');
+    if (this.active || this.navigating || this.discussionId) throw new Error('請先停止目前任務或等候切換完成。');
     this.navigating = true;
     try { await operation(); } finally { this.navigating = false; this.changed(); }
   }
