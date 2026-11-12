@@ -7,12 +7,13 @@ const remaining = computed(() => maxDiscussionRounds - props.discussion.maxRound
 const extra = ref(1);
 watch(remaining, value => { extra.value = Math.min(Math.max(1, extra.value), Math.max(1, value)); });
 const running = computed(() => props.discussion.status === 'running');
-const current = computed(() => running.value ? Math.min(props.discussion.completedRounds + 1, props.discussion.maxRounds) : props.discussion.completedRounds);
+const current = computed(() => Math.min(props.discussion.completedRounds + 1, props.discussion.maxRounds));
 </script>
 
 <template>
   <div class="notice discussion-bar" role="status">
-    <span>討論 · 第 {{ current }}／{{ discussion.maxRounds }} 輪</span>
+    <span v-if="running">討論 · 第 {{ current }}／{{ discussion.maxRounds }} 輪</span>
+    <span v-else>討論已完成 · {{ discussion.completedRounds }} 輪</span>
     <span v-if="discussion.status === 'completed' && remaining > 0" class="discussion-extend">
       <select v-model.number="extra" class="permission-picker" :disabled="busy" aria-label="延長回合"><option v-for="count in remaining" :key="count" :value="count">+{{ count }} 輪</option></select>
       <button type="button" class="text-button" :disabled="busy" @click="emit('extend', extra)">延長</button>

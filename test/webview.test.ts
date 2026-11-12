@@ -39,7 +39,7 @@ describe('Vue chat', () => {
     const bar = mount(DiscussionBar, { props: { busy: false, discussion: { id: 'd', status: 'running' as const, completedRounds: 1, maxRounds: 4 } } });
     expect(bar.text()).toContain('第 2／4 輪'); expect(bar.find('button').exists()).toBe(false);
     await bar.setProps({ discussion: { id: 'd', status: 'completed' as const, completedRounds: 4, maxRounds: 4 } });
-    expect(bar.text()).toContain('第 4／4 輪');
+    expect(bar.text()).toContain('討論已完成 · 4 輪'); expect(bar.text()).not.toContain('第 4／4 輪');
     expect(bar.findAll('select[aria-label="延長回合"] option').map(option => option.text())).toEqual(['+1 輪', '+2 輪', '+3 輪', '+4 輪']);
     await bar.get('select[aria-label="延長回合"]').setValue('2'); await bar.get('button').trigger('click');
     expect(bar.emitted('extend')).toEqual([[2]]);
