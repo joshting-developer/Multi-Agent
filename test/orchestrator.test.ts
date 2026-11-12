@@ -4,6 +4,10 @@ import type { AgentAdapter, AgentRequest } from '../src/agents/AgentAdapter';
 import { Orchestrator } from '../src/orchestration/Orchestrator';
 import { SessionRepository, type StateStorage } from '../src/storage/SessionRepository';
 import { assertAuthorized } from '../src/execution/ExecutionPolicy';
+import { ConversationDatabase } from '../src/storage/ConversationDatabase';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import type { AgentId, ProviderStatus } from '../src/bridge/messages';
 const capabilities = { streaming: true, readOnly: true, workspaceWrite: true, resumeSession: false, structuredOutput: true, toolApproval: false };
 class MemoryStorage implements StateStorage {
@@ -20,7 +24,7 @@ class FakeAdapter implements AgentAdapter {
     this.requests.push(request);
     yield { type: 'text-delta' as const, taskId: request.taskId, text: `${this.id} reply` };
     if (this.wait) await new Promise<void>(resolve => { if (request.signal.aborted) resolve(); else request.signal.addEventListener('abort', () => resolve(), { once: true }); });
-    yield { type: 'complete' as const, taskId: request.taskId };
+    yield { type: 'complete' as const, taskId: request.taskId, sessionId: `native-${request.taskId}` };
   }
   async cancel() {}
 }
@@ -69,6 +73,32 @@ describe('Manual orchestration', () => {
     await orchestrator.dispose();
   });
 });
+describe('Independent participants', () => {
+  it('runs same-provider A／B with separate roles, contexts and native sessions without auto-launching the other', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'multi-agent-orch-'));
+    try {
+      const db = await ConversationDatabase.open(join(dir, 'history.sqlite'), '/project', resolve('node_modules/sql.js/dist/sql-wasm.wasm'));
+      const codex = new FakeAdapter('codex'); const repository = new SessionRepository(new MemoryStorage(), '/project', db);
+      const orchestrator = new Orchestrator(new AgentRegistry([codex]), repository, '/project', () => true, () => 5000);
+      await orchestrator.setPolicy({ classification: 'personal', allowedProviders: ['codex'] }); await orchestrator.checkProviders();
+      const a = { id: 'codex-a', role: 'architect' as const }; const b = { id: 'codex-b', role: 'critic' as const };
+      await orchestrator.send('codex', 'A 的方案草稿', 'read-only', undefined, 'ask', a);
+      expect(codex.requests).toHaveLength(1);
+      await orchestrator.send('codex', 'B 的審查題目', 'read-only', undefined, 'ask', b);
+      await orchestrator.send('codex', 'A 的追問', 'read-only', undefined, 'ask', a);
+      const [, toB, toA] = codex.requests.map(request => request.prompt);
+      expect(toB).toContain('Critic'); expect(toB).not.toContain('A 的方案草稿');
+      expect(toA).toContain('Architect'); expect(toA).toContain('A 的方案草稿'); expect(toA).not.toContain('B 的審查題目');
+      await expect(orchestrator.send('codex', 'x', 'read-only', undefined, 'ask', { id: 'codex-a', role: 'critic' })).rejects.toThrow(/Participant/);
+      await orchestrator.flush();
+      const participants = db.participants(orchestrator.state.conversationId!);
+      expect(participants.map(p => [p.id, p.provider, p.role])).toEqual([['codex-a', 'codex', 'architect'], ['codex-b', 'codex', 'critic']]);
+      expect(participants[0]!.nativeSessionId).toBe(`native-${orchestrator.state.tasks[2]!.id}`);
+      expect(participants[1]!.nativeSessionId).toBe(`native-${orchestrator.state.tasks[1]!.id}`);
+      await orchestrator.dispose();
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+});
 describe('Data boundaries', () => {
   it.each(['unclassified', 'restricted'] as const)('blocks %s even with forged allowlist', classification => {
     expect(() => assertAuthorized({ classification, allowedProviders: ['codex'] }, 'codex', true)).toThrow();
@@ -100,7 +130,7 @@ describe('Conversation navigation and approval lifetime', () => {
     class ApprovingAdapter extends FakeAdapter {
       override async *execute(request: AgentRequest) {
         await request.approve!({ title: '核准測試', detail: 'synthetic operation' });
-        yield { type: 'complete' as const, taskId: request.taskId };
+        yield { type: 'complete' as const, taskId: request.taskId, sessionId: `native-${request.taskId}` };
       }
     }
     const { orchestrator } = await setup([new ApprovingAdapter('codex')]);

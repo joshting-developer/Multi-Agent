@@ -5,11 +5,13 @@ export const agentIdSchema = z.enum(['claude', 'codex']);
 export type AgentId = z.infer<typeof agentIdSchema>;
 export const modeSchema = z.enum(['read-only', 'workspace-write']);
 export type ExecutionMode = z.infer<typeof modeSchema>;
+export const participantRoleSchema = z.enum(['architect', 'critic']);
+export type ParticipantRole = z.infer<typeof participantRoleSchema>;
 export const taskSchema = z.object({
   id: z.string(), provider: agentIdSchema, mode: modeSchema, prompt: z.string(), output: z.string(),
   status: z.enum(['running', 'completed', 'failed', 'cancelled', 'interrupted']),
   startedAt: z.number(), endedAt: z.number().optional(), error: z.string().optional(),
-  activity: z.string().optional(), sessionId: z.string().optional(), participantId: z.string().optional(),
+  activity: z.string().optional(), sessionId: z.string().optional(), participantId: z.string().optional(), participantRole: participantRoleSchema.optional(),
   model: modelIdSchema.optional(), effort: z.union([effortSchema, z.literal('default')]).optional().transform(value => value === 'default' ? undefined : value).optional(),
   approvalMode: z.enum(approvalModes).optional()
 });

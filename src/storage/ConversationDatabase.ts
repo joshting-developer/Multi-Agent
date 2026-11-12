@@ -82,9 +82,10 @@ export class ConversationDatabase {
   /** 未指定 participantId 的舊流程歸到該 Provider 的預設 participant。 */
   private participantFor(db: Database, conversationId: string, task: Task, now: number): string {
     const id = task.participantId ?? String(this.rowsOf(db, "SELECT id FROM participants WHERE conversation_id=? AND provider=? AND role='solo' ORDER BY created_at,rowid LIMIT 1", [conversationId, task.provider])[0]?.id ?? randomUUID());
-    db.run(`INSERT INTO participants VALUES(?,?,?,'solo',?,?,?) ON CONFLICT(id) DO UPDATE SET native_session_id=coalesce(excluded.native_session_id,native_session_id),updated_at=excluded.updated_at
-      WHERE participants.conversation_id=excluded.conversation_id AND participants.provider=excluded.provider`, [id, conversationId, task.provider, task.sessionId ?? null, task.startedAt, now]);
-    if (!this.rowsOf(db, 'SELECT 1 FROM participants WHERE id=? AND conversation_id=? AND provider=?', [id, conversationId, task.provider]).length) throw new Error('Participant 不屬於此對話或 Provider。');
+    const role = task.participantRole ?? 'solo';
+    db.run(`INSERT INTO participants VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET native_session_id=coalesce(excluded.native_session_id,native_session_id),updated_at=excluded.updated_at
+      WHERE participants.conversation_id=excluded.conversation_id AND participants.provider=excluded.provider AND participants.role=excluded.role`, [id, conversationId, task.provider, role, task.sessionId ?? null, task.startedAt, now]);
+    if (!this.rowsOf(db, 'SELECT 1 FROM participants WHERE id=? AND conversation_id=? AND provider=? AND role=?', [id, conversationId, task.provider, role]).length) throw new Error('Participant 不屬於此對話、Provider 或角色。');
     return id;
   }
   private writeRun(db: Database, conversationId: string, task: Task, now: number) {

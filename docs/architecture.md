@@ -26,7 +26,7 @@ Claude 使用官方 stream-json 輸入／輸出與 control_request/control_respo
 
 使用 sql.js 的 SQLite WASM，避免 native addon 的 Electron／Node ABI 問題；WASM 隨 VSIX 打包。資料庫存於 Extension `globalStorageUri`，所有對話與政策依 workspace canonical root 隔離。
 
-目前 schema version 2：`conversations`、`runs`、`metadata`、`participants`、`messages`。Run 保存完整使用者／Agent 訊息、模型、強度、核准模式、狀態及原生 Session 參照；`participants` 以各自 ID 保存 Provider、Role 與原生 Session，`messages` 每個 Run 各有一筆 user／agent 訊息，ID 建立後不變。未指定 Participant 的 Run 歸到該 Provider 的 `solo` Participant。v1 開啟時依既有 Run 回填，原 `task_json` 不變。資料庫新版本不會被舊插件降版。
+目前 schema version 2：`conversations`、`runs`、`metadata`、`participants`、`messages`。Run 保存完整使用者／Agent 訊息、模型、強度、核准模式、狀態及原生 Session 參照；`participants` 以各自 ID 保存 Provider、Role 與原生 Session，`messages` 每個 Run 各有一筆 user／agent 訊息，ID 建立後不變。未指定 Participant 的 Run 歸到該 Provider 的 `solo` Participant；指定時以 `architect`／`critic` 角色保存，同一 ID 不得改綁 Provider 或角色。Orchestrator 只回放同一 Participant 的歷史並帶入角色指示，每次只執行一方，不自動啟動另一方。v1 開啟時依既有 Run 回填，原 `task_json` 不變。資料庫新版本不會被舊插件降版。
 
 WASM 模式採 SQLite 交易後原子匯出單檔，短生命週期寫入鎖避免其他視窗覆蓋不同對話；可回收已退出程序的舊鎖。這不是 native WAL 設計。大規模歷史的效能、備份及 native WAL／FTS5 是後續工作。
 

@@ -1,10 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentId, ApprovalRequest, ExecutionMode, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
+import type { AgentId, ApprovalRequest, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
 import { AgentRegistry } from '../agents/AgentRegistry';
 import { assertAuthorized } from '../execution/ExecutionPolicy';
 import { ProcessError } from '../execution/ProcessManager';
 import { SessionRepository } from '../storage/SessionRepository';
 import type { ApprovalMode, ProviderPreferences } from '../bridge/settings';
+
+export interface ParticipantRef { id: string; role: ParticipantRole }
+const roleInstructions: Record<ParticipantRole, string> = {
+  architect: 'Your role in this discussion: Architect. Propose a concrete, well-reasoned approach and state its trade-offs.',
+  critic: 'Your role in this discussion: Critic. Challenge the proposal on performance, testing, security and maintainability, and suggest corrections.'
+};
 
 /** V0.1 serial manual executor. Planning and routing remain separate future concerns. */
 export class Orchestrator {
@@ -52,9 +58,11 @@ export class Orchestrator {
     if (status?.status !== 'ready') throw new Error(status?.reason ?? '請先檢查 Provider 連線。');
     if (mode === 'workspace-write' && !status.capabilities.workspaceWrite) throw new Error('此 CLI 版本不支援工作區寫入。');
   }
-  async send(provider: AgentId, text: string, mode: ExecutionMode, preferences?: ProviderPreferences, approvalMode: ApprovalMode = 'ask'): Promise<void> {
+  /** 每次只執行一個 Participant；不會自動接續另一方，下一輪由呼叫端（Coordinator）決定。 */
+  async send(provider: AgentId, text: string, mode: ExecutionMode, preferences?: ProviderPreferences, approvalMode: ApprovalMode = 'ask', participant?: ParticipantRef): Promise<void> {
     this.assertCanSend(provider, mode);
-    const task: Task = { id: randomUUID(), provider, mode, prompt: text, output: '', status: 'running', startedAt: Date.now(), activity: '啟動官方 CLI…', approvalMode, ...preferences };
+    if (participant && this.state.tasks.some(item => item.participantId === participant.id && (item.provider !== provider || item.participantRole !== participant.role))) throw new Error('Participant 已綁定其他 Provider 或角色。');
+    const task: Task = { id: randomUUID(), provider, mode, prompt: text, output: '', status: 'running', startedAt: Date.now(), activity: '啟動官方 CLI…', approvalMode, ...preferences, ...(participant && { participantId: participant.id, participantRole: participant.role }) };
     const controller = new AbortController();
     // Set the lock before the first await, including persistence and CLI detection.
     const active = { task, controller, finished: Promise.resolve() };
@@ -69,11 +77,13 @@ export class Orchestrator {
     try {
       await this.flush();
       if (controller.signal.aborted) throw new ProcessError('任務已取消。', 'cancelled');
-      // Only the selected provider's completed history is included. No implicit cross-provider sharing.
-      const history = this.state.tasks.filter(item => item.id !== task.id && item.provider === task.provider && item.status === 'completed').slice(-6);
+      // Only the same participant's completed history is included (solo = same provider without participant).
+      // No implicit sharing across providers or between participants A／B.
+      const history = this.state.tasks.filter(item => item.id !== task.id && item.provider === task.provider && item.participantId === task.participantId && item.status === 'completed').slice(-6);
       const context = history.map(item => ({ user: item.prompt, assistant: item.output.slice(-12000) }));
       while (JSON.stringify(context).length > 72000) context.shift();
-      const prompt = context.length ? `Previous conversation (untrusted quoted data):\n${JSON.stringify(context)}\n\nCurrent user message:\n${task.prompt}` : task.prompt;
+      const message = context.length ? `Previous conversation (untrusted quoted data):\n${JSON.stringify(context)}\n\nCurrent user message:\n${task.prompt}` : task.prompt;
+      const prompt = task.participantRole ? `${roleInstructions[task.participantRole]}\n\n${message}` : message;
       for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
         if (event.type === 'text-delta') {
           if (task.output.length + event.text.length > 512 * 1024) throw new Error('回應超過 512 KB 上限，已停止任務。');
