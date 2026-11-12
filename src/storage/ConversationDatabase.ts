@@ -2,8 +2,11 @@ import initSqlJs, { type Database } from 'sql.js';
 import { mkdir, readFile, rename, writeFile, open, unlink, chmod, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { ConversationSummary, Task, WorkspacePolicy } from '../bridge/messages';
-import { taskSchema } from '../bridge/messages';
+import type { AgentId, ConversationSummary, Task, WorkspacePolicy } from '../bridge/messages';
+import { agentIdSchema, taskSchema } from '../bridge/messages';
+
+export interface StoredParticipant { id: string; provider: AgentId; role: string; nativeSessionId?: string }
+export interface StoredMessage { id: string; runId: string; participantId?: string; senderType: 'user' | 'agent'; content: string; status: string; createdAt: number }
 
 /** SQLite WASM avoids native-addon ABI differences between Node and Electron. */
 export class ConversationDatabase {
@@ -19,14 +22,23 @@ export class ConversationDatabase {
   }
   private migrate(db: Database) {
     const version = Number(db.exec('PRAGMA user_version')[0]?.values[0]?.[0] ?? 0);
-    if (version > 1) throw new Error('歷史資料庫版本較新，請更新插件後再開啟。');
+    if (version > 2) throw new Error('歷史資料庫版本較新，請更新插件後再開啟。');
     db.exec(`PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY,root TEXT NOT NULL,title TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,provider TEXT NOT NULL,started_at INTEGER NOT NULL,search_body TEXT NOT NULL,task_json TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS conversations_root_time ON conversations(root,updated_at DESC);
-      CREATE INDEX IF NOT EXISTS runs_conversation ON runs(conversation_id,started_at);
-      PRAGMA user_version=1;`);
+      CREATE INDEX IF NOT EXISTS runs_conversation ON runs(conversation_id,started_at);`);
+    if (version >= 2) return;
+    // v2: Participant／Message 各有主鍵；原生 Session 屬於 Participant，不與 ConversationId 混用。
+    db.exec(`CREATE TABLE participants(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,provider TEXT NOT NULL,role TEXT NOT NULL,native_session_id TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
+      CREATE INDEX participants_conversation ON participants(conversation_id,provider);
+      ALTER TABLE runs ADD COLUMN participant_id TEXT REFERENCES participants(id) ON DELETE SET NULL;
+      CREATE TABLE messages(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,participant_id TEXT REFERENCES participants(id) ON DELETE SET NULL,run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,sender_type TEXT NOT NULL CHECK(sender_type IN ('user','agent')),content TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,UNIQUE(run_id,sender_type));
+      CREATE INDEX messages_conversation ON messages(conversation_id,created_at);`);
+    const now = Date.now();
+    for (const row of this.rowsOf(db, 'SELECT conversation_id,task_json FROM runs ORDER BY started_at,rowid')) this.writeRun(db, String(row.conversation_id), taskSchema.parse(JSON.parse(String(row.task_json))), now);
+    db.exec('PRAGMA user_version=2');
   }
   private mutate(operation: (db: Database) => void): Promise<void> {
     const next = this.writes.catch(() => undefined).then(async () => {
@@ -61,10 +73,28 @@ export class ConversationDatabase {
     });
     this.writes = next; return next;
   }
-  private rows(sql: string, values: Array<string | number> = []): Record<string, unknown>[] {
-    const statement = this.db.prepare(sql);
+  private rows(sql: string, values: Array<string | number> = []): Record<string, unknown>[] { return this.rowsOf(this.db, sql, values); }
+  private rowsOf(db: Database, sql: string, values: Array<string | number | null> = []): Record<string, unknown>[] {
+    const statement = db.prepare(sql);
     try { statement.bind(values); const rows = []; while (statement.step()) rows.push(statement.getAsObject()); return rows; }
     finally { statement.free(); }
+  }
+  /** 未指定 participantId 的舊流程歸到該 Provider 的預設 participant。 */
+  private participantFor(db: Database, conversationId: string, task: Task, now: number): string {
+    const id = task.participantId ?? String(this.rowsOf(db, "SELECT id FROM participants WHERE conversation_id=? AND provider=? AND role='solo' ORDER BY created_at,rowid LIMIT 1", [conversationId, task.provider])[0]?.id ?? randomUUID());
+    db.run(`INSERT INTO participants VALUES(?,?,?,'solo',?,?,?) ON CONFLICT(id) DO UPDATE SET native_session_id=coalesce(excluded.native_session_id,native_session_id),updated_at=excluded.updated_at
+      WHERE participants.conversation_id=excluded.conversation_id AND participants.provider=excluded.provider`, [id, conversationId, task.provider, task.sessionId ?? null, task.startedAt, now]);
+    if (!this.rowsOf(db, 'SELECT 1 FROM participants WHERE id=? AND conversation_id=? AND provider=?', [id, conversationId, task.provider]).length) throw new Error('Participant 不屬於此對話或 Provider。');
+    return id;
+  }
+  private writeRun(db: Database, conversationId: string, task: Task, now: number) {
+    const participantId = this.participantFor(db, conversationId, task, now);
+    db.run(`INSERT INTO runs(id,conversation_id,provider,started_at,search_body,task_json,participant_id) VALUES(?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET provider=excluded.provider,started_at=excluded.started_at,search_body=excluded.search_body,task_json=excluded.task_json,participant_id=excluded.participant_id`,
+    [task.id, conversationId, task.provider, task.startedAt, task.prompt + '\n' + task.output, JSON.stringify(task), participantId]);
+    const upsert = `INSERT INTO messages VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(run_id,sender_type) DO UPDATE SET participant_id=excluded.participant_id,content=excluded.content,status=excluded.status,created_at=excluded.created_at`;
+    db.run(upsert, [randomUUID(), conversationId, null, task.id, 'user', task.prompt, 'completed', task.startedAt]);
+    db.run(upsert, [randomUUID(), conversationId, participantId, task.id, 'agent', task.output, task.status, task.endedAt ?? task.startedAt]);
   }
   list(query = ''): ConversationSummary[] {
     const pattern = query.trim().toLocaleLowerCase();
@@ -89,8 +119,20 @@ export class ConversationDatabase {
       const now = Date.now();
       if (snapshot.length) db.run('INSERT INTO conversations VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at', [id, this.root, title, snapshot[0]?.startedAt ?? now, now]);
       db.run('INSERT OR REPLACE INTO metadata VALUES(?,?)', ['policy:' + this.root, JSON.stringify(policy)]);
-      for (const task of snapshot) db.run('INSERT OR REPLACE INTO runs VALUES(?,?,?,?,?,?)', [task.id, id, task.provider, task.startedAt, task.prompt + '\n' + task.output, JSON.stringify(task)]);
+      for (const task of snapshot) this.writeRun(db, id, task, now);
     });
+  }
+  participants(conversationId: string): StoredParticipant[] {
+    return this.rows('SELECT p.* FROM participants p JOIN conversations c ON c.id=p.conversation_id WHERE c.root=? AND p.conversation_id=? ORDER BY p.created_at,p.rowid', [this.root, conversationId]).map(row => ({
+      id: String(row.id), provider: agentIdSchema.parse(row.provider), role: String(row.role), nativeSessionId: typeof row.native_session_id === 'string' ? row.native_session_id : undefined
+    }));
+  }
+  messages(conversationId: string): StoredMessage[] {
+    return this.rows(`SELECT m.* FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN runs r ON r.id=m.run_id WHERE c.root=? AND m.conversation_id=?
+      ORDER BY r.started_at,r.rowid,m.sender_type='agent'`, [this.root, conversationId]).map(row => ({
+      id: String(row.id), runId: String(row.run_id), participantId: typeof row.participant_id === 'string' ? row.participant_id : undefined,
+      senderType: row.sender_type === 'agent' ? 'agent' : 'user', content: String(row.content), status: String(row.status), createdAt: Number(row.created_at)
+    }));
   }
   rename(id: string, title: string): Promise<void> { return this.mutate(db => { db.run('UPDATE conversations SET title=?,updated_at=? WHERE id=? AND root=?', [title, Date.now(), id, this.root]); }); }
   delete(id: string): Promise<void> { return this.mutate(db => { db.run('DELETE FROM conversations WHERE id=? AND root=?', [id, this.root]); }); }
