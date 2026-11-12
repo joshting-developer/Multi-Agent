@@ -46,9 +46,17 @@ JSON 輸入檔也可用 `-` 從 stdin 讀取。更新自動先讀目前 revision
 
 TaskTracker 無法連線或拒絕操作時，保留待同步內容並回報阻礙，不宣稱已更新。禁止直接寫 TaskTracker 資料庫或繞過權限。正式外部 API／Webhook 的缺口交接於 TaskTracker 根目錄 `Multi-Agent-To-Tracker.md`，本專案對應 `MA-79`；沒有另行要求時不擅自修改 TaskTracker 功能。
 
-## Git Workspace Rules — All Projects
+## Skill 來源與適用範圍
 
-Before Git operations in any project, read and apply the “Git 工作位置（所有專案）” section in `/Users/josh/Projects/workspace/skills/git-delivery-workflow/SKILL.md`. The shared skill owns repository-location rules.
+2026-11-12 使用者確認：本專案只使用專案底下 `skills/` 內的 skill。
+
+- 除非使用者在當次任務明確指定，不讀取或套用專案外的 skill，包括 `/Users/josh/Projects/workspace/skills`、使用者家目錄及全域安裝的 skill。
+- skill 內的來源／沿革紀錄不代表授權載入外部規範；缺少必要內容時先說明，不自行回到共用目錄補規則。
+- 來源與改寫範圍見 [skills/README.md](skills/README.md)。
+
+## Git 工作位置
+
+進行任何 Git 操作前，先閱讀並套用 [git-workspace](skills/git-workspace/SKILL.md)。commit 訊息格式與禁止 AI 署名仍依本文件上方規則。
 
 ## 前端介面
 
