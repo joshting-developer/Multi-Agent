@@ -45,7 +45,20 @@ describe('Vue chat', () => {
     expect(bar.emitted('extend')).toEqual([[2]]);
     await bar.setProps({ discussion: { id: 'd', status: 'completed' as const, completedRounds: 8, maxRounds: 8 } });
     expect(bar.find('button').exists()).toBe(false);
+    await bar.setProps({ discussion: { id: 'd', status: 'cancelled' as const, completedRounds: 3, maxRounds: 4 } });
+    expect(bar.get('[role="alert"]').text()).toBe('討論已停止 · 已保留 3 輪'); expect(bar.find('button').exists()).toBe(false);
     bar.unmount();
+  });
+  it('moves focus to Stop while running and back to the input when the removed control dropped it', async () => {
+    const wrapper = mount(Composer, { attachTo: document.body, props: { busy: false, running: false, canSend: true, initialDraft: '' } });
+    await wrapper.setProps({ running: true, busy: true }); await nextTick();
+    expect(document.activeElement).toBe(wrapper.get('button[aria-label="停止任務"]').element);
+    await wrapper.setProps({ running: false, busy: false }); await nextTick();
+    expect(document.activeElement).toBe(wrapper.get('textarea').element);
+    const outside = document.createElement('input'); document.body.append(outside); outside.focus();
+    await wrapper.setProps({ running: true, busy: true }); await nextTick();
+    expect(document.activeElement).toBe(outside);
+    outside.remove(); wrapper.unmount();
   });
   it('opens workspace read/write by default and keeps a read-only option', async () => {
     const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: 'edit file', canWrite: true } });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AgentRegistry } from '../src/agents/AgentRegistry';
 import type { AgentAdapter, AgentRequest } from '../src/agents/AgentAdapter';
 import { Orchestrator } from '../src/orchestration/Orchestrator';
@@ -59,6 +59,17 @@ describe('Manual orchestration', () => {
     await orchestrator.cancel(); await running;
     expect(orchestrator.state.tasks[0]?.status).toBe('cancelled');
     await orchestrator.dispose();
+  });
+  it('never replays a stopped task\'s partial output into the next prompt', async () => {
+    const claude = new FakeAdapter('claude', true, true); const { orchestrator } = await setup([claude]);
+    const running = orchestrator.send('claude', 'first', 'read-only');
+    await vi.waitFor(() => expect(orchestrator.state.tasks[0]?.output).toBe('claude reply'));
+    await orchestrator.cancel(); await running;
+    expect(orchestrator.state.tasks[0]?.status).toBe('cancelled');
+    const next = orchestrator.send('claude', 'second', 'read-only');
+    await vi.waitFor(() => expect(claude.requests).toHaveLength(2));
+    expect(claude.requests[1]!.prompt).toBe('second');
+    await orchestrator.cancel(); await next; await orchestrator.dispose();
   });
   it('recovers running tasks as interrupted and binds grants to one root', async () => {
     const { storage } = await setup();

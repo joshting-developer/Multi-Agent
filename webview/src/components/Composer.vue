@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import type { AgentId, ExecutionMode } from '../../../src/bridge/messages';
 import ProviderPicker from './ProviderPicker.vue';
 import ChatIcon from './ChatIcon.vue';
@@ -11,6 +11,14 @@ const props = withDefaults(defineProps<{
 }>(), { approvalMode: 'ask', supportedApprovalModes: () => [...approvalModes], provider: 'codex', draftRevision: 0, canWrite: true, preferences: () => ({ model: '', effort: 'medium' }), models: () => [], modelsLoading: false, sendShortcut: 'enter', defaultMode: 'workspace-write' });
 const emit = defineEmits<{ send: [text: string, mode: ExecutionMode, approvalMode: ApprovalMode]; discuss: [text: string, rounds: number]; cancel: []; draft: [text: string]; select: [id: AgentId]; preferences: [value: ProviderPreferences]; settings: []; refreshModels: [] }>();
 const text = ref(props.initialDraft);
+const input = ref<HTMLTextAreaElement>();
+const stop = ref<HTMLButtonElement>();
+// 按鈕被移除（延長、Stop 消失）時焦點會掉到 body：執行中移到 Stop，結束後回到輸入框。
+watch(() => props.running, async running => {
+  await nextTick();
+  if (document.activeElement && document.activeElement !== document.body) return;
+  (running ? stop.value : input.value)?.focus();
+});
 const approval = ref<ApprovalMode>(props.approvalMode);
 watch(() => props.approvalMode, value => { approval.value = value; });
 watch(() => props.provider, () => { approval.value = props.approvalMode; });
@@ -40,7 +48,7 @@ function onKey(event: KeyboardEvent) {
 <template>
   <form class="composer" @submit.prevent="submit">
     <label for="message" class="sr-only">訊息</label>
-    <textarea id="message" v-model="text" rows="3" maxlength="32000" placeholder="想做什麼都可以" :disabled="busy" @keydown="onKey"></textarea>
+    <textarea id="message" ref="input" v-model="text" rows="3" maxlength="32000" placeholder="想做什麼都可以" :disabled="busy" @keydown="onKey"></textarea>
     <div class="composer-footer">
       <div class="composer-options">
         <ProviderPicker :selected="provider" :busy="busy" @select="$emit('select', $event)" />
@@ -53,7 +61,7 @@ function onKey(event: KeyboardEvent) {
         </template>
       </div>
       <div class="composer-actions">
-        <button v-if="running" type="button" class="send-button stop" aria-label="停止任務" title="停止任務" @click="$emit('cancel')"><ChatIcon name="stop" /></button>
+        <button v-if="running" ref="stop" type="button" class="send-button stop" aria-label="停止任務" title="停止任務" @click="$emit('cancel')"><ChatIcon name="stop" /></button>
         <button v-else type="submit" class="send-button" :disabled="!valid" aria-label="送出訊息" :title="sendShortcut === 'enter' ? '送出（Enter）；換行（Shift+Enter）' : '送出（⌘ / Ctrl + Enter）'"><ChatIcon name="send" /></button>
       </div>
     </div>

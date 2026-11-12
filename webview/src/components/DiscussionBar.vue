@@ -11,7 +11,11 @@ const current = computed(() => Math.min(props.discussion.completedRounds + 1, pr
 </script>
 
 <template>
-  <div class="notice discussion-bar" role="status">
+  <!-- 停止與失敗以 alert 立即播報；進行中與完成以 status 播報，串流輸出不會改變這段文字。 -->
+  <div v-if="discussion.status === 'cancelled' || discussion.status === 'failed'" class="notice discussion-bar" role="alert">
+    <span>{{ discussion.status === 'cancelled' ? '討論已停止' : '討論失敗' }} · 已保留 {{ discussion.completedRounds }} 輪</span>
+  </div>
+  <div v-else class="notice discussion-bar" role="status">
     <span v-if="running">討論 · 第 {{ current }}／{{ discussion.maxRounds }} 輪</span>
     <span v-else>討論已完成 · {{ discussion.completedRounds }} 輪</span>
     <span v-if="discussion.status === 'completed' && remaining > 0" class="discussion-extend">

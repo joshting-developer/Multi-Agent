@@ -53,10 +53,10 @@ function submit(text: string, mode: ExecutionMode, approvalMode: import('../../s
 function discuss(text: string, rounds: number) {
   send({ version: 1, type: 'start-discussion', requestId: crypto.randomUUID(), provider: selected.value, text, rounds, preferences: { ...preferences.value } });
 }
-// 只在目前對話含有該討論時顯示進度或延長，失敗與停止由該回合自身狀態呈現。
+// 只在目前對話含有該討論時顯示進度、完成、停止或失敗。
 const discussion = computed(() => {
   const value = snapshot.value.discussion;
-  if (!value || (value.status !== 'running' && value.status !== 'completed')) return undefined;
+  if (!value) return undefined;
   return snapshot.value.tasks.some(task => task.discussionId === value.id) ? value : undefined;
 });
 function extendDiscussion(rounds: number) {

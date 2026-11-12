@@ -28,6 +28,7 @@ button:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground);
 .error { font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
 .input-area { flex-shrink: 0; padding: 0 12px 14px; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 5px 8px; font-size: 11px; line-height: 1.5; color: var(--vscode-descriptionForeground); }
+.discussion-bar { flex-wrap: wrap; row-gap: 2px; }
 .discussion-extend { display: flex; align-items: center; gap: 4px; }
 .notice.error { color: var(--vscode-errorForeground); }
 .text-button { color: var(--vscode-textLink-foreground); white-space: nowrap; padding: 4px; }

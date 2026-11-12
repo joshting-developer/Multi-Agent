@@ -53,10 +53,14 @@ describe('Webview to native agent execution', () => {
       expect(rounds.map(task => [task.mode, task.participantRole, task.roundNo])).toEqual([['read-only', 'architect', 1], ['read-only', 'critic', 2]]);
       expect(rounds[0]!.participantId).not.toBe(rounds[1]!.participantId); expect(orchestrator.state.discussionId).toBeUndefined();
       expect(requests.slice(-2).map(request => request.mode)).toEqual(['read-only', 'read-only']);
+      const beforeExtend = postMessage.mock.calls.length;
       receive!({ version: 1, requestId: 'extend-1', type: 'extend-discussion', discussionId: rounds[0]!.discussionId, rounds: 1 });
       await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith({ version: 1, type: 'request-settled', requestId: 'extend-1' }));
       expect(orchestrator.state.tasks.at(-1)).toMatchObject({ discussionId: rounds[0]!.discussionId, roundNo: 3, participantRole: 'architect', mode: 'read-only' });
       await vi.waitFor(() => expect(postMessage.mock.calls.map(([message]) => message).filter(message => message.type === 'snapshot').at(-1)?.snapshot.discussion).toEqual({ id: rounds[0]!.discussionId, status: 'completed', completedRounds: 3, maxRounds: 3 }));
+      // 延長後的任何執行中畫面都已是新上限，不會短暫顯示舊的 m。
+      const extended = postMessage.mock.calls.slice(beforeExtend).map(([message]) => message).filter(message => message.type === 'snapshot' && message.snapshot.discussion?.status === 'running');
+      expect(extended.length).toBeGreaterThan(0); expect(extended.every(message => message.snapshot.discussion.maxRounds === 3)).toBe(true);
       receive!({ version: 1, requestId: 'options-1', type: 'show-options' });
       await vi.waitFor(() => expect(vscode.window.createWebviewPanel).toHaveBeenCalledWith('multiAgent.settings', 'Multi-Agent 設定', vscode.ViewColumn.Active, expect.anything()));
       expect(createdPanels.at(-1)?.webview.html).toContain('data-surface="settings"');
