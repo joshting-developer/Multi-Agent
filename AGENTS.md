@@ -27,6 +27,7 @@
 - 尚未動工的卡片放待辦（`open`），不提前移到進行中。
 - 開始處理某張卡片前，先將該卡拉到進行中（`echo '{"state":"inprogress"}' | npm run tracker -- update MA-26 -`），再開始調整。
 - 該卡的 commit 訊息格式為 `<卡號> <卡片標題>`，例如 `MA-26 拆分 Conversation、Participant、Message 與原生 Session 關聯`；一張卡分多次提交時沿用同一格式。
+- Commit 不得帶任何 AI 相關資訊：不加 `Co-Authored-By`、`Generated with` 等 AI 作者／協作者標註，也不在訊息中註明由 AI 產生。此規則優先於工具預設的署名設定。
 - 調整與測試完成後，依實際結果更新卡片狀態（完成改 `closed`；未通過或受阻則維持／標示並留言說明），不在測試前結案。
 
 目前有 [里程碑總覽](http://localhost:5174/#/projects/796d764a-e7fb-4eb2-a99d-8b7cc249b98b/board/3c976a6d-580f-49d0-bd38-a08648f42646) 與 [M2 討論 MVP](http://localhost:5174/#/projects/796d764a-e7fb-4eb2-a99d-8b7cc249b98b/board/01669d16-4eed-448e-a6b8-dcba4da63262) 看板。未完成項目以目前卡片及 v0.2 規格為準，先推進 M2。
