@@ -42,7 +42,7 @@ const base = { version: z.literal(1), requestId: z.string().min(1).max(100) };
 export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('ready') }),
   z.object({ ...base, type: z.literal('send-message'), provider: agentIdSchema, text: z.string().trim().min(1).max(32000), mode: modeSchema, preferences: providerPreferencesSchema.optional(), approvalMode: z.enum(approvalModes).optional() }),
-  z.object({ ...base, type: z.literal('start-discussion'), provider: agentIdSchema, text: z.string().trim().min(1).max(32000), rounds: z.number().int().min(2).max(8), preferences: providerPreferencesSchema.optional() }),
+  z.object({ ...base, type: z.literal('start-discussion'), provider: agentIdSchema, partner: agentIdSchema.optional(), text: z.string().trim().min(1).max(32000), rounds: z.number().int().min(2).max(8), preferences: providerPreferencesSchema.optional() }),
   z.object({ ...base, type: z.literal('extend-discussion'), discussionId: z.string().min(1).max(100), rounds: z.number().int().min(1).max(6) }),
   z.object({ ...base, type: z.literal('answer-approval'), approvalId: z.string().min(1).max(100), allow: z.boolean() }),
   z.object({ ...base, type: z.literal('new-conversation') }),

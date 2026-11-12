@@ -50,8 +50,8 @@ function answerApproval(id: string, allow: boolean) { post({ version: 1, type: '
 function submit(text: string, mode: ExecutionMode, approvalMode: import('../../src/bridge/preferences').ApprovalMode) {
   send({ version: 1, type: 'send-message', requestId: crypto.randomUUID(), provider: selected.value, text, mode, approvalMode, preferences: { ...preferences.value } });
 }
-function discuss(text: string, rounds: number) {
-  send({ version: 1, type: 'start-discussion', requestId: crypto.randomUUID(), provider: selected.value, text, rounds, preferences: { ...preferences.value } });
+function discuss(text: string, rounds: number, partner: AgentId) {
+  send({ version: 1, type: 'start-discussion', requestId: crypto.randomUUID(), provider: selected.value, partner, text, rounds, preferences: { ...preferences.value } });
 }
 // 只在目前對話含有該討論時顯示進度、完成、停止或失敗。
 const discussion = computed(() => {

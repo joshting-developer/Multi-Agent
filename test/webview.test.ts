@@ -24,7 +24,9 @@ describe('Vue chat', () => {
     expect(wrapper.find('select[aria-label="任務權限"]').exists()).toBe(false);
     await wrapper.get('select[aria-label="討論回合"]').setValue('2');
     await wrapper.get('form').trigger('submit');
-    expect(wrapper.emitted('discuss')).toEqual([['Repository Pattern？', 2]]); expect(wrapper.emitted('send')).toBeUndefined();
+    expect(wrapper.emitted('discuss')).toEqual([['Repository Pattern？', 2, 'codex']]);
+    await wrapper.get('select[aria-label="審查 Agent"]').setValue('claude'); await wrapper.get('textarea').setValue('跨 Agent'); await wrapper.get('form').trigger('submit');
+    expect(wrapper.emitted('discuss')?.at(-1)).toEqual(['跨 Agent', 2, 'claude']); expect(wrapper.emitted('send')).toBeUndefined();
     wrapper.unmount();
     const base = { provider: 'claude' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, discussionId: 'd' };
     const timeline = mount(Conversation, { props: { tasks: [

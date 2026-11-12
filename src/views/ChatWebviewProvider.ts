@@ -91,15 +91,21 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'authorize-workspace': await this.authorize(); break;
       case 'start-discussion': {
         if (this.approvalPending) throw new Error('請先完成目前的授權對話框。');
-        this.orchestrator.assertCanSend(message.provider, 'read-only');
+        const partner = message.partner ?? message.provider;
         try {
-          const preferences = message.preferences ?? this.settings?.read()[message.provider];
-          if (preferences) this.settings?.validate(message.provider, preferences);
-          if (this.settings && !preferences?.model) throw new Error('請先選擇明確的模型。');
+          const preferencesFor = (provider: typeof partner, explicit?: typeof message.preferences) => {
+            const preferences = explicit ?? this.settings?.read()[provider];
+            if (preferences) this.settings?.validate(provider, preferences);
+            if (this.settings && !preferences?.model) throw new Error('請先選擇明確的模型。');
+            return preferences;
+          };
+          // A 使用畫面上選定的模型；B 若為同一 Provider 沿用相同設定，否則使用該 Provider 已保存的偏好。
+          const lead = preferencesFor(message.provider, message.preferences);
           // 每次討論使用新的 Participant，避免沿用前一次討論的上下文。
           const run = this.discussions.run(message.text, [
-            { id: randomUUID(), provider: message.provider, role: 'architect' }, { id: randomUUID(), provider: message.provider, role: 'critic' }
-          ], message.rounds, preferences);
+            { id: randomUUID(), provider: message.provider, role: 'architect', preferences: lead },
+            { id: randomUUID(), provider: partner, role: 'critic', preferences: partner === message.provider ? lead : preferencesFor(partner) }
+          ], message.rounds);
           this.snapshot();
           await run;
         }

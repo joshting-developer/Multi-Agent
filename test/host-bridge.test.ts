@@ -61,6 +61,9 @@ describe('Webview to native agent execution', () => {
       // 延長後的任何執行中畫面都已是新上限，不會短暫顯示舊的 m。
       const extended = postMessage.mock.calls.slice(beforeExtend).map(([message]) => message).filter(message => message.type === 'snapshot' && message.snapshot.discussion?.status === 'running');
       expect(extended.length).toBeGreaterThan(0); expect(extended.every(message => message.snapshot.discussion.maxRounds === 3)).toBe(true);
+      receive!({ version: 1, requestId: 'cross-1', type: 'start-discussion', provider: 'codex', partner: 'claude', text: 'Synthetic topic', rounds: 2 });
+      await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith({ version: 1, type: 'error', requestId: 'cross-1', message: expect.stringMatching(/^Claude Code：.*可改用 Codex 單 Agent 討論。$/) }));
+      expect(postMessage).toHaveBeenCalledWith({ version: 1, type: 'request-settled', requestId: 'cross-1' });
       receive!({ version: 1, requestId: 'options-1', type: 'show-options' });
       await vi.waitFor(() => expect(vscode.window.createWebviewPanel).toHaveBeenCalledWith('multiAgent.settings', 'Multi-Agent 設定', vscode.ViewColumn.Active, expect.anything()));
       expect(createdPanels.at(-1)?.webview.html).toContain('data-surface="settings"');
