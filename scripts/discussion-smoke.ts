@@ -41,6 +41,11 @@ try {
   assert.deepEqual(stored.map(round => round.senderParticipantId), Array.from({ length: rounds }, (_, index) => index % 2 ? 'live-b' : 'live-a'));
   assert.ok(participants.every(p => p.nativeSessionId), 'Each participant should record a native session.');
   assert.notEqual(participants[0]!.nativeSessionId, participants[1]!.nativeSessionId);
+  const summaries = db.summaries(conversationId);
+  assert.equal(summaries.length, 1); assert.equal(summaries[0]!.throughRound, rounds); assert.equal(summaries[0]!.runId, result.summaryTaskId);
+  const summary = orchestrator.state.tasks.find(task => task.id === result.summaryTaskId)!;
+  assert.equal(summary.status, 'completed'); assert.ok(/R1/.test(summary.output), 'Summary should cite rounds.');
+  console.log(`summary: ${summary.output.slice(0, 600)}`);
   await orchestrator.dispose();
   console.log(`${provider}+${partner}: discussion smoke PASS`);
 } finally { await rm(directory, { recursive: true, force: true }); }

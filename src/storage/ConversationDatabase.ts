@@ -7,6 +7,7 @@ import { agentIdSchema, taskSchema } from '../bridge/messages';
 
 export interface StoredParticipant { id: string; provider: AgentId; role: string; nativeSessionId?: string }
 export interface StoredRound { discussionId: string; roundNo: number; senderParticipantId: string; runId: string; messageId: string }
+export interface StoredSummary { discussionId: string; runId: string; messageId: string; throughRound: number }
 export interface StoredMessage { id: string; runId: string; participantId?: string; senderType: 'user' | 'agent'; content: string; status: string; createdAt: number }
 
 /** SQLite WASM avoids native-addon ABI differences between Node and Electron. */
@@ -23,7 +24,7 @@ export class ConversationDatabase {
   }
   private migrate(db: Database) {
     const version = Number(db.exec('PRAGMA user_version')[0]?.values[0]?.[0] ?? 0);
-    if (version > 3) throw new Error('歷史資料庫版本較新，請更新插件後再開啟。');
+    if (version > 4) throw new Error('歷史資料庫版本較新，請更新插件後再開啟。');
     db.exec(`PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY,root TEXT NOT NULL,title TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
@@ -34,6 +35,12 @@ export class ConversationDatabase {
     if (version < 3) {
       db.exec(`CREATE TABLE discussion_rounds(discussion_id TEXT NOT NULL,round_no INTEGER NOT NULL,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,participant_id TEXT NOT NULL REFERENCES participants(id),run_id TEXT NOT NULL UNIQUE REFERENCES runs(id) ON DELETE CASCADE,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,PRIMARY KEY(discussion_id,round_no));
         PRAGMA user_version=3;`);
+    }
+    if (version < 4) {
+      // v4：討論結論各自連回所屬討論與涵蓋到的輪次，來源訊息經 discussion_rounds 回溯。
+      db.exec(`CREATE TABLE discussion_summaries(discussion_id TEXT NOT NULL,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,run_id TEXT NOT NULL UNIQUE REFERENCES runs(id) ON DELETE CASCADE,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,through_round INTEGER NOT NULL);
+        CREATE INDEX discussion_summaries_discussion ON discussion_summaries(discussion_id);
+        PRAGMA user_version=4;`);
     }
   }
   private migrateV2(db: Database) {
@@ -107,6 +114,10 @@ export class ConversationDatabase {
       db.run(`INSERT OR IGNORE INTO discussion_rounds SELECT ?,?,?,?,?,id FROM messages WHERE run_id=? AND sender_type='agent'`, [task.discussionId, task.roundNo, conversationId, participantId, task.id, task.id]);
       if (!this.rowsOf(db, 'SELECT 1 FROM discussion_rounds WHERE discussion_id=? AND round_no=? AND run_id=?', [task.discussionId, task.roundNo, task.id]).length) throw new Error('討論輪次已被其他執行占用。');
     }
+    if (task.discussionId && task.participantRole === 'summarizer') {
+      db.run(`INSERT OR IGNORE INTO discussion_summaries SELECT ?,?,?,id,? FROM messages WHERE run_id=? AND sender_type='agent'`,
+        [task.discussionId, conversationId, task.id, this.roundsBefore(db, task), task.id]);
+    }
   }
   list(query = ''): ConversationSummary[] {
     const pattern = query.trim().toLocaleLowerCase();
@@ -150,6 +161,15 @@ export class ConversationDatabase {
     return this.rows(`SELECT d.* FROM discussion_rounds d JOIN conversations c ON c.id=d.conversation_id WHERE c.root=? AND d.conversation_id=? ORDER BY d.discussion_id,d.round_no`, [this.root, conversationId]).map(row => ({
       discussionId: String(row.discussion_id), roundNo: Number(row.round_no), senderParticipantId: String(row.participant_id), runId: String(row.run_id), messageId: String(row.message_id)
     }));
+  }
+  summaries(conversationId: string): StoredSummary[] {
+    return this.rows(`SELECT s.* FROM discussion_summaries s JOIN conversations c ON c.id=s.conversation_id WHERE c.root=? AND s.conversation_id=? ORDER BY s.rowid`, [this.root, conversationId]).map(row => ({
+      discussionId: String(row.discussion_id), runId: String(row.run_id), messageId: String(row.message_id), throughRound: Number(row.through_round)
+    }));
+  }
+  /** 總結只涵蓋開始前已完成的輪次；延長後新增的輪次不算進舊總結。 */
+  private roundsBefore(db: Database, task: Task): number {
+    return Number(this.rowsOf(db, 'SELECT coalesce(max(round_no),0) n FROM discussion_rounds d JOIN runs r ON r.id=d.run_id WHERE d.discussion_id=? AND r.started_at<=?', [task.discussionId!, task.startedAt])[0]?.n ?? 0);
   }
   rename(id: string, title: string): Promise<void> { return this.mutate(db => { db.run('UPDATE conversations SET title=?,updated_at=? WHERE id=? AND root=?', [title, Date.now(), id, this.root]); }); }
   delete(id: string): Promise<void> { return this.mutate(db => { db.run('DELETE FROM conversations WHERE id=? AND root=?', [id, this.root]); }); }

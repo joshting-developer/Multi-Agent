@@ -5,7 +5,7 @@ export const agentIdSchema = z.enum(['claude', 'codex']);
 export type AgentId = z.infer<typeof agentIdSchema>;
 export const modeSchema = z.enum(['read-only', 'workspace-write']);
 export type ExecutionMode = z.infer<typeof modeSchema>;
-export const participantRoleSchema = z.enum(['architect', 'critic']);
+export const participantRoleSchema = z.enum(['architect', 'critic', 'summarizer']);
 export type ParticipantRole = z.infer<typeof participantRoleSchema>;
 export const taskSchema = z.object({
   id: z.string(), provider: agentIdSchema, mode: modeSchema, prompt: z.string(), output: z.string(),
@@ -35,7 +35,7 @@ export interface Snapshot {
 }
 /** 規格 §7：討論最多 8 輪，超出不可延長。 */
 export const maxDiscussionRounds = 8;
-export interface DiscussionSummary { id: string; status: 'running' | 'completed' | 'failed' | 'cancelled'; completedRounds: number; maxRounds: number }
+export interface DiscussionSummary { id: string; status: 'running' | 'completed' | 'failed' | 'cancelled'; completedRounds: number; maxRounds: number; summaryTaskId?: string }
 export interface ConversationSummary { id: string; title: string; createdAt: number; updatedAt: number; provider?: AgentId; preview?: string }
 export interface ApprovalRequest { id: string; taskId: string; provider: AgentId; title: string; detail: string }
 const base = { version: z.literal(1), requestId: z.string().min(1).max(100) };

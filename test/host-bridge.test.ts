@@ -49,15 +49,16 @@ describe('Webview to native agent execution', () => {
       expect(requests).toHaveLength(2);
       receive!({ version: 1, requestId: 'discuss-1', type: 'start-discussion', provider: 'codex', text: 'Synthetic topic', rounds: 2 });
       await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith({ version: 1, type: 'request-settled', requestId: 'discuss-1' }));
-      const rounds = orchestrator.state.tasks.slice(-2);
+      const rounds = orchestrator.state.tasks.filter(task => task.roundNo).slice(-2);
       expect(rounds.map(task => [task.mode, task.participantRole, task.roundNo])).toEqual([['read-only', 'architect', 1], ['read-only', 'critic', 2]]);
       expect(rounds[0]!.participantId).not.toBe(rounds[1]!.participantId); expect(orchestrator.state.discussionId).toBeUndefined();
-      expect(requests.slice(-2).map(request => request.mode)).toEqual(['read-only', 'read-only']);
+      expect(requests.slice(-3).map(request => request.mode)).toEqual(['read-only', 'read-only', 'read-only']);
+      expect(orchestrator.state.tasks.at(-1)).toMatchObject({ participantRole: 'summarizer', discussionId: rounds[0]!.discussionId, mode: 'read-only' });
       const beforeExtend = postMessage.mock.calls.length;
       receive!({ version: 1, requestId: 'extend-1', type: 'extend-discussion', discussionId: rounds[0]!.discussionId, rounds: 1 });
       await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith({ version: 1, type: 'request-settled', requestId: 'extend-1' }));
-      expect(orchestrator.state.tasks.at(-1)).toMatchObject({ discussionId: rounds[0]!.discussionId, roundNo: 3, participantRole: 'architect', mode: 'read-only' });
-      await vi.waitFor(() => expect(postMessage.mock.calls.map(([message]) => message).filter(message => message.type === 'snapshot').at(-1)?.snapshot.discussion).toEqual({ id: rounds[0]!.discussionId, status: 'completed', completedRounds: 3, maxRounds: 3 }));
+      expect(orchestrator.state.tasks.filter(task => task.roundNo).at(-1)).toMatchObject({ discussionId: rounds[0]!.discussionId, roundNo: 3, participantRole: 'architect', mode: 'read-only' });
+      await vi.waitFor(() => expect(postMessage.mock.calls.map(([message]) => message).filter(message => message.type === 'snapshot').at(-1)?.snapshot.discussion).toEqual({ id: rounds[0]!.discussionId, status: 'completed', completedRounds: 3, maxRounds: 3, summaryTaskId: orchestrator.state.tasks.at(-1)!.id }));
       // 延長後的任何執行中畫面都已是新上限，不會短暫顯示舊的 m。
       const extended = postMessage.mock.calls.slice(beforeExtend).map(([message]) => message).filter(message => message.type === 'snapshot' && message.snapshot.discussion?.status === 'running');
       expect(extended.length).toBeGreaterThan(0); expect(extended.every(message => message.snapshot.discussion.maxRounds === 3)).toBe(true);

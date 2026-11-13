@@ -23,6 +23,7 @@ const elapsed = (task: Task) => Math.max(0, Math.floor(((task.endedAt ?? now.val
 const speaker = (task: Task) => {
   const name = task.provider === 'claude' ? 'Claude Code' : 'Codex';
   if (!task.participantRole) return name;
+  if (task.participantRole === 'summarizer') return `${name} · 討論結論`;
   return `${name} ${task.participantRole === 'architect' ? 'A · 提案' : 'B · 審查'}${task.roundNo ? ` · 第 ${task.roundNo} 輪` : ''}`;
 };
 const statusLabel = (task: Task) => ({ running: '執行中', completed: '', failed: '失敗', cancelled: '已停止', interrupted: '已中斷' })[task.status];
@@ -32,7 +33,7 @@ const statusLabel = (task: Task) => ({ running: '執行中', completed: '', fail
   <section ref="viewport" class="conversation" aria-label="對話紀錄" @scroll="onScroll">
     <div v-if="tasks.length === 0" class="empty-state" aria-label="開始對話"><ChatIcon name="chat" /></div>
     <article v-for="task in tasks" :key="task.id" class="turn">
-      <div v-if="!task.roundNo || task.roundNo === 1" class="message user-message"><p class="prompt">{{ task.prompt }}</p></div>
+      <div v-if="task.participantRole !== 'summarizer' && (!task.roundNo || task.roundNo === 1)" class="message user-message"><p class="prompt">{{ task.prompt }}</p></div>
       <div class="message assistant-message">
         <div class="message-label"><strong>{{ speaker(task) }}</strong><span v-if="task.status !== 'completed'" :class="['task-status', task.status]">{{ statusLabel(task) }}<template v-if="task.status === 'running'"> · {{ elapsed(task) }}s</template></span></div>
         <MessageBody v-if="task.output" :text="task.output" />

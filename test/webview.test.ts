@@ -51,6 +51,22 @@ describe('Vue chat', () => {
     expect(bar.get('[role="alert"]').text()).toBe('討論已停止 · 已保留 3 輪'); expect(bar.find('button').exists()).toBe(false);
     bar.unmount();
   });
+  it('labels the discussion conclusion and only puts it into the input when the user adopts it', async () => {
+    const base = { provider: 'codex' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, discussionId: 'd' };
+    const timeline = mount(Conversation, { props: { tasks: [{ ...base, id: 's', prompt: '整串輪次轉交內容', output: '共識：(A, R1)', participantId: 's', participantRole: 'summarizer' as const }] } });
+    expect(timeline.get('.message-label strong').text()).toBe('Codex · 討論結論'); expect(timeline.text()).not.toContain('整串輪次轉交內容');
+    timeline.unmount();
+    const bar = mount(DiscussionBar, { props: { busy: false, discussion: { id: 'd', status: 'running' as const, completedRounds: 4, maxRounds: 4 } } });
+    expect(bar.text()).toContain('整理結論');
+    await bar.setProps({ discussion: { id: 'd', status: 'completed' as const, completedRounds: 4, maxRounds: 4, summaryTaskId: 's' }, summaryReady: true });
+    await bar.findAll('button').find(button => button.text() === '帶入結論')!.trigger('click');
+    expect(bar.emitted('adopt')).toHaveLength(1);
+    bar.unmount();
+    const composer = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: '' } });
+    await composer.setProps({ insert: { text: '依照下面的討論結論處理：\n\n共識', revision: 1 } });
+    expect((composer.get('textarea').element as HTMLTextAreaElement).value).toContain('共識'); expect(composer.emitted('send')).toBeUndefined();
+    composer.unmount();
+  });
   it('moves focus to Stop while running and back to the input when the removed control dropped it', async () => {
     const wrapper = mount(Composer, { attachTo: document.body, props: { busy: false, running: false, canSend: true, initialDraft: '' } });
     await wrapper.setProps({ running: true, busy: true }); await nextTick();

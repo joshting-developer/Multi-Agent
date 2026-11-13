@@ -7,10 +7,11 @@ import { SessionRepository } from '../storage/SessionRepository';
 import type { ApprovalMode, ProviderPreferences } from '../bridge/settings';
 
 export interface ParticipantRef { id: string; role: ParticipantRole }
-export interface SendOptions { participant?: ParticipantRef; discussion?: { id: string; roundNo: number } }
+export interface SendOptions { participant?: ParticipantRef; discussion?: { id: string; roundNo?: number } }
 const roleInstructions: Record<ParticipantRole, string> = {
   architect: 'Your role in this discussion: Architect. Propose a concrete, well-reasoned approach and state its trade-offs.',
-  critic: 'Your role in this discussion: Critic. Challenge the proposal on performance, testing, security and maintainability, and suggest corrections.'
+  critic: 'Your role in this discussion: Critic. Challenge the proposal on performance, testing, security and maintainability, and suggest corrections.',
+  summarizer: 'Your role: neutral summarizer of a finished discussion. Do not add new opinions; attribute every point to A or B with its round number.'
 };
 
 /** V0.1 serial manual executor. Planning and routing remain separate future concerns. */
@@ -65,7 +66,7 @@ export class Orchestrator {
     this.assertCanSend(provider, mode, discussion?.id);
     if (discussion && (mode !== 'read-only' || !participant)) throw new Error('討論輪次必須為唯讀且指定 Participant。');
     if (participant && this.state.tasks.some(item => item.participantId === participant.id && (item.provider !== provider || item.participantRole !== participant.role))) throw new Error('Participant 已綁定其他 Provider 或角色。');
-    const task: Task = { id: randomUUID(), provider, mode, prompt: text, output: '', status: 'running', startedAt: Date.now(), activity: '啟動官方 CLI…', approvalMode, ...preferences, ...(participant && { participantId: participant.id, participantRole: participant.role }), ...(discussion && { discussionId: discussion.id, roundNo: discussion.roundNo }) };
+    const task: Task = { id: randomUUID(), provider, mode, prompt: text, output: '', status: 'running', startedAt: Date.now(), activity: '啟動官方 CLI…', approvalMode, ...preferences, ...(participant && { participantId: participant.id, participantRole: participant.role }), ...(discussion && { discussionId: discussion.id, ...(discussion.roundNo && { roundNo: discussion.roundNo }) }) };
     const controller = new AbortController();
     // Set the lock before the first await, including persistence and CLI detection.
     const active = { task, controller, finished: Promise.resolve() };

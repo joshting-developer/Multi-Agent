@@ -7,8 +7,8 @@ import ModelPicker from './ModelPicker.vue';
 import { approvalLabels, approvalModes, type ApprovalMode, type ModelOption, type ProviderPreferences } from '../../../src/bridge/preferences';
 const props = withDefaults(defineProps<{
   busy: boolean; running: boolean; canSend: boolean; initialDraft: string; draftRevision?: number; canWrite?: boolean; provider?: AgentId;
-  approvalMode?: ApprovalMode; supportedApprovalModes?: ApprovalMode[]; preferences?: ProviderPreferences; models?: ModelOption[]; modelsLoading?: boolean; sendShortcut?: 'enter' | 'modifier-enter'; defaultMode?: ExecutionMode;
-}>(), { approvalMode: 'ask', supportedApprovalModes: () => [...approvalModes], provider: 'codex', draftRevision: 0, canWrite: true, preferences: () => ({ model: '', effort: 'medium' }), models: () => [], modelsLoading: false, sendShortcut: 'enter', defaultMode: 'workspace-write' });
+  insert?: { text: string; revision: number }; approvalMode?: ApprovalMode; supportedApprovalModes?: ApprovalMode[]; preferences?: ProviderPreferences; models?: ModelOption[]; modelsLoading?: boolean; sendShortcut?: 'enter' | 'modifier-enter'; defaultMode?: ExecutionMode;
+}>(), { insert: undefined, approvalMode: 'ask', supportedApprovalModes: () => [...approvalModes], provider: 'codex', draftRevision: 0, canWrite: true, preferences: () => ({ model: '', effort: 'medium' }), models: () => [], modelsLoading: false, sendShortcut: 'enter', defaultMode: 'workspace-write' });
 const emit = defineEmits<{ send: [text: string, mode: ExecutionMode, approvalMode: ApprovalMode]; discuss: [text: string, rounds: number, partner: AgentId]; cancel: []; draft: [text: string]; select: [id: AgentId]; preferences: [value: ProviderPreferences]; settings: []; refreshModels: [] }>();
 const text = ref(props.initialDraft);
 const input = ref<HTMLTextAreaElement>();
@@ -33,6 +33,12 @@ watch(() => props.provider, value => { if (!partnerChosen.value) partner.value =
 const valid = computed(() => props.canSend && props.supportedApprovalModes.includes(approval.value) && !props.busy && text.value.trim().length > 0 && text.value.length <= 32000);
 watch(text, value => emit('draft', value));
 watch(() => props.draftRevision, () => { text.value = ''; });
+// 討論結論只帶入輸入框，由使用者自己選模式後送出，不自動執行。
+watch(() => props.insert?.revision, async () => {
+  if (!props.insert) return;
+  text.value = props.insert.text.slice(0, 32000); discussion.value = false;
+  await nextTick(); input.value?.focus();
+});
 watch(() => props.canWrite, value => {
   if (value === false) mode.value = 'read-only';
   else if (!modeChosen.value) mode.value = props.defaultMode;
