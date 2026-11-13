@@ -22,6 +22,8 @@ Claude 使用官方 stream-json 輸入／輸出與 control_request/control_respo
 
 帳號來自 Codex `account/read` 或 Claude `auth status`，只選取公開的身分欄位。Extension 不讀認證檔、不保存 Token。帳號只送至設定 Webview，不寫入聊天資料庫。
 
+多帳號：官方 CLI 原本的登入是不能移除的「預設帳號」；額外帳號各有 Extension 儲存區 `accounts/<id>` 下自己的官方 CLI 設定目錄（Claude `CLAUDE_CONFIG_DIR`、Codex `CODEX_HOME`，權限 0700），由官方 CLI 在 VS Code 終端機完成登入／登出並自行保管憑證；Extension 只保存名稱、目錄與各 Provider 目前選定的帳號（globalState）。每個環節各自帶入帳號：一般聊天用該 Provider 選定的帳號，討論 A 用畫面選定的帳號、B 可另外指定，總結沿用 A，代替者用該 Provider 選定的帳號。task 記錄 `accountId`；原生 Session 存在各帳號自己的目錄，換帳號時不接續、改以上下文重建。
+
 ## SQLite
 
 使用 sql.js 的 SQLite WASM，避免 native addon 的 Electron／Node ABI 問題；WASM 隨 VSIX 打包。資料庫存於 Extension `globalStorageUri`，所有對話與政策依 workspace canonical root 隔離。

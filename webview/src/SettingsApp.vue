@@ -24,6 +24,10 @@ watch(dirty, value => { if (value) saved.value = false; });
 function action(type: 'check-providers' | 'refresh-models' | 'authorize-workspace' | 'clear-conversation') {
   post({ version: 1, type, requestId: crypto.randomUUID() } as WebviewToHost);
 }
+type AccountMessage = Extract<WebviewToHost, { type: 'add-account' | 'rename-account' | 'remove-account' | 'account-terminal' | 'select-account' }>;
+function account(message: AccountMessage extends infer M ? M extends AccountMessage ? Omit<M, 'version' | 'requestId'> : never : never) {
+  post({ version: 1, requestId: crypto.randomUUID(), ...message } as WebviewToHost);
+}
 const pathKey = computed(() => provider.value === 'codex' ? 'codexPath' : 'claudePath');
 </script>
 
@@ -42,7 +46,7 @@ const pathKey = computed(() => provider.value === 'codex' ? 'codexPath' : 'claud
         <p v-if="snapshot.models?.error && provider === 'codex'" class="setting-description" role="status">{{ snapshot.models.error }}</p>
         <ProviderSettings :provider="provider" :value="draft[provider]" :path="draft[pathKey]" :models="snapshot.models?.[provider] ?? []" :status="snapshot.providers.find(item => item.id === provider)" :checking="snapshot.checking" :loading="snapshot.models?.loading ?? false" @change="draft[provider] = $event" @path-change="draft[pathKey] = $event" @check="action('check-providers')" @refresh="action('refresh-models')" />
       </template>
-      <AccountSettings v-else-if="section === 'accounts'" :providers="snapshot.providers" :checking="snapshot.checking" @refresh="action('check-providers')" />
+      <AccountSettings v-else-if="section === 'accounts'" :accounts="snapshot.accounts" :selected="snapshot.selectedAccounts" :checking="snapshot.checking" @refresh="action('check-providers')" @add="(provider, name) => account({ type: 'add-account', provider, name })" @rename="(accountId, name) => account({ type: 'rename-account', accountId, name })" @remove="accountId => account({ type: 'remove-account', accountId })" @terminal="(accountId, action) => account({ type: 'account-terminal', accountId, action })" @select="(provider, accountId) => account({ type: 'select-account', provider, accountId })" />
       <template v-else>
         <section class="settings-card"><h2>工作區授權</h2><p class="workspace-location">{{ snapshot.workspace }}</p><p class="setting-description">資料分類：{{ snapshot.policy.classification }}<br>允許的 Agent：{{ snapshot.policy.allowedProviders.join('、') || '尚未授權' }}</p><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId" @click="action('authorize-workspace')">設定工作區授權</button></section>
         <section class="settings-card"><h2>本機紀錄</h2><p class="setting-description">{{ snapshot.conversations?.length ?? 0 }} 個對話</p><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId || !snapshot.tasks.length" @click="action('clear-conversation')">刪除目前對話</button></section>

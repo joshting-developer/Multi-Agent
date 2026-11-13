@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import type { AgentId, ExecutionMode } from '../../../src/bridge/messages';
+import type { AccountSummary, AgentId, ExecutionMode } from '../../../src/bridge/messages';
 import ProviderPicker from './ProviderPicker.vue';
 import ChatIcon from './ChatIcon.vue';
 import ModelPicker from './ModelPicker.vue';
 import { approvalLabels, approvalModes, type ApprovalMode, type ModelOption, type ProviderPreferences } from '../../../src/bridge/preferences';
 const props = withDefaults(defineProps<{
   busy: boolean; running: boolean; canSend: boolean; initialDraft: string; draftRevision?: number; canWrite?: boolean; provider?: AgentId;
-  insert?: { text: string; revision: number }; approvalMode?: ApprovalMode; supportedApprovalModes?: ApprovalMode[]; preferences?: ProviderPreferences; models?: ModelOption[]; modelsLoading?: boolean; sendShortcut?: 'enter' | 'modifier-enter'; defaultMode?: ExecutionMode;
-}>(), { insert: undefined, approvalMode: 'ask', supportedApprovalModes: () => [...approvalModes], provider: 'codex', draftRevision: 0, canWrite: true, preferences: () => ({ model: '', effort: 'medium' }), models: () => [], modelsLoading: false, sendShortcut: 'enter', defaultMode: 'workspace-write' });
-const emit = defineEmits<{ send: [text: string, mode: ExecutionMode, approvalMode: ApprovalMode]; discuss: [text: string, rounds: number, partner: AgentId]; cancel: []; draft: [text: string]; select: [id: AgentId]; preferences: [value: ProviderPreferences]; settings: []; refreshModels: [] }>();
+  insert?: { text: string; revision: number }; accounts?: AccountSummary[]; selectedAccounts?: Partial<Record<AgentId, string>>; approvalMode?: ApprovalMode; supportedApprovalModes?: ApprovalMode[]; preferences?: ProviderPreferences; models?: ModelOption[]; modelsLoading?: boolean; sendShortcut?: 'enter' | 'modifier-enter'; defaultMode?: ExecutionMode;
+}>(), { insert: undefined, accounts: () => [], selectedAccounts: () => ({}), approvalMode: 'ask', supportedApprovalModes: () => [...approvalModes], provider: 'codex', draftRevision: 0, canWrite: true, preferences: () => ({ model: '', effort: 'medium' }), models: () => [], modelsLoading: false, sendShortcut: 'enter', defaultMode: 'workspace-write' });
+const emit = defineEmits<{ send: [text: string, mode: ExecutionMode, approvalMode: ApprovalMode]; discuss: [text: string, rounds: number, partner: AgentId, partnerAccountId: string | undefined]; account: [provider: AgentId, accountId: string]; cancel: []; draft: [text: string]; select: [id: AgentId]; preferences: [value: ProviderPreferences]; settings: []; refreshModels: [] }>();
 const text = ref(props.initialDraft);
 const input = ref<HTMLTextAreaElement>();
 const stop = ref<HTMLButtonElement>();
@@ -30,6 +30,12 @@ const rounds = ref(4);
 const partner = ref<AgentId>(props.provider);
 const partnerChosen = ref(false);
 watch(() => props.provider, value => { if (!partnerChosen.value) partner.value = value; });
+// 只有同一 Provider 有兩個以上帳號時才顯示帳號選擇；審查方的帳號可以和提案方不同。
+const providerAccounts = computed(() => props.accounts.filter(account => account.provider === props.provider));
+const partnerAccounts = computed(() => props.accounts.filter(account => account.provider === partner.value));
+const partnerAccount = ref<string>();
+watch(() => [partner.value, props.selectedAccounts[partner.value]], () => { partnerAccount.value = props.selectedAccounts[partner.value]; }, { immediate: true });
+const accountLabel = (account: AccountSummary) => account.loggedIn === false ? `${account.name}（未登入）` : account.name;
 const valid = computed(() => props.canSend && props.supportedApprovalModes.includes(approval.value) && !props.busy && text.value.trim().length > 0 && text.value.length <= 32000);
 watch(text, value => emit('draft', value));
 watch(() => props.draftRevision, () => { text.value = ''; });
@@ -46,7 +52,7 @@ watch(() => props.canWrite, value => {
 watch(() => props.defaultMode, value => { if (!modeChosen.value) mode.value = value === 'workspace-write' && !props.canWrite ? 'read-only' : value; });
 function submit() {
   if (!valid.value) return;
-  if (discussion.value) emit('discuss', text.value.trim(), rounds.value, partner.value);
+  if (discussion.value) emit('discuss', text.value.trim(), rounds.value, partner.value, partnerAccounts.value.length > 1 ? partnerAccount.value : undefined);
   else emit('send', text.value.trim(), mode.value, approval.value);
 }
 function onKey(event: KeyboardEvent) {
@@ -63,8 +69,10 @@ function onKey(event: KeyboardEvent) {
       <div class="composer-options">
         <ProviderPicker :selected="provider" :busy="busy" @select="$emit('select', $event)" />
         <ModelPicker :provider="provider" :value="preferences" :models="models" :busy="busy" :loading="modelsLoading" @change="$emit('preferences', $event)" @settings="$emit('settings')" @refresh="$emit('refreshModels')" />
+        <select v-if="providerAccounts.length > 1" class="permission-picker account-picker" :value="selectedAccounts[provider]" :disabled="busy" aria-label="帳號" @change="$emit('account', provider, ($event.target as HTMLSelectElement).value)"><option v-for="account in providerAccounts" :key="account.id" :value="account.id">{{ accountLabel(account) }}</option></select>
         <button type="button" class="permission-picker discussion-toggle" :aria-pressed="discussion" :disabled="busy" @click="discussion = !discussion">討論</button>
         <select v-if="discussion" v-model="partner" class="permission-picker partner-picker" :disabled="busy" aria-label="審查 Agent" @change="partnerChosen = true"><option value="codex">審查：Codex</option><option value="claude">審查：Claude</option></select>
+        <select v-if="discussion && partnerAccounts.length > 1" v-model="partnerAccount" class="permission-picker account-picker" :disabled="busy" aria-label="審查帳號"><option v-for="account in partnerAccounts" :key="account.id" :value="account.id">審查帳號：{{ accountLabel(account) }}</option></select>
         <select v-if="discussion" v-model.number="rounds" class="permission-picker" :disabled="busy" aria-label="討論回合"><option v-for="count in [2, 3, 4, 5, 6, 7, 8]" :key="count" :value="count">{{ count }} 輪</option></select>
         <template v-else>
           <select v-model="approval" class="permission-picker approval-picker" :disabled="busy || mode === 'read-only'" aria-label="動作核准"><option v-for="item in approvalModes" :key="item" :value="item" :disabled="!supportedApprovalModes.includes(item)">{{ approvalLabels[item] }}</option></select>

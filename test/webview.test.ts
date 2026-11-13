@@ -24,9 +24,9 @@ describe('Vue chat', () => {
     expect(wrapper.find('select[aria-label="任務權限"]').exists()).toBe(false);
     await wrapper.get('select[aria-label="討論回合"]').setValue('2');
     await wrapper.get('form').trigger('submit');
-    expect(wrapper.emitted('discuss')).toEqual([['Repository Pattern？', 2, 'codex']]);
+    expect(wrapper.emitted('discuss')).toEqual([['Repository Pattern？', 2, 'codex', undefined]]);
     await wrapper.get('select[aria-label="審查 Agent"]').setValue('claude'); await wrapper.get('textarea').setValue('跨 Agent'); await wrapper.get('form').trigger('submit');
-    expect(wrapper.emitted('discuss')?.at(-1)).toEqual(['跨 Agent', 2, 'claude']); expect(wrapper.emitted('send')).toBeUndefined();
+    expect(wrapper.emitted('discuss')?.at(-1)).toEqual(['跨 Agent', 2, 'claude', undefined]); expect(wrapper.emitted('send')).toBeUndefined();
     wrapper.unmount();
     const base = { provider: 'claude' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, discussionId: 'd' };
     const timeline = mount(Conversation, { props: { tasks: [
@@ -107,6 +107,19 @@ describe('Vue chat', () => {
     expect(tools[0]!.findAll('.tool-io pre').map(pre => pre.text())).toEqual(['notes.txt\nmore', 'body']);
     expect(tools[2]!.find('.tool-io').exists()).toBe(false);
     timeline.unmount();
+  });
+  it('lets the user pick the account for this provider and a different account for the reviewer', async () => {
+    const accounts = [{ id: 'a', provider: 'claude' as const, name: '公司', builtIn: true, loggedIn: true }, { id: 'b', provider: 'claude' as const, name: '個人', builtIn: false, loggedIn: false }];
+    const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: '題目', provider: 'claude' as const, accounts, selectedAccounts: { claude: 'a' } } });
+    const picker = wrapper.get('select[aria-label="帳號"]');
+    expect(picker.findAll('option').map(option => option.text())).toEqual(['公司', '個人（未登入）']);
+    await picker.setValue('b'); expect(wrapper.emitted('account')).toEqual([['claude', 'b']]);
+    await wrapper.get('button.discussion-toggle').trigger('click');
+    await wrapper.get('select[aria-label="審查帳號"]').setValue('b'); await wrapper.get('form').trigger('submit');
+    expect(wrapper.emitted('discuss')?.at(-1)).toEqual(['題目', 4, 'claude', 'b']);
+    await wrapper.setProps({ accounts: accounts.slice(0, 1) });
+    expect(wrapper.find('select[aria-label="帳號"]').exists()).toBe(false);
+    wrapper.unmount();
   });
   it('moves focus to Stop while running and back to the input when the removed control dropped it', async () => {
     const wrapper = mount(Composer, { attachTo: document.body, props: { busy: false, running: false, canSend: true, initialDraft: '' } });
