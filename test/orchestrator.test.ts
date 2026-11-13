@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AgentRegistry } from '../src/agents/AgentRegistry';
 import type { AgentAdapter, AgentEvent, AgentRequest } from '../src/agents/AgentAdapter';
+import { SessionUnavailable } from '../src/agents/CliAdapter';
 import { Orchestrator } from '../src/orchestration/Orchestrator';
 import { SessionRepository, type StateStorage } from '../src/storage/SessionRepository';
 import { assertAuthorized } from '../src/execution/ExecutionPolicy';
@@ -108,6 +109,34 @@ describe('Manual orchestration', () => {
     await vi.waitFor(() => expect(orchestrator.state.tasks[0]?.steps).toHaveLength(2));
     await orchestrator.cancel(); await running;
     expect(orchestrator.state.tasks[0]!.steps).toEqual([{ kind: 'text', text: 'looking' }, { kind: 'tool', id: 'x', name: 'Bash', status: 'stopped', input: 'sleep 100' }]);
+    await orchestrator.dispose();
+  });
+  it('resumes the native session for ordinary chat and rebuilds from SQLite when it cannot', async () => {
+    class Resumable extends FakeAdapter {
+      missing = false;
+      override capabilities() { return { ...capabilities, resumeSession: true }; }
+      override async detect(): Promise<ProviderStatus> { return { id: this.id, status: 'ready', capabilities: this.capabilities() }; }
+      override async *execute(request: AgentRequest): AsyncGenerator<AgentEvent> {
+        if (request.resumeSessionId && this.missing) { this.requests.push(request); throw new SessionUnavailable('gone'); }
+        yield* super.execute(request);
+      }
+    }
+    const adapter = new Resumable('claude'); const { orchestrator } = await setup([adapter]);
+    await orchestrator.send('claude', 'first', 'read-only');
+    expect(adapter.requests[0]).toMatchObject({ persist: true, resumeSessionId: undefined }); expect(orchestrator.state.tasks[0]).toMatchObject({ persisted: true });
+    await orchestrator.send('claude', 'second', 'read-only');
+    // 接續原生 Session 時只送這次的訊息，不重播歷史。
+    expect(adapter.requests[1]).toMatchObject({ prompt: 'second', resumeSessionId: `native-${orchestrator.state.tasks[0]!.id}` }); expect(orchestrator.state.tasks[1]!.contextMode).toBe('native');
+    adapter.missing = true;
+    await orchestrator.send('claude', 'third', 'read-only');
+    expect(adapter.requests.slice(2).map(request => request.resumeSessionId)).toEqual([`native-${orchestrator.state.tasks[1]!.id}`, undefined]);
+    expect(adapter.requests[3]!.prompt).toContain('second'); expect(orchestrator.state.tasks[2]).toMatchObject({ status: 'completed', contextMode: 'rebuilt' });
+    expect(orchestrator.state.tasks[2]!.events?.map(event => event.kind)).toContain('session-rebuilt');
+    adapter.missing = false;
+    await orchestrator.setRejected(orchestrator.state.tasks[2]!.id, true);
+    await orchestrator.send('claude', 'fourth', 'read-only');
+    // 有不採用的回答時不接續原生 Session，避免它又被當成事實。
+    expect(adapter.requests.at(-1)!.resumeSessionId).toBeUndefined(); expect(adapter.requests.at(-1)!.prompt).toContain('answer rejected by the user');
     await orchestrator.dispose();
   });
   it('locks before awaiting and supports cancellation', async () => {

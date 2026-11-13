@@ -10,7 +10,7 @@ export class ClaudeCodeAdapter extends CliAdapter {
     const help = await this.probe(command, ['--help']);
     this.help = help.stdout;
     const compatible = ['--restricted', '--safe-mode', '--tools', '--strict-mcp-config', '--include-partial-messages', '--settings', '--no-session-persistence'].every(flag => this.help.includes(flag));
-    const capabilities = { streaming: compatible, readOnly: compatible, workspaceWrite: compatible, resumeSession: false, toolApproval: true, structuredOutput: true };
+    const capabilities = { streaming: compatible, readOnly: compatible, workspaceWrite: compatible, resumeSession: compatible && this.help.includes('--resume'), toolApproval: true, structuredOutput: true };
     if (!compatible) return { id: this.id, status: 'installed', version: version.stdout.trim(), reason: '此版本缺少 restricted / safe-mode 或串流能力，請更新 Claude Code。', capabilities };
     const auth = await this.probe(command, ['auth', 'status']);
     let loggedIn = false;
@@ -33,7 +33,8 @@ export class ClaudeCodeAdapter extends CliAdapter {
       '--safe-mode', '--tools', tools, '--allowedTools', interactive ? 'Read,Glob,Grep' : tools,
       ...(interactive ? ['--input-format', 'stream-json', '--permission-prompts', 'host', '--permission-prompt-tool', 'stdio'] : []),
       '--permission-mode', permission,
-      '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--disable-slash-commands', '--no-session-persistence',
+      '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--disable-slash-commands',
+      ...(request.resumeSessionId ? ['--resume', request.resumeSessionId] : request.persist ? [] : ['--no-session-persistence']),
       // --safe-mode 實測已不讀 auto-memory；仍明確關掉, 避免 Participant 之間或與使用者自己的 Claude Code 經由專案記憶互相讀寫。
       '--settings', JSON.stringify({ disableAllHooks: true, autoMemoryEnabled: false, permissions: { deny } })];
   }

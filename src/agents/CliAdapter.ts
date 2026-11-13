@@ -16,7 +16,10 @@ export function failureKind(text: string): FailureKind | undefined {
   if (/rate.?limit|too many requests|429|limit.reached|overloaded/i.test(text)) return 'rate-limit';
   return undefined;
 }
+/** 原生 Session 已不存在或無法接續；Orchestrator 會改以 SQLite 上下文重建，不當成任務失敗。 */
+export class SessionUnavailable extends ProviderFailure {}
 export function providerFailure(text: string, code?: number): ProviderFailure {
+  if (/no conversation found|session.{0,20}not found|thread.{0,20}not found|no rollout found|unknown thread/i.test(text)) return new SessionUnavailable('原生 Session 已無法接續。');
   return new ProviderFailure(friendlyFailure(text, code), failureKind(text));
 }
 export function friendlyFailure(text: string, code?: number): string {

@@ -46,7 +46,7 @@ describe('Discussion Coordinator', () => {
     const result = await coordinator.run('Repository Pattern 是否值得導入？', pair, 4);
     expect(result).toMatchObject({ status: 'completed', completedRounds: 4 });
     expect(adapter.requests).toHaveLength(5);
-    expect(adapter.requests.every(request => request.mode === 'read-only')).toBe(true);
+    expect(adapter.requests.every(request => request.mode === 'read-only' && !request.persist && !request.resumeSessionId)).toBe(true);
     expect(adapter.requests[1]!.prompt).toContain('Critic'); expect(adapter.requests[1]!.prompt).toContain('第 1 輪觀點');
     expect(orchestrator.state.tasks.filter(task => task.roundNo).map(task => [task.participantId, task.roundNo])).toEqual([['codex-a', 1], ['codex-b', 2], ['codex-a', 3], ['codex-b', 4]]);
     // 總結由新的中立 Participant 唯讀執行，逐輪標明 A／B 與輪次。

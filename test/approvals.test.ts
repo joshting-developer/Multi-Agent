@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { ProcessManager, type ProcessRequest } from '../src/execution/ProcessManager';
 import { CodexAppServerAdapter } from '../src/agents/CodexAppServerAdapter';
 import { ClaudeCodeAdapter } from '../src/agents/ClaudeCodeAdapter';
+import { SessionUnavailable } from '../src/agents/CliAdapter';
 import type { AgentRequest } from '../src/agents/AgentAdapter';
 import type { AgentId } from '../src/bridge/messages';
 class Processes extends ProcessManager {
@@ -34,6 +35,24 @@ describe.each(['codex', 'claude'] as const)('%s official approval protocol', pro
     const { adapter, processes } = setup(); await adapter.detect(); const approve = vi.fn(async () => true);
     for await (const event of adapter.execute({ ...request, mode: 'read-only', approve })) void event;
     expect(approve).not.toHaveBeenCalled(); await processes.dispose();
+  });
+  it('keeps a native session only when asked and resumes it by id', async () => {
+    const { adapter, processes } = setup('ok'); const status = await adapter.detect();
+    expect(status.capabilities.resumeSession).toBe(true);
+    const run = async (extra: Partial<AgentRequest>) => { let text = ''; for await (const event of adapter.execute({ ...request, approvalMode: 'auto-review', ...extra })) if (event.type === 'text-delta') text += event.text; return text; };
+    if (provider === 'codex') {
+      expect(JSON.parse(await run({}))).toMatchObject({ ephemeral: true });
+      expect(JSON.parse(await run({ persist: true }))).toMatchObject({ ephemeral: false });
+      expect(JSON.parse(await run({ persist: true, resumeSessionId: 'thread-1' }))).toMatchObject({ resumed: true, threadId: 'thread-1', excludeTurns: true });
+      await expect(run({ persist: true, resumeSessionId: 'missing' })).rejects.toBeInstanceOf(SessionUnavailable);
+    } else {
+      const args = async (extra: Partial<AgentRequest>) => { await run(extra); return processes.requests.at(-1)!.args; };
+      expect(await args({})).toContain('--no-session-persistence');
+      expect(await args({ persist: true })).not.toContain('--no-session-persistence');
+      const resumed = await args({ persist: true, resumeSessionId: 'session-1' });
+      expect(resumed[resumed.indexOf('--resume') + 1]).toBe('session-1'); expect(resumed).not.toContain('--no-session-persistence');
+    }
+    await processes.dispose();
   });
   it('maps auto-review to the native reviewer and full access to explicit CLI settings', async () => {
     const { adapter, processes } = setup('ok'); await adapter.detect();

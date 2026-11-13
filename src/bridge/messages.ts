@@ -8,7 +8,7 @@ export type ExecutionMode = z.infer<typeof modeSchema>;
 export const participantRoleSchema = z.enum(['architect', 'critic', 'summarizer']);
 export type ParticipantRole = z.infer<typeof participantRoleSchema>;
 /** 稽核事件只存種類與簡短說明（工具名稱、核准標題、Provider），不存命令內容、檔案差異或認證資料。 */
-export const auditKinds = ['tool-start', 'tool-end', 'tool-failed', 'approval-requested', 'approval-allowed', 'approval-denied', 'cancelled', 'data-outbound', 'policy-changed', 'full-access-granted'] as const;
+export const auditKinds = ['tool-start', 'tool-end', 'tool-failed', 'approval-requested', 'approval-allowed', 'approval-denied', 'cancelled', 'data-outbound', 'policy-changed', 'full-access-granted', 'session-rebuilt'] as const;
 export const auditEventSchema = z.object({ at: z.number(), kind: z.enum(auditKinds), detail: z.string().max(200) });
 export type AuditEvent = z.infer<typeof auditEventSchema>;
 /** 執行過程依實際順序保存：Agent 文字與工具交錯；工具 IN／OUT 已遮罩並截斷。 */
@@ -26,7 +26,9 @@ export const taskSchema = z.object({
   model: modelIdSchema.optional(), effort: z.union([effortSchema, z.literal('default')]).optional().transform(value => value === 'default' ? undefined : value).optional(),
   approvalMode: z.enum(approvalModes).optional(),
   failureKind: z.enum(['quota', 'rate-limit']).optional(), substitute: z.boolean().optional(),
-  rejected: z.boolean().optional(), contextIds: z.array(z.string()).optional(), events: z.array(auditEventSchema).optional(), steps: z.array(stepSchema).optional()
+  rejected: z.boolean().optional(), contextIds: z.array(z.string()).optional(), events: z.array(auditEventSchema).optional(), steps: z.array(stepSchema).optional(),
+  /** native：接續官方原生 Session；rebuilt：由 SQLite 上下文重建。persisted：這次的原生 Session 有保留，可供下次接續。 */
+  contextMode: z.enum(['native', 'rebuilt']).optional(), persisted: z.boolean().optional()
 });
 export type Task = z.infer<typeof taskSchema>;
 export type Classification = 'unclassified' | 'personal' | 'company' | 'restricted';

@@ -3,7 +3,7 @@ import type { AgentId, ApprovalRequest, AuditEvent, ExecutionMode, ParticipantRo
 import { AgentRegistry } from '../agents/AgentRegistry';
 import { assertAuthorized } from '../execution/ExecutionPolicy';
 import { ProcessError } from '../execution/ProcessManager';
-import { ProviderFailure } from '../agents/CliAdapter';
+import { ProviderFailure, SessionUnavailable } from '../agents/CliAdapter';
 import { buildContext } from './ContextBuilder';
 import { redact } from '../execution/Redact';
 import type { AgentEvent } from '../agents/AgentAdapter';
@@ -101,20 +101,18 @@ export class Orchestrator {
       // Only the same participant's completed history is included (solo = same provider without participant).
       // No implicit sharing across providers or between participants A／B.
       const history = this.state.tasks.filter(item => item.id !== task.id && item.provider === task.provider && item.participantId === task.participantId && item.status === 'completed');
-      const { prompt: message, contextIds } = buildContext(history, task.prompt);
-      if (contextIds.length) task.contextIds = contextIds;
-      const prompt = task.participantRole ? `${roleInstructions[task.participantRole]}\n\n${message}` : message;
-      for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
-        if (event.type === 'text-delta') {
-          if (task.output.length + event.text.length > 512 * 1024) throw new Error('回應超過 512 KB 上限，已停止任務。');
-          task.output += event.text;
-          const last = task.steps?.at(-1);
-          if (last?.kind === 'text') last.text += event.text; else task.steps?.push({ kind: 'text', text: event.text });
-        } else if (event.type === 'activity') task.activity = event.text;
-        else if (event.type === 'tool') this.toolStep(task, event);
-        else task.sessionId = event.sessionId;
-        this.changed(true);
+      // 一般聊天才保留並接續原生 Session；討論一律一次性，避免 A／B 透過原生 Session 混用記憶。
+      // 使用者不採用過的回答仍在原生 Session 裡，有不採用時改以 SQLite 上下文重建。
+      const native = !task.participantId && !!this.state.providers.find(item => item.id === task.provider)?.capabilities.resumeSession;
+      const previous = history.at(-1);
+      const resume = native && previous?.persisted && previous.sessionId && !history.some(item => item.rejected) ? previous.sessionId : undefined;
+      try { await this.run(task, history, controller, native, resume); }
+      catch (error) {
+        if (!resume || !(error instanceof SessionUnavailable) || task.output || task.steps) throw error;
+        this.audit(task, 'session-rebuilt', '原生 Session 無法接續，改以上下文重建');
+        await this.run(task, history, controller, native);
       }
+      task.persisted = native || undefined;
       task.status = controller.signal.aborted ? 'cancelled' : 'completed';
     } catch (error) {
       task.status = controller.signal.aborted || (error instanceof ProcessError && error.kind === 'cancelled') ? 'cancelled' : 'failed';
@@ -132,6 +130,23 @@ export class Orchestrator {
   }
   /** 工作區層級的授權事件（授權變更、完整存取）不屬於單次執行，直接寫入稽核紀錄。 */
   auditWorkspace(kind: AuditEvent['kind'], detail: string): Promise<void> { return this.repository.audit({ at: Date.now(), kind, detail: detail.slice(0, 200) }); }
+  private async run(task: Task, history: Task[], controller: AbortController, persist: boolean, resumeSessionId?: string): Promise<void> {
+    const { prompt: message, contextIds } = resumeSessionId ? { prompt: task.prompt, contextIds: [] } : buildContext(history, task.prompt);
+    if (contextIds.length) task.contextIds = contextIds; else delete task.contextIds;
+    if (resumeSessionId) task.contextMode = 'native'; else if (contextIds.length) task.contextMode = 'rebuilt'; else delete task.contextMode;
+    const prompt = task.participantRole ? `${roleInstructions[task.participantRole]}\n\n${message}` : message;
+    for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, persist, resumeSessionId, approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
+      if (event.type === 'text-delta') {
+        if (task.output.length + event.text.length > 512 * 1024) throw new Error('回應超過 512 KB 上限，已停止任務。');
+        task.output += event.text;
+        const last = task.steps?.at(-1);
+        if (last?.kind === 'text') last.text += event.text; else task.steps?.push({ kind: 'text', text: event.text });
+      } else if (event.type === 'activity') task.activity = event.text;
+      else if (event.type === 'tool') this.toolStep(task, event);
+      else task.sessionId = event.sessionId;
+      this.changed(true);
+    }
+  }
   /** 第一次出現工具時才建立步驟清單，先放入目前為止的文字，之後文字與工具依實際順序交錯。 */
   private toolStep(task: Task, event: Extract<AgentEvent, { type: 'tool' }>): void {
     const steps = task.steps ??= task.output ? [{ kind: 'text', text: task.output }] : [];

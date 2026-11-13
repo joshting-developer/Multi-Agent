@@ -18,7 +18,7 @@ Codex 的產品執行路徑使用 `CodexAppServerAdapter`，透過本機 stdio �
 
 Claude 使用官方 stream-json 輸入／輸出與 control_request/control_response；`--permission-prompt-tool stdio` 為官方 SDK 使用的核准傳輸通道。Manual / auto / bypassPermissions 對應核准模式。只讀時不提供寫入與 Bash 工具。
 
-每次執行建立隔離的原生任務，Session ID 保存在 run；產品 Conversation ID 與原生 ID 分開。續聊透過目前對話／Provider 的有限歷史重播，不自動跨 Provider 傳遞上下文，不宣稱已承接原生完整 resume。
+一般聊天保留官方原生 Session（Claude 不加 `--no-session-persistence`、Codex 非 ephemeral thread），下一輪同 Provider 以 Claude `--resume`／Codex `thread/resume` 接續，只送這次的訊息，task 標記 `contextMode: native`。原生 Session 不存在、Provider 不支援，或歷史中有使用者不採用的回答時，改由 SQLite 上下文重建並標示「上下文已重建」，不假裝原生恢復。討論與總結一律一次性，不保留也不接續原生 Session。Session ID 保存在 run 與 Participant；產品 Conversation ID 與原生 ID 分開，不跨 Provider 傳遞上下文。保留的原生 Session 存在官方 CLI 自己的目錄（`~/.claude/projects`、`~/.codex/sessions`），Extension 不讀取其內容。
 
 帳號來自 Codex `account/read` 或 Claude `auth status`，只選取公開的身分欄位。Extension 不讀認證檔、不保存 Token。帳號只送至設定 Webview，不寫入聊天資料庫。
 

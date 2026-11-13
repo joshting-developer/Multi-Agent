@@ -1,7 +1,7 @@
 import type { AgentEvent, AgentRequest } from './AgentAdapter';
 import { CodexAdapter } from './CodexAdapter';
 import { CodexRpc, readCodexAccount } from './CodexRpc';
-import { providerFailure, record, toolText } from './CliAdapter';
+import { providerFailure, record, SessionUnavailable, toolText } from './CliAdapter';
 import { protectedPatterns } from '../execution/ExecutionPolicy';
 
 export class CodexAppServerAdapter extends CodexAdapter {
@@ -9,7 +9,7 @@ export class CodexAppServerAdapter extends CodexAdapter {
   protected override async inspect(command: string) {
     const status = await super.inspect(command);
     const help = await this.probe(command, ['--help']);
-    status.capabilities.toolApproval = true;
+    status.capabilities.toolApproval = true; status.capabilities.resumeSession = status.capabilities.streaming;
     status.approvalModes = help.stdout.includes('--approve-for-me') ? ['ask', 'auto-review', 'full-access'] : ['ask', 'full-access'];
     if (status.status === 'ready') {
       try { status.account = await readCodexAccount(this.processes, command, this.detectionCwd); }
@@ -39,10 +39,12 @@ export class CodexAppServerAdapter extends CodexAdapter {
     const changes = new Map<string, unknown>();
     try {
       for await (const message of rpc.messages({ command: this.command, cwd: request.cwd, timeoutMs: request.timeoutMs, signal: controller.signal, config })) {
+        if (message.error && message.id === 2 && request.resumeSessionId) throw new SessionUnavailable('原生 Session 已無法接續。');
         if (message.error && typeof message.id === 'number') throw providerFailure(JSON.stringify(message.error));
         if (message.id === 1 && !message.method) {
-          rpc.request(2, 'thread/start', {
-            model: request.model, cwd: request.cwd, ephemeral: true,
+          rpc.request(2, request.resumeSessionId ? 'thread/resume' : 'thread/start', {
+            ...(request.resumeSessionId ? { threadId: request.resumeSessionId, excludeTurns: true } : { ephemeral: !request.persist }),
+            model: request.model, cwd: request.cwd,
             approvalPolicy: request.mode === 'read-only' || approvalMode === 'full-access' ? 'never' : 'on-request',
             approvalsReviewer: approvalMode === 'auto-review' ? 'auto_review' : 'user',
             ...(sandboxed ? {} : { sandbox: 'danger-full-access' }),

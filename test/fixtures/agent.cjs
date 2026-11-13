@@ -4,7 +4,7 @@ const emit = event => process.stdout.write(JSON.stringify(event) + '\n');
 if (args.includes('--version')) {
   console.log(provider === 'claude' ? '2.1.319 (Claude Code)' : 'codex-cli 0.164.0');
 } else if (args.includes('--help')) {
-  console.log(scenario === 'old' ? '--print --json' : '--restricted --safe-mode --tools --strict-mcp-config --include-partial-messages --settings --no-session-persistence --json --ignore-user-config --ignore-rules --ephemeral --model --effort --approve-for-me --input-format --permission-prompts auto');
+  console.log(scenario === 'old' ? '--print --json' : '--restricted --safe-mode --tools --strict-mcp-config --include-partial-messages --settings --no-session-persistence --json --ignore-user-config --ignore-rules --ephemeral --model --effort --approve-for-me --input-format --permission-prompts auto --resume');
 } else if (args[0] === 'features') {
   console.log('shell_tool stable true\nmulti_agent stable true\nunified_exec stable true\nhooks stable true\napps stable true\nplugins stable true');
 } else if (args[0] === 'auth' || args[0] === 'login') {
@@ -25,6 +25,11 @@ if (args.includes('--version')) {
     else if (message.method === 'initialized') initialized = true;
     else if (message.method === 'account/read') emit({ id: message.id, result: { account: { type: 'chatgpt', email: 'codex@example.test', planType: 'pro', accessToken: 'secret-must-not-leak' } } });
     else if (message.method === 'thread/start') { global.start = message.params; emit({ id: message.id, result: { thread: { id: 'rpc-session' } } }); }
+    else if (message.method === 'thread/resume') {
+      global.start = { ...message.params, resumed: true };
+      if (message.params.threadId === 'missing') emit({ id: message.id, error: { message: 'thread not found: missing' } });
+      else emit({ id: message.id, result: { thread: { id: message.params.threadId } } });
+    }
     else if (message.method === 'turn/start') {
       emit({ id: message.id, result: { turn: { id: 'turn' } } });
       if (scenario === 'approval') emit({ id: 99, method: 'item/commandExecution/requestApproval', params: { command: 'echo approval', cwd: requestCwd(), reason: 'Synthetic test' } });
