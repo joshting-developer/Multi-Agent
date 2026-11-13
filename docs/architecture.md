@@ -30,7 +30,7 @@ Claude 使用官方 stream-json 輸入／輸出與 control_request/control_respo
 
 WASM 模式採 SQLite 交易後原子匯出單檔，短生命週期寫入鎖避免其他視窗覆蓋不同對話；可回收已退出程序的舊鎖。這不是 native WAL 設計。大規模歷史的效能、備份及 native WAL／FTS5 是後續工作。
 
-目前搜尋是參數化 SQL 的子字串查詢；中英文字面查詢已測試。日期／Provider 篩選、FTS5、工程記憶與來源引用依 v0.2 後續里程碑增加。
+目前搜尋是參數化 SQL 的子字串查詢；中英文字面查詢已測試。打包的 sql.js 沒有 FTS5，評估與啟用條件見 [全文索引評估](research/fts-search.md)。日期／Provider 篩選、FTS5、工程記憶與來源引用依 v0.2 後續里程碑增加。
 
 ## UI
 
