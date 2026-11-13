@@ -84,7 +84,7 @@ describe('Explicit models, accounts and history controls', () => {
     expect(filters).toMatchObject({ provider: 'codex', mode: 'discussion' }); expect(Date.now() - filters.since).toBeGreaterThan(6.9 * 86400000);
     await wrapper.setProps({ conversations: [{ id: 'one', title: '注入失敗修復', createdAt: 1, updatedAt: 1, preview: '…注入失敗…', match: { runId: 'r', at: Date.UTC(2026, 10, 3), provider: 'claude' as const, discussion: true } }] });
     expect(wrapper.get('.history-open small').text()).toContain('Claude'); expect(wrapper.get('.history-open small').text()).toContain('討論');
-    await wrapper.get('.history-open').trigger('click'); expect(wrapper.emitted('open')).toEqual([['one']]);
+    await wrapper.get('.history-open').trigger('click'); expect(wrapper.emitted('open')).toEqual([['one', { runId: 'r', at: Date.UTC(2026, 10, 3), provider: 'claude', discussion: true }]]);
     await wrapper.setProps({ conversations: [{ id: 'one', title: '背景', createdAt: 1, updatedAt: 1, activity: 'waiting' as const }] });
     expect(wrapper.get('.history-open small').text()).toContain('等待核准'); wrapper.unmount();
   });

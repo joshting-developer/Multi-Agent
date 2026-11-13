@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import type { AgentId, ConversationSummary, SearchFilters } from '../../../src/bridge/messages';
+import type { AgentId, ConversationSummary, SearchFilters, SearchMatch } from '../../../src/bridge/messages';
 withDefaults(defineProps<{ conversations: ConversationSummary[]; activeId?: string; busy: boolean; searching: boolean; providers?: AgentId[] }>(), { activeId: undefined, providers: () => [] });
-const emit = defineEmits<{ search: [query: string, filters: SearchFilters]; open: [id: string]; rename: [id: string, title: string]; delete: [id: string] }>();
+const emit = defineEmits<{ search: [query: string, filters: SearchFilters]; open: [id: string, match?: SearchMatch]; rename: [id: string, title: string]; delete: [id: string] }>();
 const query = ref('');
 const provider = ref<AgentId | ''>(''); const mode = ref<'solo' | 'discussion' | ''>(''); const period = ref<'' | 'today' | '7' | '30'>('');
 const editing = ref(''); const title = ref('');
@@ -32,7 +32,7 @@ function rename(id: string) { if (title.value.trim()) emit('rename', id, title.v
     <article v-for="conversation in conversations" :key="conversation.id" :class="['history-item', { selected: conversation.id === activeId }]">
       <form v-if="editing === conversation.id" @submit.prevent="rename(conversation.id)"><input v-model="title" aria-label="對話名稱" maxlength="120" /><button type="submit">儲存</button><button type="button" @click="editing = ''">取消</button></form>
       <template v-else>
-        <button type="button" class="history-open" :disabled="busy" @click="$emit('open', conversation.id)"><span>{{ conversation.title }}</span><small v-if="conversation.match">{{ conversation.match.provider === 'claude' ? 'Claude' : 'Codex' }} · {{ date(conversation.match.at) }}{{ conversation.match.discussion ? ' · 討論' : '' }}</small><small v-else>{{ conversation.provider === 'claude' ? 'Claude' : conversation.provider === 'codex' ? 'Codex' : '' }} · {{ date(conversation.updatedAt) }}<template v-if="conversation.activity"> · {{ { running: '執行中', queued: '排隊中', waiting: '等待核准' }[conversation.activity] }}</template></small><span v-if="query.trim() && conversation.preview" class="history-preview">{{ conversation.preview }}</span></button>
+        <button type="button" class="history-open" :disabled="busy" @click="emit('open', conversation.id, conversation.match)"><span>{{ conversation.title }}</span><small v-if="conversation.match">{{ conversation.match.provider === 'claude' ? 'Claude' : 'Codex' }} · {{ date(conversation.match.at) }}{{ conversation.match.discussion ? ' · 討論' : '' }}</small><small v-else>{{ conversation.provider === 'claude' ? 'Claude' : conversation.provider === 'codex' ? 'Codex' : '' }} · {{ date(conversation.updatedAt) }}<template v-if="conversation.activity"> · {{ { running: '執行中', queued: '排隊中', waiting: '等待核准' }[conversation.activity] }}</template></small><span v-if="query.trim() && conversation.preview" class="history-preview">{{ conversation.preview }}</span></button>
         <div class="history-actions"><button type="button" class="text-button" :disabled="busy" :aria-label="`重新命名 ${conversation.title}`" @click="editing = conversation.id; title = conversation.title">重新命名</button><button type="button" class="text-button" :disabled="busy" :aria-label="`刪除 ${conversation.title}`" @click="$emit('delete', conversation.id)">刪除</button></div>
       </template>
     </article>

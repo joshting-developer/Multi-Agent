@@ -154,13 +154,14 @@ export class ConversationDatabase {
     const where = searching ? ` AND ((${match}) IS NOT NULL${title})` : '';
     return this.rows(`SELECT c.*, (SELECT provider FROM runs WHERE conversation_id=c.id ORDER BY started_at DESC LIMIT 1) provider,
       m.id match_id, m.provider match_provider, m.started_at match_at, json_extract(m.task_json,'$.discussionId') match_discussion,
-      substr(m.search_body, max(1, instr(lower(m.search_body),?)-60), 180) preview
+      substr(m.search_body, max(1, instr(lower(m.search_body),?)-60), 180) preview,
+      (SELECT id FROM messages WHERE run_id=m.id AND (?='' OR instr(lower(content),?)>0) ORDER BY sender_type='agent' DESC LIMIT 1) match_message
       FROM conversations c LEFT JOIN runs m ON ${searching ? `m.id=(${match})` : '0'} WHERE c.root=?${where} ORDER BY c.updated_at DESC`,
     // 參數順序對應 SQL 中 ? 的出現順序：片段、JOIN 的命中條件、專案、WHERE 的命中條件、標題。
-    [pattern, ...(searching ? values : []), this.root, ...(searching ? values : []), ...(title ? [pattern, ...(allowed ?? [])] : [])]).map(row => ({
+    [pattern, pattern, pattern, ...(searching ? values : []), this.root, ...(searching ? values : []), ...(title ? [pattern, ...(allowed ?? [])] : [])]).map(row => ({
         id: String(row.id), title: String(row.title), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
         provider: row.provider === 'claude' || row.provider === 'codex' ? row.provider : undefined,
-        ...(typeof row.match_id === 'string' && { preview: String(row.preview ?? ''), match: { runId: row.match_id, at: Number(row.match_at), provider: agentIdSchema.parse(row.match_provider), discussion: row.match_discussion !== null } })
+        ...(typeof row.match_id === 'string' && { preview: String(row.preview ?? ''), match: { runId: row.match_id, ...(typeof row.match_message === 'string' && { messageId: row.match_message }), at: Number(row.match_at), provider: agentIdSchema.parse(row.match_provider), discussion: row.match_discussion !== null } })
       }));
   }
   load(id: string): Task[] {

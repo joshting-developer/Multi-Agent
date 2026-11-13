@@ -54,7 +54,7 @@ export interface DiscussionBlock { kind: 'quota' | 'rate-limit'; provider: Agent
 export interface DiscussionSummary { id: string; status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'; completedRounds: number; maxRounds: number; summaryTaskId?: string; blocked?: DiscussionBlock }
 export interface SearchFilters { provider?: AgentId; mode?: 'solo' | 'discussion'; since?: number; until?: number }
 /** 搜尋命中的那一次執行：實際來源與時間，供結果顯示與跳到原始訊息。 */
-export interface SearchMatch { runId: string; at: number; provider: AgentId; discussion: boolean }
+export interface SearchMatch { runId: string; messageId?: string; at: number; provider: AgentId; discussion: boolean }
 export interface ConversationSummary { id: string; title: string; createdAt: number; updatedAt: number; provider?: AgentId; preview?: string; activity?: 'running' | 'queued' | 'waiting'; match?: SearchMatch }
 export interface AccountSummary { id: string; provider: AgentId; name: string; builtIn: boolean; loggedIn?: boolean; account?: ProviderStatus['account'] }
 export interface ApprovalRequest { id: string; taskId: string; provider: AgentId; title: string; detail: string; conversationId?: string }

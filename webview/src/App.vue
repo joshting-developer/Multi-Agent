@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { AgentId, ExecutionMode, SearchFilters, WebviewToHost } from '../../src/bridge/messages';
+import type { AgentId, ExecutionMode, SearchFilters, SearchMatch, WebviewToHost } from '../../src/bridge/messages';
 import { useHost } from './composables/useHost';
 import Conversation from './components/Conversation.vue';
 import Composer from './components/Composer.vue';
@@ -50,7 +50,11 @@ function action(type: 'new-conversation' | 'authorize-workspace' | 'show-options
   if (message.type === 'new-conversation') navigate(message); else post(message);
 }
 function historySearch(query: string, filters: SearchFilters = {}) { historyQuery.value = query; historyFilters.value = filters; searchConversations(query, filters); }
-function openConversation(id: string) { navigate({ version: 1, type: 'open-conversation', requestId: crypto.randomUUID(), conversationId: id }); historyShown.value = false; }
+const focus = ref<{ runId: string; query: string; revision: number }>();
+function openConversation(id: string, match?: SearchMatch) {
+  focus.value = match ? { runId: match.runId, query: historyQuery.value, revision: (focus.value?.revision ?? 0) + 1 } : undefined;
+  navigate({ version: 1, type: 'open-conversation', requestId: crypto.randomUUID(), conversationId: id }); historyShown.value = false;
+}
 function renameConversation(id: string, title: string) { post({ version: 1, type: 'rename-conversation', requestId: crypto.randomUUID(), conversationId: id, title }); }
 function deleteConversation(id: string) { post({ version: 1, type: 'delete-conversation', requestId: crypto.randomUUID(), conversationId: id }); }
 function rejectAnswer(taskId: string, rejected: boolean) { post({ version: 1, type: 'reject-answer', requestId: crypto.randomUUID(), taskId, rejected }); }
@@ -98,7 +102,7 @@ function cancel() {
     <header class="chat-toolbar"><button type="button" class="conversation-title text-button" :disabled="navigationLocked" :aria-expanded="historyShown" @click="historyShown = !historyShown; historyQuery = ''; historyFilters = {}">{{ historyShown ? '歷史對話' : conversationTitle }}</button><div><button type="button" class="icon-button" aria-label="歷史對話" :disabled="navigationLocked" :aria-pressed="historyShown" @click="historyShown = !historyShown; historyQuery = ''; historyFilters = {}"><ChatIcon name="history" /></button><button type="button" class="icon-button" aria-label="新增對話" :disabled="navigationLocked" @click="action('new-conversation'); historyShown = false"><ChatIcon name="new" /></button></div></header>
     <p v-if="historyShown && error" class="error notice" role="alert">{{ error }}</p>
     <HistoryPanel v-if="historyShown" :conversations="history" :active-id="snapshot.conversationId" :busy="navigationLocked" :searching="historySearching" :providers="snapshot.policy.allowedProviders" @search="historySearch" @open="openConversation" @rename="renameConversation" @delete="deleteConversation" />
-    <Conversation v-else :key="snapshot.conversationId" :tasks="snapshot.tasks" @reject="rejectAnswer" />
+    <Conversation v-else :key="snapshot.conversationId" :tasks="snapshot.tasks" :focus="focus" @reject="rejectAnswer" />
     <div v-if="!historyShown" class="input-area">
       <p v-if="error" class="error notice" role="alert">{{ error }}</p>
       <div v-else-if="notice" class="notice" role="status"><span>{{ notice.text }}</span><button v-if="notice.action" type="button" class="text-button" :disabled="busy" @click="action(notice.action)">{{ notice.action === 'authorize-workspace' ? '授權' : '設定' }}</button></div>

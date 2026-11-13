@@ -121,6 +121,20 @@ describe('Vue chat', () => {
     expect(wrapper.find('select[aria-label="帳號"]').exists()).toBe(false);
     wrapper.unmount();
   });
+  it('opens a search result at the original message, highlights the keyword and reports a deleted source', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const base = { provider: 'codex' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: Date.UTC(2026, 10, 3, 4) };
+    const tasks = [{ ...base, id: 'r1', prompt: '第一題', output: '無關' }, { ...base, id: 'r2', prompt: '注入失敗怎麼辦', output: 'Container 注入失敗，要補 bind' }];
+    const timeline = mount(Conversation, { props: { tasks, focus: { runId: 'r2', query: '注入失敗', revision: 1 } }, attachTo: document.body });
+    await nextTick(); await nextTick();
+    const focused = timeline.get('.turn.focused');
+    expect(focused.attributes('data-run')).toBe('r2'); expect(focused.findAll('mark').map(item => item.text())).toEqual(['注入失敗', '注入失敗']);
+    expect(focused.get('.task-status').text()).not.toBe(''); expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    expect(timeline.find('[role="alert"]').exists()).toBe(false);
+    await timeline.setProps({ focus: { runId: 'deleted', query: 'x', revision: 2 } }); await nextTick(); await nextTick();
+    expect(timeline.get('[role="alert"]').text()).toBe('找不到原始訊息，可能已刪除。');
+    timeline.unmount();
+  });
   it('moves focus to Stop while running and back to the input when the removed control dropped it', async () => {
     const wrapper = mount(Composer, { attachTo: document.body, props: { busy: false, running: false, canSend: true, initialDraft: '' } });
     await wrapper.setProps({ running: true, busy: true }); await nextTick();

@@ -3,7 +3,7 @@ import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import type { Step, Task } from '../../../src/bridge/messages';
 import MessageBody from './MessageBody.vue';
 import ChatIcon from './ChatIcon.vue';
-const props = defineProps<{ tasks: Task[] }>();
+const props = withDefaults(defineProps<{ tasks: Task[]; focus?: { runId: string; query: string; revision: number } }>(), { focus: undefined });
 const emit = defineEmits<{ reject: [taskId: string, rejected: boolean] }>();
 const viewport = ref<HTMLElement>();
 const follow = ref(true);
@@ -20,6 +20,32 @@ watch(() => props.tasks.map(task => [task.id, task.output.length, task.status, t
   const element = viewport.value;
   if (element) element.scrollTop = element.scrollHeight;
 }, { deep: true });
+// 從搜尋結果開啟時定位到命中的那一次執行，並在該則訊息中標示關鍵字；找不到時明確顯示失效。
+const missing = ref(false); let applied = 0;
+watch(() => [props.focus?.revision, props.tasks.length], async () => {
+  const focus = props.focus;
+  if (!focus || focus.revision === applied || !props.tasks.length) return;
+  applied = focus.revision; await nextTick();
+  const turn = viewport.value?.querySelector<HTMLElement>(`[data-run="${typeof CSS === 'undefined' ? focus.runId : CSS.escape(focus.runId)}"]`);
+  missing.value = !turn; if (!turn) return;
+  follow.value = false; turn.scrollIntoView({ block: 'center' }); mark(turn, focus.query);
+}, { immediate: true });
+function mark(root: HTMLElement, query: string) {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = []; for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node as Text);
+  let count = 0;
+  for (const node of nodes) {
+    let text = node; let index = text.data.toLocaleLowerCase().indexOf(needle);
+    while (index >= 0 && count < 50) {
+      const hit = text.splitText(index); text = hit.splitText(needle.length);
+      const highlight = document.createElement('mark'); hit.replaceWith(highlight); highlight.append(hit); count++;
+      index = text.data.toLocaleLowerCase().indexOf(needle);
+    }
+  }
+}
+const date = (value: number) => new Date(value).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const elapsed = (task: Task) => Math.max(0, Math.floor(((task.endedAt ?? now.value) - task.startedAt) / 1000));
 const speaker = (task: Task) => {
   const name = task.provider === 'claude' ? 'Claude Code' : 'Codex';
@@ -35,11 +61,12 @@ const statusLabel = (task: Task) => ({ queued: '排隊中', running: '執行中'
 <template>
   <section ref="viewport" class="conversation" aria-label="對話紀錄" @scroll="onScroll">
     <div v-if="tasks.length === 0" class="empty-state" aria-label="開始對話"><ChatIcon name="chat" /></div>
-    <article v-for="task in tasks" :key="task.id" class="turn">
+    <p v-if="missing" class="notice" role="alert">找不到原始訊息，可能已刪除。</p>
+    <article v-for="task in tasks" :key="task.id" :class="['turn', { focused: focus?.runId === task.id && !missing }]" :data-run="task.id">
       <div v-if="!task.discussionId || task.roundNo === 1" class="message user-message"><p class="prompt">{{ task.prompt }}</p></div>
       <div :class="['message', 'assistant-message', { rejected: task.rejected }]">
         <div class="message-label">
-          <strong>{{ speaker(task) }}</strong><span v-if="task.status !== 'completed'" :class="['task-status', task.status]">{{ statusLabel(task) }}<template v-if="task.status === 'running'"> · {{ elapsed(task) }}s</template></span><span v-else-if="task.rejected" class="task-status">已不採用</span><span v-if="task.persisted && task.contextMode === 'rebuilt'" class="task-status">上下文已重建</span>
+          <strong>{{ speaker(task) }}</strong><span v-if="focus?.runId === task.id" class="task-status">{{ date(task.startedAt) }}</span><span v-if="task.status !== 'completed'" :class="['task-status', task.status]">{{ statusLabel(task) }}<template v-if="task.status === 'running'"> · {{ elapsed(task) }}s</template></span><span v-else-if="task.rejected" class="task-status">已不採用</span><span v-if="task.persisted && task.contextMode === 'rebuilt'" class="task-status">上下文已重建</span>
           <button v-if="task.status === 'completed' && !task.discussionId" type="button" class="text-button" @click="emit('reject', task.id, !task.rejected)">{{ task.rejected ? '恢復採用' : '不採用' }}</button>
         </div>
         <template v-if="task.steps?.length">
