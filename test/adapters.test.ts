@@ -40,7 +40,10 @@ describe.each(['claude', 'codex'] as const)('%s adapter', id => {
       expect(args.find(value => value.startsWith('permissions.multi_agent={'))).toContain('"."="read"');
       expect(args).not.toContain('--ignore-rules'); expect(args).not.toContain('project_doc_max_bytes=0');
     }
-    else { expect(args).toContain('--restricted'); expect(args).toContain('--safe-mode'); expect(args).toContain('Read,Glob,Grep'); }
+    else {
+      expect(args).toContain('--restricted'); expect(args).toContain('--safe-mode'); expect(args).toContain('Read,Glob,Grep');
+      expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toMatchObject({ autoMemoryEnabled: false });
+    }
   });
   it('never treats a version query as authentication', async () => {
     const { adapter } = make(id, 'unauthenticated');

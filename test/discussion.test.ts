@@ -15,11 +15,11 @@ const storage: StateStorage = { get: () => undefined, update: async () => undefi
 class ScriptedCodex implements AgentAdapter {
   requests: AgentRequest[] = [];
   cancelled: string[] = [];
-  constructor(private readonly failAt?: number, private readonly holdAt?: number, readonly id: AgentId = 'codex') {}
+  constructor(private readonly failAt?: number, private readonly holdAt?: number, readonly id: AgentId = 'codex', private readonly log?: string[]) {}
   capabilities() { return capabilities; }
   async detect(): Promise<ProviderStatus> { return { id: this.id, status: 'ready', capabilities }; }
   async *execute(request: AgentRequest) {
-    this.requests.push(request);
+    this.requests.push(request); this.log?.push(request.prompt);
     if (this.requests.length === this.failAt) throw new Error('CLI 失敗');
     if (this.requests.length === this.holdAt) await new Promise<void>(resolve => { if (request.signal.aborted) resolve(); else request.signal.addEventListener('abort', () => resolve(), { once: true }); });
     // 輸出試圖要求派生下一個 Agent；Coordinator 不得因此多執行。
@@ -127,6 +127,29 @@ describe('Discussion Coordinator', () => {
     expect(claude.requests.map(request => request.model)).toEqual(['sonnet', 'sonnet']); expect(codex.requests.map(request => request.model)).toEqual(['gpt-x']);
     expect(codex.requests[0]!.prompt).toContain('claude 第 1 次觀點'); expect(claude.requests[1]!.prompt).toContain('codex 第 1 次觀點');
     expect(orchestrator.state.tasks.map(task => [task.provider, task.roundNo])).toEqual([['claude', 1], ['codex', 2], ['claude', 3]]);
+    await orchestrator.dispose();
+  });
+  it.each([['codex', 'codex'], ['claude', 'claude'], ['claude', 'codex']] as Array<[AgentId, AgentId]>)('keeps %s A and %s B isolated from each other and from earlier sessions', async (first, second) => {
+    const log: string[] = [];
+    const adapters = new Map<AgentId, ScriptedCodex>([[first, new ScriptedCodex(undefined, undefined, first, log)], [second, new ScriptedCodex(undefined, undefined, second, log)]]);
+    const [main, ...others] = [...adapters.values()];
+    const { orchestrator, coordinator } = await setup(main!, others, [...adapters.keys()]);
+    const seen = () => log;
+    // 同一對話先有單 Agent 聊天和另一場討論，標記字串只出現在那些 Session 的輸入。
+    await orchestrator.send(first, 'SOLO-PRIVATE-7731 只屬於單 Agent 聊天', 'read-only');
+    if (second !== first) await orchestrator.send(second, 'SOLO-PRIVATE-7731 只屬於單 Agent 聊天', 'read-only');
+    await coordinator.run('EARLIER-DISCUSSION-4410 舊主題', [{ id: 'old-a', provider: first, role: 'architect' }, { id: 'old-b', provider: second, role: 'critic' }], 2);
+    const before = seen().length;
+    await coordinator.run('新主題', [{ id: 'new-a', provider: first, role: 'architect' }, { id: 'new-b', provider: second, role: 'critic' }], 4);
+    const tasks = orchestrator.state.tasks.filter(task => task.participantId?.startsWith('new-'));
+    const prompts = seen().slice(before);
+    expect(prompts).toHaveLength(4);
+    expect(prompts.some(prompt => /SOLO-PRIVATE-7731|EARLIER-DISCUSSION-4410/.test(prompt))).toBe(false);
+    // A 的角色指示與 B 的角色指示各自只送給自己。
+    tasks.forEach((task, index) => {
+      const own = task.participantId === 'new-a' ? 'Architect' : 'Critic'; const other = own === 'Architect' ? 'Critic. Challenge' : 'Architect. Propose';
+      expect(prompts[index]).toContain(`Your role in this discussion: ${own}`); expect(prompts[index]).not.toContain(other);
+    });
     await orchestrator.dispose();
   });
   it('refuses to start unless every provider is authorized and names the usable fallback', async () => {

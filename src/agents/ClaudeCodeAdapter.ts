@@ -34,7 +34,8 @@ export class ClaudeCodeAdapter extends CliAdapter {
       ...(interactive ? ['--input-format', 'stream-json', '--permission-prompts', 'host', '--permission-prompt-tool', 'stdio'] : []),
       '--permission-mode', permission,
       '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--disable-slash-commands', '--no-session-persistence',
-      '--settings', JSON.stringify({ disableAllHooks: true, permissions: { deny } })];
+      // --safe-mode 實測已不讀 auto-memory；仍明確關掉, 避免 Participant 之間或與使用者自己的 Claude Code 經由專案記憶互相讀寫。
+      '--settings', JSON.stringify({ disableAllHooks: true, autoMemoryEnabled: false, permissions: { deny } })];
   }
   protected override inputStream(request: AgentRequest) {
     if (!request.approvalMode) return undefined;
