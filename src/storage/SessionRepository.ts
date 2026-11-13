@@ -22,15 +22,16 @@ export class SessionRepository {
     const tasks = this.recover(parsed.data.tasks);
     return { tasks, policy: parsed.data.policy };
   }
-  save(tasks: Task[], policy: WorkspacePolicy): Promise<void> {
-    if (this.database) return this.database.save(this.conversationId, tasks[0]?.prompt.slice(0, 80) || '新對話', tasks, policy).then(async () => { if (!this.storage.get('multiAgent.sqliteMigrated')) await this.storage.update('multiAgent.sqliteMigrated', true); });
-    this.memory.set(this.conversationId, { title: tasks[0]?.prompt.slice(0, 80) || '新對話', tasks: structuredClone(tasks), createdAt: tasks[0]?.startedAt ?? Date.now() });
+  /** 預設存到目前檢視的對話；背景執行中的對話以 conversationId 指定。 */
+  save(tasks: Task[], policy: WorkspacePolicy, conversationId = this.conversationId): Promise<void> {
+    if (this.database) return this.database.save(conversationId, tasks[0]?.prompt.slice(0, 80) || '新對話', tasks, policy).then(async () => { if (!this.storage.get('multiAgent.sqliteMigrated')) await this.storage.update('multiAgent.sqliteMigrated', true); });
+    this.memory.set(conversationId, { title: tasks[0]?.prompt.slice(0, 80) || '新對話', tasks: structuredClone(tasks), createdAt: tasks[0]?.startedAt ?? Date.now() });
     // Snapshot before enqueueing so later streaming mutations cannot corrupt an earlier write.
     const value = JSON.parse(JSON.stringify({ version: 1, root: this.root, tasks, policy })) as unknown;
     this.writes = this.writes.catch(() => undefined).then(() => this.storage.update('multiAgent.session.v1', value));
     return this.writes;
   }
-  private recover(tasks: Task[]): Task[] { return tasks.map(task => task.status === 'running' ? { ...task, status: 'interrupted', endedAt: Date.now(), error: '上次 VS Code 關閉時任務仍在執行；未判定為成功。' } : task); }
+  private recover(tasks: Task[]): Task[] { return tasks.map(task => task.status === 'running' || task.status === 'queued' ? { ...task, status: 'interrupted', endedAt: Date.now(), error: task.status === 'queued' ? '上次 VS Code 關閉時任務仍在排隊；沒有執行。' : '上次 VS Code 關閉時任務仍在執行；未判定為成功。' } : task); }
   list(query = ''): ConversationSummary[] {
     return this.database?.list(query) ?? [...this.memory].filter(([, value]) => JSON.stringify(value).toLowerCase().includes(query.toLowerCase())).map(([id, value]) => ({ id, title: value.title, createdAt: value.createdAt, updatedAt: value.createdAt }));
   }
@@ -40,6 +41,8 @@ export class SessionRepository {
     this.conversationId = id; return this.recover(structuredClone(tasks));
   }
   create(): void { this.conversationId = randomUUID(); }
+  /** 切換到仍在記憶體中執行的對話，不從儲存重新載入。 */
+  use(id: string): void { this.conversationId = id; }
   async rename(id: string, title: string): Promise<void> { if (this.database) await this.database.rename(id, title); else { const value = this.memory.get(id); if (value) value.title = title; } }
   async delete(id: string): Promise<void> { if (this.database) await this.database.delete(id); else this.memory.delete(id); }
   async audit(event: AuditEvent): Promise<void> { await this.database?.audit(event); }

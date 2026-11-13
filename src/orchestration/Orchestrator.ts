@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentId, ApprovalRequest, AuditEvent, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
+import type { AgentId, ApprovalRequest, AuditEvent, ConversationSummary, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
 import { AgentRegistry } from '../agents/AgentRegistry';
 import { assertAuthorized } from '../execution/ExecutionPolicy';
 import { ProcessError } from '../execution/ProcessManager';
@@ -16,6 +16,8 @@ export interface SendOptions { participant?: ParticipantRef; discussion?: { id: 
 const maxEvents = 200;
 /** 單次執行最多保留的工具步驟數，以及 IN／OUT 的保存長度。 */
 const maxTools = 100; const inputLimit = 2000; const outputLimit = 4000;
+/** 排隊上限；同一 workspace 一次只執行一個任務，避免多個 writer。 */
+const maxQueued = 3;
 const roleInstructions: Record<ParticipantRole, string> = {
   architect: 'Your role in this discussion: Architect. Propose a concrete, well-reasoned approach and state its trade-offs.',
   critic: 'Your role in this discussion: Critic. Challenge the proposal on performance, testing, security and maintainability, and suggest corrections.',
@@ -25,7 +27,11 @@ const roleInstructions: Record<ParticipantRole, string> = {
 /** V0.1 serial manual executor. Planning and routing remain separate future concerns. */
 export class Orchestrator {
   readonly state: Snapshot;
-  private active?: { task: Task; controller: AbortController; finished: Promise<void> };
+  private active?: { task: Task; controller: AbortController; finished: Promise<void>; conversationId: string };
+  /** 有執行中或排隊任務的對話，切走後仍留在記憶體並持續寫回原對話。 */
+  private readonly live = new Map<string, Task[]>();
+  private executor: Promise<void> = Promise.resolve();
+  private listed: ConversationSummary[] = [];
   private navigating = false;
   private readonly listeners = new Set<() => void>();
   private readonly approvalAnswers = new Map<string, (allow: boolean) => void>();
@@ -34,10 +40,12 @@ export class Orchestrator {
     private readonly cwd: string, private readonly isTrusted: () => boolean, private readonly timeoutMs: () => number,
     private readonly storageError: (error: unknown) => void = () => undefined) {
     const stored = repository.load();
-    this.state = { workspace: cwd, tasks: stored.tasks, policy: stored.policy, providers: [], checking: false, trusted: isTrusted(), conversationId: repository.conversationId, conversations: repository.list(), approvals: [] };
+    this.listed = repository.list();
+    this.state = { workspace: cwd, tasks: stored.tasks, policy: stored.policy, providers: [], checking: false, trusted: isTrusted(), conversationId: repository.conversationId, conversations: this.listed, approvals: [] };
   }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   private changed(persist = false): void {
+    this.state.conversations = this.decorate(this.listed);
     for (const listener of this.listeners) listener();
     if (persist && !this.persistTimer) this.persistTimer = setTimeout(() => {
       this.persistTimer = undefined; void this.flush().catch(this.storageError);
@@ -47,7 +55,18 @@ export class Orchestrator {
     if (this.persistTimer) clearTimeout(this.persistTimer);
     this.persistTimer = undefined;
     await this.repository.save(this.state.tasks, this.state.policy);
-    this.state.conversations = this.repository.list(); this.changed();
+    for (const [id, tasks] of this.live) if (id !== this.repository.conversationId) await this.repository.save(tasks, this.state.policy, id);
+    for (const [id, tasks] of this.live) if (!tasks.some(task => task.status === 'running' || task.status === 'queued')) this.live.delete(id);
+    this.listed = this.repository.list(); this.changed();
+  }
+  /** 歷史列表標示背景對話的執行、排隊或等待核准狀態。 */
+  private decorate(list: ConversationSummary[]): ConversationSummary[] {
+    return list.map(item => {
+      const tasks = this.live.get(item.id);
+      if (!tasks) return item;
+      const activity = this.state.approvals?.some(request => request.conversationId === item.id) ? 'waiting' : tasks.some(task => task.status === 'running') ? 'running' : tasks.some(task => task.status === 'queued') ? 'queued' : undefined;
+      return activity ? { ...item, activity } : item;
+    });
   }
   async checkProviders(): Promise<void> {
     if (this.state.checking || this.active) return;
@@ -63,7 +82,8 @@ export class Orchestrator {
   assertCanSend(provider: AgentId, mode: ExecutionMode, discussionId?: string): void {
     if (this.navigating) throw new Error('正在切換對話，請稍候。');
     if (this.state.discussionId !== discussionId) throw new Error(this.state.discussionId ? '討論進行中，請等待完成或停止討論。' : '討論尚未開始。');
-    if (this.active) throw new Error('目前已有任務執行中。請等待完成或按 Stop。');
+    if (this.active && discussionId) throw new Error('目前已有任務執行中。請等待完成或按 Stop。');
+    if (this.pending() >= maxQueued + 1) throw new Error(`最多 ${maxQueued} 個任務排隊，請等前面的任務完成。`);
     if (this.state.checking) throw new Error('正在檢查 Provider，請稍候。');
     assertAuthorized(this.state.policy, provider, this.state.trusted && this.isTrusted());
     const status = this.state.providers.find(item => item.id === provider);
@@ -77,30 +97,40 @@ export class Orchestrator {
     if (participant && this.state.tasks.some(item => item.participantId === participant.id && (item.provider !== provider || item.participantRole !== participant.role))) throw new Error('Participant 已綁定其他 Provider 或角色。');
     const task: Task = { id: randomUUID(), provider, mode, prompt: text, output: '', status: 'running', startedAt: Date.now(), activity: '啟動官方 CLI…', approvalMode, ...preferences, ...(participant && { participantId: participant.id, participantRole: participant.role, ...(participant.substitute && { substitute: true }) }), ...(discussion && { discussionId: discussion.id, ...(discussion.roundNo && { roundNo: discussion.roundNo }) }) };
     if (outbound) this.audit(task, 'data-outbound', outbound);
-    const controller = new AbortController();
-    // Set the lock before the first await, including persistence and CLI detection.
-    const active = { task, controller, finished: Promise.resolve() };
-    this.active = active;
-    this.state.activeTaskId = task.id;
-    this.state.tasks.push(task);
+    // 任務屬於送出當下的對話；之後切換檢視也繼續寫回這個對話。同步排入佇列，順序與送出順序相同。
+    const conversationId = this.repository.conversationId; const tasks = this.state.tasks;
+    if (this.active || this.pending()) { task.status = 'queued'; task.activity = '排隊中'; }
+    tasks.push(task); this.live.set(conversationId, tasks);
+    const run = this.executor.then(() => this.start(task, conversationId, tasks));
+    this.executor = run.catch(() => undefined);
     this.changed();
-    active.finished = this.execute(task, controller);
-    await active.finished;
+    await run;
     return task;
+  }
+  private pending(): number { return [...this.live.values()].reduce((count, tasks) => count + tasks.filter(task => task.status === 'queued' || task.status === 'running').length, 0); }
+  private async start(task: Task, conversationId: string, tasks: Task[]): Promise<void> {
+    if (task.status === 'cancelled') return;
+    const controller = new AbortController();
+    task.status = 'running'; task.startedAt = Date.now(); task.activity = '啟動官方 CLI…';
+    const active = { task, controller, finished: Promise.resolve(), conversationId };
+    this.active = active; this.state.activeTaskId = task.id; this.state.activeConversationId = conversationId;
+    this.changed();
+    active.finished = this.execute(task, controller, tasks);
+    await active.finished;
   }
   /** 討論期間只接受該討論的輪次；一般送出與切換對話都會被拒絕。 */
   beginDiscussion(id: string): void {
-    if (this.active || this.navigating || this.state.discussionId) throw new Error('目前已有任務或討論執行中。');
+    if (this.active || this.pending() || this.navigating || this.state.discussionId) throw new Error('目前已有任務或討論執行中。');
     this.state.discussionId = id; this.changed();
   }
   endDiscussion(id: string): void { if (this.state.discussionId === id) { this.state.discussionId = undefined; this.changed(); } }
-  private async execute(task: Task, controller: AbortController): Promise<void> {
+  private async execute(task: Task, controller: AbortController, tasks: Task[]): Promise<void> {
     try {
       await this.flush();
       if (controller.signal.aborted) throw new ProcessError('任務已取消。', 'cancelled');
       // Only the same participant's completed history is included (solo = same provider without participant).
       // No implicit sharing across providers or between participants A／B.
-      const history = this.state.tasks.filter(item => item.id !== task.id && item.provider === task.provider && item.participantId === task.participantId && item.status === 'completed');
+      const history = tasks.filter(item => item.id !== task.id && item.provider === task.provider && item.participantId === task.participantId && item.status === 'completed');
       // 一般聊天才保留並接續原生 Session；討論一律一次性，避免 A／B 透過原生 Session 混用記憶。
       // 使用者不採用過的回答仍在原生 Session 裡，有不採用時改以 SQLite 上下文重建。
       const native = !task.participantId && !!this.state.providers.find(item => item.id === task.provider)?.capabilities.resumeSession;
@@ -124,7 +154,7 @@ export class Orchestrator {
       for (const step of task.steps ?? []) if (step.kind === 'tool' && step.status === 'running') step.status = task.status === 'completed' ? 'done' : 'stopped';
       task.endedAt = Date.now(); task.activity = undefined;
       for (const resolve of this.approvalAnswers.values()) resolve(false);
-      this.active = undefined; this.state.activeTaskId = undefined;
+      this.active = undefined; this.state.activeTaskId = undefined; this.state.activeConversationId = undefined;
       this.changed(); await this.flush().catch(this.storageError);
     }
   }
@@ -176,6 +206,9 @@ export class Orchestrator {
     this.changed(); await this.flush();
   }
   async cancel(taskId?: string): Promise<void> {
+    // 排隊中的任務直接取消，不會啟動。
+    const queued = taskId ? [...this.live.values()].flat().find(task => task.id === taskId && task.status === 'queued') : undefined;
+    if (queued) { queued.status = 'cancelled'; queued.endedAt = Date.now(); queued.activity = undefined; this.changed(); await this.flush(); return; }
     if (!this.active || (taskId && this.active.task.id !== taskId)) return;
     const active = this.active;
     active.task.activity = '正在停止程序…'; this.changed();
@@ -201,7 +234,7 @@ export class Orchestrator {
       this.approvalAnswers.set(id, finish);
       signal.addEventListener('abort', abort, { once: true });
       this.audit(task, 'approval-requested', request.title);
-      this.state.approvals!.push({ id, taskId: task.id, provider: task.provider, ...request }); this.changed();
+      this.state.approvals!.push({ id, taskId: task.id, provider: task.provider, ...request, conversationId: this.active?.conversationId }); this.changed();
     });
   }
   answerApproval(id: string, allow: boolean): void {
@@ -209,8 +242,9 @@ export class Orchestrator {
     if (!answer) throw new Error('此核准請求已失效。');
     answer(allow);
   }
+  /** 一般任務在背景繼續執行時可以切換或新增對話；討論進行中仍需等待或停止。 */
   private async navigate(operation: () => Promise<void>): Promise<void> {
-    if (this.active || this.navigating || this.state.discussionId) throw new Error('請先停止目前任務或等候切換完成。');
+    if (this.navigating || this.state.discussionId) throw new Error(this.state.discussionId ? '討論進行中，請等待完成或停止討論。' : '請等候切換完成。');
     this.navigating = true;
     try { await operation(); } finally { this.navigating = false; this.changed(); }
   }
@@ -222,15 +256,19 @@ export class Orchestrator {
   }
   async openConversation(id: string): Promise<void> {
     await this.navigate(async () => {
-      await this.flush(); this.state.tasks = this.repository.select(id);
+      await this.flush();
+      const live = this.live.get(id);
+      if (live) this.repository.use(id);
+      this.state.tasks = live ?? this.repository.select(id);
       this.state.conversationId = id;
     });
   }
   searchConversations(query: string) { return this.repository.list(query); }
   async renameConversation(id: string, title: string): Promise<void> {
-    await this.navigate(async () => { await this.repository.rename(id, title); this.state.conversations = this.repository.list(); });
+    await this.navigate(async () => { await this.repository.rename(id, title); this.listed = this.repository.list(); });
   }
   async deleteConversation(id: string): Promise<void> {
+    if (this.live.has(id)) throw new Error('此對話仍有執行中或排隊的任務，請先停止。');
     await this.navigate(async () => {
       if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = undefined; }
       await this.repository.delete(id);
@@ -240,9 +278,12 @@ export class Orchestrator {
         if (!next) this.repository.create();
         this.state.conversationId = this.repository.conversationId;
       }
-      this.state.conversations = this.repository.list();
+      this.listed = this.repository.list();
     });
   }
   async invalidateWorkspace(): Promise<void> { this.state.trusted = false; this.changed(); await this.cancel(); }
-  async dispose(): Promise<void> { await this.cancel(); await this.flush(); await this.repository.close(); this.listeners.clear(); }
+  async dispose(): Promise<void> {
+    for (const task of [...this.live.values()].flat()) if (task.status === 'queued') { task.status = 'cancelled'; task.endedAt = Date.now(); }
+    await this.cancel(); await this.flush(); await this.repository.close(); this.listeners.clear();
+  }
 }

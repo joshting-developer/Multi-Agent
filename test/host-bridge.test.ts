@@ -38,6 +38,9 @@ describe('Webview to native agent execution', () => {
       expect(requests[0]).toMatchObject({ cwd: '/workspace', mode: 'workspace-write', prompt: 'Update source.txt' });
       expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
       expect(postMessage).toHaveBeenCalledWith({ version: 1, type: 'request-settled', requestId: 'edit-1' });
+      // 已受理先於完成送出，Webview 依此清掉該請求的草稿，而不是看其他對話的執行狀態。
+      const order = postMessage.mock.calls.map(([message]) => message).filter(message => message.requestId === 'edit-1').map(message => message.type);
+      expect(order).toEqual(['request-accepted', 'request-settled']);
       nativeWindow.showWarningMessage.mockResolvedValueOnce(undefined);
       receive!({ version: 1, requestId: 'full-cancel', type: 'send-message', provider: 'codex', mode: 'workspace-write', text: 'Synthetic full access', approvalMode: 'full-access' });
       await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith({ version: 1, type: 'request-settled', requestId: 'full-cancel' }));

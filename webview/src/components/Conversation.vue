@@ -29,7 +29,7 @@ const speaker = (task: Task) => {
 };
 const toolStatus = { running: '執行中', done: '完成', failed: '失敗', stopped: '已停止' } as const;
 const summaryLine = (step: Extract<Step, { kind: 'tool' }>) => step.input?.split('\n', 1)[0] ?? '';
-const statusLabel = (task: Task) => ({ running: '執行中', completed: '', failed: '失敗', cancelled: '已停止', interrupted: '已中斷' })[task.status];
+const statusLabel = (task: Task) => ({ queued: '排隊中', running: '執行中', completed: '', failed: '失敗', cancelled: '已停止', interrupted: '已中斷' })[task.status];
 </script>
 
 <template>

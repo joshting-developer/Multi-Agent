@@ -147,7 +147,8 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
             } finally { this.approvalPending = false; }
           }
           const execution = this.orchestrator.send(message.provider, message.text, message.mode, preferences, approvalMode);
-          this.snapshot(); // Deliver acceptance before even a very fast task can finish.
+          // 任務已排入原對話；之後切換檢視或背景事件都不再影響這個請求的草稿。
+          this.snapshot(); this.post({ version: 1, type: 'request-accepted', requestId: message.requestId }, source);
           await execution;
         }
         finally { this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); }

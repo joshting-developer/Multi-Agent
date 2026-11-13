@@ -139,12 +139,18 @@ describe('Manual orchestration', () => {
     expect(adapter.requests.at(-1)!.resumeSessionId).toBeUndefined(); expect(adapter.requests.at(-1)!.prompt).toContain('answer rejected by the user');
     await orchestrator.dispose();
   });
-  it('locks before awaiting and supports cancellation', async () => {
-    const { orchestrator } = await setup([new FakeAdapter('claude', true, true)]);
+  it('queues later work behind the running task so only one writer runs, and cancels queued work without starting it', async () => {
+    const adapter = new FakeAdapter('claude', true, true); const { orchestrator } = await setup([adapter]);
     const running = orchestrator.send('claude', 'long task', 'workspace-write');
-    await expect(orchestrator.send('claude', 'second writer', 'workspace-write')).rejects.toThrow(/已有任務/);
-    await orchestrator.cancel(); await running;
-    expect(orchestrator.state.tasks[0]?.status).toBe('cancelled');
+    const second = orchestrator.send('claude', 'second writer', 'workspace-write');
+    expect(orchestrator.state.tasks.map(task => task.status)).toEqual(['running', 'queued']);
+    const third = orchestrator.send('claude', 'third', 'read-only'); const fourth = orchestrator.send('claude', 'fourth', 'read-only');
+    await expect(orchestrator.send('claude', 'fifth', 'read-only')).rejects.toThrow(/排隊/);
+    await vi.waitFor(() => expect(adapter.requests).toHaveLength(1));
+    for (const task of orchestrator.state.tasks.slice(1)) await orchestrator.cancel(task.id);
+    await orchestrator.cancel(); await Promise.all([running, second, third, fourth]);
+    expect(orchestrator.state.tasks.map(task => task.status)).toEqual(['cancelled', 'cancelled', 'cancelled', 'cancelled']);
+    expect(adapter.requests).toHaveLength(1);
     await orchestrator.dispose();
   });
   it('never replays a stopped task\'s partial output into the next prompt', async () => {
@@ -224,6 +230,42 @@ describe('Conversation navigation and approval lifetime', () => {
     await expect(orchestrator.send('codex', 'racing send', 'read-only')).rejects.toThrow(/切換/);
     await navigation; await orchestrator.dispose();
   });
+  it('keeps a background task writing to its own conversation while another conversation queues its own work', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'multi-agent-background-'));
+    try {
+      let release: () => void = () => undefined;
+      class Gated extends FakeAdapter {
+        override async *execute(request: AgentRequest): AsyncGenerator<AgentEvent> {
+          this.requests.push(request);
+          yield { type: 'text-delta' as const, taskId: request.taskId, text: `partial ${request.prompt}` };
+          if (this.requests.length === 1) await new Promise<void>(resolve => { release = resolve; });
+          yield { type: 'text-delta' as const, taskId: request.taskId, text: ' done' };
+          yield { type: 'complete' as const, taskId: request.taskId, sessionId: `native-${request.taskId}` };
+        }
+      }
+      const adapter = new Gated('claude');
+      const db = await ConversationDatabase.open(join(dir, 'history.sqlite'), '/project', resolve('node_modules/sql.js/dist/sql-wasm.wasm'));
+      const orchestrator = new Orchestrator(new AgentRegistry([adapter]), new SessionRepository(new MemoryStorage(), '/project', db), '/project', () => true, () => 5000);
+      await orchestrator.setPolicy({ classification: 'personal', allowedProviders: ['claude'] }); await orchestrator.checkProviders();
+      const a = orchestrator.send('claude', 'A', 'read-only'); const conversationA = orchestrator.state.conversationId!;
+      await vi.waitFor(() => expect(orchestrator.state.tasks[0]?.output).toBe('partial A'));
+      await orchestrator.newConversation(); const conversationB = orchestrator.state.conversationId!;
+      expect(orchestrator.state).toMatchObject({ activeConversationId: conversationA, tasks: [] });
+      expect(orchestrator.state.conversations?.find(item => item.id === conversationA)?.activity).toBe('running');
+      const b = orchestrator.send('claude', 'B', 'read-only');
+      expect(orchestrator.state.tasks.map(task => [task.prompt, task.status])).toEqual([['B', 'queued']]);
+      release(); await Promise.all([a, b]);
+      // A 的完成只寫回 A；B 依序在 A 之後執行，且只帶 B 自己的歷史。
+      expect(orchestrator.state.tasks.map(task => [task.prompt, task.output, task.status])).toEqual([['B', 'partial B done', 'completed']]);
+      expect(adapter.requests.map(request => request.prompt)).toEqual(['A', 'B']);
+      expect(db.load(conversationA).map(task => [task.prompt, task.output, task.status])).toEqual([['A', 'partial A done', 'completed']]);
+      await orchestrator.openConversation(conversationA);
+      expect(orchestrator.state.tasks.map(task => task.output)).toEqual(['partial A done']);
+      expect(orchestrator.state.conversations?.find(item => item.id === conversationA)?.activity).toBeUndefined();
+      expect(db.load(conversationB).map(task => task.prompt)).toEqual(['B']);
+      await orchestrator.dispose();
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
   it('cancels a waiting approval, clears the card, and rejects a stale response', async () => {
     class ApprovingAdapter extends FakeAdapter {
       override async *execute(request: AgentRequest) {
@@ -235,7 +277,14 @@ describe('Conversation navigation and approval lifetime', () => {
     const running = orchestrator.send('codex', 'approval task', 'workspace-write');
     for (let attempt = 0; !orchestrator.state.approvals?.length && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 1));
     const pending = orchestrator.state.approvals![0]!; expect(pending.title).toBe('核准測試');
-    await expect(orchestrator.newConversation()).rejects.toThrow(/停止/);
+    // 背景任務等待核准時仍可切到新對話；核准卡標明所屬對話，歷史列表標示等待中。
+    const original = orchestrator.state.conversationId!; const live = orchestrator.state.tasks;
+    await orchestrator.newConversation();
+    expect(orchestrator.state.tasks).toEqual([]); expect(pending.conversationId).toBe(original);
+    expect(orchestrator.state.conversations?.find(item => item.id === original)?.activity).toBe('waiting');
+    await expect(orchestrator.deleteConversation(original)).rejects.toThrow(/停止/);
+    await orchestrator.openConversation(original);
+    expect(orchestrator.state.tasks).toBe(live);
     await orchestrator.cancel(); await running;
     expect(orchestrator.state.tasks[0]?.status).toBe('cancelled'); expect(orchestrator.state.approvals).toEqual([]);
     expect(() => orchestrator.answerApproval(pending.id, true)).toThrow(/失效/); await orchestrator.dispose();

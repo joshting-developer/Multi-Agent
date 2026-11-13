@@ -9,19 +9,25 @@ import HistoryPanel from './components/HistoryPanel.vue';
 import ApprovalCard from './components/ApprovalCard.vue';
 import DiscussionBar from './components/DiscussionBar.vue';
 import { defaultSettings, type ProviderPreferences } from '../../src/bridge/preferences';
-const { snapshot, error, running, submitting, draftRevision, post, send, draft, saveDraft, searchConversations, searchResults, historySearching, navigating, navigate } = useHost();
+const { snapshot, error, running, submitting, draftRevision, post, send, draft, draftFor, saveDraft, searchConversations, searchResults, historySearching, navigating, navigate } = useHost();
 const selected = ref<AgentId>('codex');
+const insert = ref<{ text: string; revision: number }>();
 const userSelected = ref(false);
 const historyShown = ref(false);
 const historyQuery = ref('');
 const history = computed(() => historyQuery.value ? searchResults.value : snapshot.value.conversations ?? []);
 watch(() => JSON.stringify(snapshot.value.conversations), () => { if (historyShown.value && historyQuery.value) searchConversations(historyQuery.value); });
 const conversationTitle = computed(() => snapshot.value.conversations?.find(item => item.id === snapshot.value.conversationId)?.title ?? '新對話');
-watch(() => snapshot.value.conversationId, () => { const last = snapshot.value.tasks.at(-1); if (last) selected.value = last.provider; });
+watch(() => snapshot.value.conversationId, (id, previous) => {
+  const last = snapshot.value.tasks.at(-1); if (last) selected.value = last.provider;
+  if (previous) insert.value = { text: draftFor(id), revision: (insert.value?.revision ?? 0) + 1 };
+});
 const preferences = ref<ProviderPreferences>({ model: '', effort: 'medium' });
 const settings = computed(() => snapshot.value.settings ?? defaultSettings);
 watch(() => `${selected.value}:${JSON.stringify(settings.value[selected.value])}`, () => { preferences.value = { ...settings.value[selected.value] }; }, { immediate: true });
 const busy = computed(() => running.value || submitting.value || navigating.value || !!snapshot.value.discussionId);
+// 一般任務在背景執行時仍可切換、新增對話；只有切換中或討論進行中才鎖住導覽。
+const navigationLocked = computed(() => navigating.value || !!snapshot.value.discussionId);
 const canWrite = computed(() => snapshot.value.providers.find(provider => provider.id === selected.value)?.capabilities.workspaceWrite);
 const canSend = computed(() => !!preferences.value.model && snapshot.value.trusted && snapshot.value.policy.allowedProviders.includes(selected.value) && snapshot.value.providers.some(provider => provider.id === selected.value && provider.status === 'ready') && !snapshot.value.checking);
 const notice = computed(() => {
@@ -61,7 +67,6 @@ const discussion = computed(() => {
   return snapshot.value.tasks.some(task => task.discussionId === value.id) ? value : undefined;
 });
 const summaryTask = computed(() => snapshot.value.tasks.find(task => task.id === discussion.value?.summaryTaskId && task.status === 'completed' && task.output));
-const insert = ref<{ text: string; revision: number }>();
 function adoptSummary() {
   if (summaryTask.value) insert.value = { text: `依照下面的討論結論處理：\n\n${summaryTask.value.output}`, revision: (insert.value?.revision ?? 0) + 1 };
 }
@@ -88,15 +93,15 @@ function cancel() {
 
 <template>
   <main class="workspace">
-    <header class="chat-toolbar"><button type="button" class="conversation-title text-button" :disabled="busy" :aria-expanded="historyShown" @click="historyShown = !historyShown; historyQuery = ''">{{ historyShown ? '歷史對話' : conversationTitle }}</button><div><button type="button" class="icon-button" aria-label="歷史對話" :disabled="busy" :aria-pressed="historyShown" @click="historyShown = !historyShown; historyQuery = ''"><ChatIcon name="history" /></button><button type="button" class="icon-button" aria-label="新增對話" :disabled="busy" @click="action('new-conversation'); historyShown = false"><ChatIcon name="new" /></button></div></header>
+    <header class="chat-toolbar"><button type="button" class="conversation-title text-button" :disabled="navigationLocked" :aria-expanded="historyShown" @click="historyShown = !historyShown; historyQuery = ''">{{ historyShown ? '歷史對話' : conversationTitle }}</button><div><button type="button" class="icon-button" aria-label="歷史對話" :disabled="navigationLocked" :aria-pressed="historyShown" @click="historyShown = !historyShown; historyQuery = ''"><ChatIcon name="history" /></button><button type="button" class="icon-button" aria-label="新增對話" :disabled="navigationLocked" @click="action('new-conversation'); historyShown = false"><ChatIcon name="new" /></button></div></header>
     <p v-if="historyShown && error" class="error notice" role="alert">{{ error }}</p>
-    <HistoryPanel v-if="historyShown" :conversations="history" :active-id="snapshot.conversationId" :busy="busy" :searching="historySearching" @search="historySearch" @open="openConversation" @rename="renameConversation" @delete="deleteConversation" />
+    <HistoryPanel v-if="historyShown" :conversations="history" :active-id="snapshot.conversationId" :busy="navigationLocked" :searching="historySearching" @search="historySearch" @open="openConversation" @rename="renameConversation" @delete="deleteConversation" />
     <Conversation v-else :key="snapshot.conversationId" :tasks="snapshot.tasks" @reject="rejectAnswer" />
     <div v-if="!historyShown" class="input-area">
       <p v-if="error" class="error notice" role="alert">{{ error }}</p>
       <div v-else-if="notice" class="notice" role="status"><span>{{ notice.text }}</span><button v-if="notice.action" type="button" class="text-button" :disabled="busy" @click="action(notice.action)">{{ notice.action === 'authorize-workspace' ? '授權' : '設定' }}</button></div>
       <DiscussionBar v-if="discussion && !error && !notice" :discussion="discussion" :busy="busy" :summary-ready="!!summaryTask" :alternatives="alternatives" @extend="extendDiscussion" @adopt="adoptSummary" @resolve="resolveDiscussion" />
-      <ApprovalCard v-for="request in snapshot.approvals ?? []" :key="request.id" :request="request" @answer="answerApproval" />
+      <ApprovalCard v-for="request in snapshot.approvals ?? []" :key="request.id" :request="request" :background="!!request.conversationId && request.conversationId !== snapshot.conversationId" @answer="answerApproval" />
       <Composer :insert="insert" :approval-mode="settings.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="busy" :running="running || !!snapshot.discussionId" :can-send="canSend" :can-write="canWrite" :provider="selected" :preferences="preferences" :models="snapshot.models?.[selected] ?? []" :models-loading="snapshot.models?.loading ?? false" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="submit" @discuss="discuss" @cancel="cancel" @draft="saveDraft" @select="selected = $event; userSelected = true" @preferences="selectPreferences" @settings="action('show-options')" @refresh-models="action('refresh-models')" />
     </div>
   </main>

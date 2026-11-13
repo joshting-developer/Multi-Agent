@@ -60,11 +60,15 @@ describe('Explicit models, accounts and history controls', () => {
     const wrapper = mount(History, { props: { conversations: [{ id: 'one', title: '注入失敗修復', createdAt: 1, updatedAt: 1 }], busy: false, searching: false } });
     await wrapper.get('input').setValue('注入'); await new Promise(resolve => setTimeout(resolve, 210));
     expect(wrapper.emitted('search')).toEqual([['注入']]);
-    await wrapper.get('.history-open').trigger('click'); expect(wrapper.emitted('open')).toEqual([['one']]); wrapper.unmount();
+    await wrapper.get('.history-open').trigger('click'); expect(wrapper.emitted('open')).toEqual([['one']]);
+    await wrapper.setProps({ conversations: [{ id: 'one', title: '背景', createdAt: 1, updatedAt: 1, activity: 'waiting' as const }] });
+    expect(wrapper.get('.history-open small').text()).toContain('等待核准'); wrapper.unmount();
   });
   it('round-trips the approval card choice', async () => {
     const { default: Approval } = await import('../webview/src/components/ApprovalCard.vue');
     const wrapper = mount(Approval, { props: { request: { id: 'approve-one', taskId: 'task', provider: 'codex', title: '核准執行命令', detail: 'echo synthetic' } } });
-    await wrapper.get('.primary-button').trigger('click'); expect(wrapper.emitted('answer')).toEqual([['approve-one', true]]); wrapper.unmount();
+    await wrapper.get('.primary-button').trigger('click'); expect(wrapper.emitted('answer')).toEqual([['approve-one', true]]);
+    expect(wrapper.text()).not.toContain('背景對話'); await wrapper.setProps({ background: true }); expect(wrapper.get('strong').text()).toContain('背景對話');
+    wrapper.unmount();
   });
 });

@@ -19,7 +19,7 @@ export const stepSchema = z.discriminatedUnion('kind', [
 export type Step = z.infer<typeof stepSchema>;
 export const taskSchema = z.object({
   id: z.string(), provider: agentIdSchema, mode: modeSchema, prompt: z.string(), output: z.string(),
-  status: z.enum(['running', 'completed', 'failed', 'cancelled', 'interrupted']),
+  status: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted']),
   startedAt: z.number(), endedAt: z.number().optional(), error: z.string().optional(),
   activity: z.string().optional(), sessionId: z.string().optional(), participantId: z.string().optional(), participantRole: participantRoleSchema.optional(),
   discussionId: z.string().optional(), roundNo: z.number().int().positive().optional(),
@@ -43,7 +43,7 @@ export interface ProviderStatus {
 }
 export interface Snapshot {
   workspace: string; policy: WorkspacePolicy; providers: ProviderStatus[]; tasks: Task[];
-  activeTaskId?: string; discussionId?: string; discussion?: DiscussionSummary; checking: boolean; trusted: boolean;
+  activeTaskId?: string; activeConversationId?: string; discussionId?: string; discussion?: DiscussionSummary; checking: boolean; trusted: boolean;
   settings?: WorkspaceSettings; models?: ModelCatalog;
   conversations?: ConversationSummary[]; conversationId?: string; approvals?: ApprovalRequest[];
 }
@@ -51,8 +51,8 @@ export interface Snapshot {
 export const maxDiscussionRounds = 8;
 export interface DiscussionBlock { kind: 'quota' | 'rate-limit'; provider: AgentId; roundNo: number }
 export interface DiscussionSummary { id: string; status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'; completedRounds: number; maxRounds: number; summaryTaskId?: string; blocked?: DiscussionBlock }
-export interface ConversationSummary { id: string; title: string; createdAt: number; updatedAt: number; provider?: AgentId; preview?: string }
-export interface ApprovalRequest { id: string; taskId: string; provider: AgentId; title: string; detail: string }
+export interface ConversationSummary { id: string; title: string; createdAt: number; updatedAt: number; provider?: AgentId; preview?: string; activity?: 'running' | 'queued' | 'waiting' }
+export interface ApprovalRequest { id: string; taskId: string; provider: AgentId; title: string; detail: string; conversationId?: string }
 const base = { version: z.literal(1), requestId: z.string().min(1).max(100) };
 export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('ready') }),
@@ -82,5 +82,6 @@ export type HostToWebview =
   | { version: 1; type: 'conversation-results'; requestId: string; conversations: ConversationSummary[] }
   | { version: 1; type: 'snapshot'; snapshot: Snapshot }
   | { version: 1; type: 'request-settled'; requestId: string }
+  | { version: 1; type: 'request-accepted'; requestId: string }
   | { version: 1; type: 'settings-saved'; requestId: string }
   | { version: 1; type: 'error'; requestId?: string; message: string };
