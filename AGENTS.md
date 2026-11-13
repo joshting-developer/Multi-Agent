@@ -54,7 +54,7 @@ claim、狀態、留言、待驗收、小待辦、分類與工時都照 task-tra
 - 所有開發／review／重構／測試都用 `01-common/side-project-development-standards`；Vue 用共用庫的 `03-frontend/vue-best-practices`, UI／效能依 registry 選讀
 - 跨專案規則直接讀 common-skills 原檔：寫給人看的中文文字（docs、卡片描述／留言、給使用者的回覆）前讀 [josh-writing-style](/Users/josh/workspace/common-skills/josh-writing-style/SKILL.md)；commit 或 PR 文字前讀 [commit-without-ai-attribution](/Users/josh/workspace/common-skills/commit-without-ai-attribution/SKILL.md)
 - 缺共用庫或連結失效要回報, 不靜默改用全域同名 Skill。Skill 內的來源／沿革紀錄不代表授權載入其他專案的規範
-- 專案內 `skills/` 只留本專案專用的 [quiet-workspace-ui](skills/quiet-workspace-ui/SKILL.md)。`skills/vendor/vue-best-practices` 和 `skills/git-workspace` 是改用共用庫前的舊副本, 不再當作規範來源
+- 專案內 `skills/` 只放本專案專用的 Skill, 目前只有 [quiet-workspace-ui](skills/quiet-workspace-ui/SKILL.md)；通用規則不要再複製進來
 
 ## Git
 

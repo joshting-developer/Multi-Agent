@@ -12,7 +12,7 @@
 
 | 項目 | 做法 |
 | --- | --- |
-| 位置 | `<repo>/.multi-agent/worktrees/<runId>`，加進 `.git/info/exclude`。不放 `/tmp`、`/private` 或 globalStorage，符合 [git-workspace](../../skills/git-workspace/SKILL.md)，使用者也找得到 |
+| 位置 | `<repo>/.multi-agent/worktrees/<runId>`，加進 `.git/info/exclude`。不放 `/tmp`、`/private` 或 globalStorage，符合 git-delivery-workflow 的「Git 工作位置」規則，使用者也找得到 |
 | 分支 | `multi-agent/<conversationId 前 8 碼>/<runId 前 8 碼>`，從使用者確認的 base commit 建立 |
 | 前置檢查 | 主工作區有未提交修改時停止並詢問，不自動 stash；分支被其他 worktree 占用時回報，不使用 `--force` |
 | 執行 | Agent 的 `cwd` 指向該 worktree，權限維持 workspace-write，資料政策沿用原專案的 canonical root |
