@@ -42,7 +42,7 @@ export class Orchestrator {
     private readonly accountEnv: (provider: AgentId, accountId?: string) => Record<string, string> | undefined = () => undefined) {
     const stored = repository.load();
     this.listed = repository.list();
-    this.state = { workspace: cwd, tasks: stored.tasks, policy: stored.policy, providers: [], checking: false, trusted: isTrusted(), conversationId: repository.conversationId, conversations: this.listed, approvals: [] };
+    this.state = { persistent: repository.persistent, workspace: cwd, tasks: stored.tasks, policy: stored.policy, providers: [], checking: false, trusted: isTrusted(), conversationId: repository.conversationId, conversations: this.listed, approvals: [] };
   }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   private changed(persist = false): void {
@@ -134,7 +134,7 @@ export class Orchestrator {
       const history = tasks.filter(item => item.id !== task.id && item.provider === task.provider && item.participantId === task.participantId && item.status === 'completed');
       // 一般聊天才保留並接續原生 Session；討論一律一次性，避免 A／B 透過原生 Session 混用記憶。
       // 使用者不採用過的回答仍在原生 Session 裡，有不採用時改以 SQLite 上下文重建。
-      const native = !task.participantId && !!this.state.providers.find(item => item.id === task.provider)?.capabilities.resumeSession;
+      const native = !task.participantId && this.repository.persistent && !!this.state.providers.find(item => item.id === task.provider)?.capabilities.resumeSession;
       const previous = history.at(-1);
       // 原生 Session 存在各帳號自己的 CLI 目錄，換帳號時不接續。
       const resume = native && previous?.persisted && previous.sessionId && previous.accountId === task.accountId && !history.some(item => item.rejected) ? previous.sessionId : undefined;
@@ -283,6 +283,18 @@ export class Orchestrator {
         this.state.conversationId = this.repository.conversationId;
       }
       this.listed = this.repository.list();
+    });
+  }
+  /** 停用保存後新的訊息只在記憶體，也不保留官方原生 Session；已保存的紀錄要另外清除。 */
+  async setPersistence(enabled: boolean): Promise<void> {
+    await this.flush(); await this.repository.setPersistent(enabled); this.state.persistent = enabled; this.changed();
+  }
+  async clearProject(): Promise<void> {
+    if (this.live.size || this.state.discussionId) throw new Error('請先停止目前任務或討論，再清除專案紀錄。');
+    await this.navigate(async () => {
+      if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = undefined; }
+      await this.repository.clearProject(); this.repository.create();
+      this.state.tasks = []; this.state.conversationId = this.repository.conversationId; this.listed = this.repository.list();
     });
   }
   exportConversation(id: string) { return this.repository.exportConversation(id); }

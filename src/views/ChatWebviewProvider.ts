@@ -150,6 +150,17 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         if (target) { await writeFile(target.fsPath, message.format === 'json' ? JSON.stringify(data, null, 2) : toMarkdown(data), { mode: 0o600 }); void vscode.window.showInformationMessage('已匯出對話。'); }
         break;
       }
+      case 'set-persistence': {
+        if (!message.enabled) {
+          const answer = await vscode.window.showWarningMessage('停止保存這個專案的對話？之後的新訊息只留在本次視窗，關閉後就不見；已保存的紀錄不會自動刪除。', { modal: true }, '停止保存');
+          if (answer !== '停止保存') break;
+        }
+        await this.orchestrator.setPersistence(message.enabled); break;
+      }
+      case 'clear-project': {
+        const answer = await vscode.window.showWarningMessage(`刪除「${this.orchestrator.state.workspace}」的所有對話與稽核紀錄？其他專案不受影響，此操作無法復原。`, { modal: true }, '刪除');
+        if (answer === '刪除') await this.orchestrator.clearProject(); break;
+      }
       case 'backup-history': {
         const target = await vscode.window.showSaveDialog({ title: '備份歷史資料庫（含所有專案的完整對話，只存在本機）', defaultUri: vscode.Uri.file(`multi-agent-history-${new Date().toISOString().slice(0, 10)}.sqlite`), filters: { SQLite: ['sqlite'] } });
         if (target) { await this.orchestrator.flush(); await this.orchestrator.backupHistory(target.fsPath); void vscode.window.showInformationMessage('已備份歷史資料庫。'); }

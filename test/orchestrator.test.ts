@@ -155,6 +155,38 @@ describe('Manual orchestration', () => {
     expect(orchestrator.state.tasks.map(task => task.accountId)).toEqual(['work', 'work', 'personal']);
     await orchestrator.dispose();
   });
+  it('stops saving a project on request, keeps it in memory only, and clears just this project', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'multi-agent-persist-'));
+    try {
+      class Resumable extends FakeAdapter {
+        override capabilities() { return { ...capabilities, resumeSession: true }; }
+        override async detect(): Promise<ProviderStatus> { return { id: this.id, status: 'ready', capabilities: this.capabilities() }; }
+      }
+      const adapter = new Resumable('claude'); const path = join(dir, 'history.sqlite'); const wasm = resolve('node_modules/sql.js/dist/sql-wasm.wasm');
+      const other = await ConversationDatabase.open(path, '/other', wasm);
+      await other.save('elsewhere', '其他專案', [{ id: 'x', provider: 'codex', mode: 'read-only', prompt: 'p', output: 'o', status: 'completed', startedAt: 1 }], { classification: 'personal', allowedProviders: ['codex'] }); await other.close();
+      const db = await ConversationDatabase.open(path, '/project', wasm);
+      const orchestrator = new Orchestrator(new AgentRegistry([adapter]), new SessionRepository(new MemoryStorage(), '/project', db), '/project', () => true, () => 5000);
+      await orchestrator.setPolicy({ classification: 'personal', allowedProviders: ['claude'] }); await orchestrator.checkProviders();
+      await orchestrator.send('claude', 'saved', 'read-only'); await orchestrator.flush();
+      const saved = orchestrator.state.conversationId!;
+      await orchestrator.setPersistence(false); await orchestrator.newConversation();
+      await orchestrator.send('claude', 'not saved', 'read-only'); await orchestrator.flush();
+      const unsaved = orchestrator.state.conversationId!;
+      expect(orchestrator.state.persistent).toBe(false); expect(adapter.requests.at(-1)!.persist).toBe(false);
+      expect(db.list().map(item => item.id)).toEqual([saved]);
+      expect(orchestrator.state.conversations?.map(item => item.id)).toEqual([unsaved, saved]);
+      await orchestrator.openConversation(saved); await orchestrator.openConversation(unsaved);
+      expect(orchestrator.state.tasks.map(task => task.prompt)).toEqual(['not saved']);
+      await orchestrator.clearProject();
+      expect(orchestrator.state.tasks).toEqual([]); expect(orchestrator.state.conversations).toEqual([]); expect(db.list()).toEqual([]);
+      expect(db.policy()).toEqual({ classification: 'personal', allowedProviders: ['claude'] });
+      const check = await ConversationDatabase.open(path, '/other', wasm); expect(check.list().map(item => item.id)).toEqual(['elsewhere']); await check.close();
+      await orchestrator.setPersistence(true); await orchestrator.send('claude', 'saved again', 'read-only'); await orchestrator.flush();
+      expect(db.list().map(item => item.title)).toEqual(['saved again']);
+      await orchestrator.dispose();
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
   it('queues later work behind the running task so only one writer runs, and cancels queued work without starting it', async () => {
     const adapter = new FakeAdapter('claude', true, true); const { orchestrator } = await setup([adapter]);
     const running = orchestrator.send('claude', 'long task', 'workspace-write');

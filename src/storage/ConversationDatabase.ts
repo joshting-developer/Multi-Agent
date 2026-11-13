@@ -181,6 +181,14 @@ export class ConversationDatabase {
     const value = this.rows('SELECT value FROM metadata WHERE key=?', ['policy:' + this.root])[0]?.value;
     return typeof value === 'string' ? JSON.parse(value) as WorkspacePolicy : undefined;
   }
+  /** 專案層級設定：是否保存這個專案的對話（預設保存）。 */
+  persistent(): boolean { return this.rows('SELECT value FROM metadata WHERE key=?', ['persist:' + this.root])[0]?.value !== '0'; }
+  setPersistent(enabled: boolean): Promise<void> { return this.mutate(db => { db.run('INSERT OR REPLACE INTO metadata VALUES(?,?)', ['persist:' + this.root, enabled ? '1' : '0']); }); }
+  savePolicy(policy: WorkspacePolicy): Promise<void> { return this.mutate(db => { db.run('INSERT OR REPLACE INTO metadata VALUES(?,?)', ['policy:' + this.root, JSON.stringify(policy)]); }); }
+  /** 只刪除目前 canonical 專案的對話（連帶執行、訊息、討論、結論）與稽核紀錄；其他專案與授權設定不受影響。 */
+  clearProject(): Promise<void> {
+    return this.mutate(db => { db.run('DELETE FROM conversations WHERE root=?', [this.root]); db.run('DELETE FROM audit_events WHERE root=?', [this.root]); });
+  }
   save(id: string, title: string, tasks: Task[], policy: WorkspacePolicy): Promise<void> {
     const snapshot = structuredClone(tasks);
     return this.mutate(db => {

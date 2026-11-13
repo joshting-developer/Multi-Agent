@@ -23,7 +23,18 @@ export class SessionRepository {
     return { tasks, policy: parsed.data.policy };
   }
   /** 預設存到目前檢視的對話；背景執行中的對話以 conversationId 指定。 */
+  /** 停用保存時對話只留在記憶體，不寫入任何檔案；工作區授權仍保存，避免每次重新授權。 */
+  get persistent(): boolean { return this.database?.persistent() ?? true; }
+  private savedPolicy?: string;
   save(tasks: Task[], policy: WorkspacePolicy, conversationId = this.conversationId): Promise<void> {
+    if (this.database && !this.persistent) {
+      this.memory.set(conversationId, { title: tasks[0]?.prompt.slice(0, 80) || '新對話', tasks: structuredClone(tasks), createdAt: tasks[0]?.startedAt ?? Date.now() });
+      const value = JSON.stringify(policy);
+      if (value === this.savedPolicy) return Promise.resolve();
+      this.savedPolicy = value; return this.database.savePolicy(policy);
+    }
+    // 重新開始保存時，記憶體中的對話改寫入資料庫。
+    if (this.database) this.memory.delete(conversationId);
     if (this.database) return this.database.save(conversationId, tasks[0]?.prompt.slice(0, 80) || '新對話', tasks, policy).then(async () => { if (!this.storage.get('multiAgent.sqliteMigrated')) await this.storage.update('multiAgent.sqliteMigrated', true); });
     this.memory.set(conversationId, { title: tasks[0]?.prompt.slice(0, 80) || '新對話', tasks: structuredClone(tasks), createdAt: tasks[0]?.startedAt ?? Date.now() });
     // Snapshot before enqueueing so later streaming mutations cannot corrupt an earlier write.
@@ -33,10 +44,15 @@ export class SessionRepository {
   }
   private recover(tasks: Task[]): Task[] { return tasks.map(task => task.status === 'running' || task.status === 'queued' ? { ...task, status: 'interrupted', endedAt: Date.now(), error: task.status === 'queued' ? '上次 VS Code 關閉時任務仍在排隊；沒有執行。' : '上次 VS Code 關閉時任務仍在執行；未判定為成功。' } : task); }
   list(query = '', filters: SearchFilters = {}, allowed?: AgentId[]): ConversationSummary[] {
+    if (this.database && this.memory.size) {
+      // 停用保存期間的對話只在記憶體，列在最前面（只做標題比對）。
+      const unsaved = [...this.memory].filter(([, value]) => !query || value.title.toLowerCase().includes(query.toLowerCase())).map(([id, value]) => ({ id, title: value.title, createdAt: value.createdAt, updatedAt: value.tasks.at(-1)?.startedAt ?? value.createdAt })).sort((a, b) => b.updatedAt - a.updatedAt);
+      return [...unsaved, ...this.database.list(query, filters, allowed).filter(item => !this.memory.has(item.id))];
+    }
     return this.database?.list(query, filters, allowed) ?? [...this.memory].filter(([, value]) => JSON.stringify(value).toLowerCase().includes(query.toLowerCase())).map(([id, value]) => ({ id, title: value.title, createdAt: value.createdAt, updatedAt: value.createdAt }));
   }
   select(id: string): Task[] {
-    const tasks = this.database ? this.database.load(id) : this.memory.get(id)?.tasks;
+    const tasks = this.memory.get(id)?.tasks ?? this.database?.load(id);
     if (!tasks) throw new Error('找不到對話。');
     this.conversationId = id; return this.recover(structuredClone(tasks));
   }
@@ -44,7 +60,10 @@ export class SessionRepository {
   /** 切換到仍在記憶體中執行的對話，不從儲存重新載入。 */
   use(id: string): void { this.conversationId = id; }
   async rename(id: string, title: string): Promise<void> { if (this.database) await this.database.rename(id, title); else { const value = this.memory.get(id); if (value) value.title = title; } }
-  async delete(id: string): Promise<void> { if (this.database) await this.database.delete(id); else this.memory.delete(id); }
+  async delete(id: string): Promise<void> { this.memory.delete(id); await this.database?.delete(id); }
+  async setPersistent(enabled: boolean): Promise<void> { await this.requireDatabase().setPersistent(enabled); }
+  /** 清除目前專案在資料庫與記憶體中的所有對話。 */
+  async clearProject(): Promise<void> { this.memory.clear(); await this.requireDatabase().clearProject(); }
   async audit(event: AuditEvent): Promise<void> { await this.database?.audit(event); }
   private requireDatabase(): ConversationDatabase { if (!this.database) throw new Error('目前沒有可用的歷史資料庫。'); return this.database; }
   exportConversation(id: string): ConversationExport { return this.requireDatabase().exportConversation(id); }
