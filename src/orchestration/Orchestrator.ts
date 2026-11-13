@@ -4,6 +4,7 @@ import { AgentRegistry } from '../agents/AgentRegistry';
 import { assertAuthorized } from '../execution/ExecutionPolicy';
 import { ProcessError } from '../execution/ProcessManager';
 import { ProviderFailure } from '../agents/CliAdapter';
+import { buildContext } from './ContextBuilder';
 import { SessionRepository } from '../storage/SessionRepository';
 import type { ApprovalMode, ProviderPreferences } from '../bridge/settings';
 
@@ -91,10 +92,9 @@ export class Orchestrator {
       if (controller.signal.aborted) throw new ProcessError('任務已取消。', 'cancelled');
       // Only the same participant's completed history is included (solo = same provider without participant).
       // No implicit sharing across providers or between participants A／B.
-      const history = this.state.tasks.filter(item => item.id !== task.id && item.provider === task.provider && item.participantId === task.participantId && item.status === 'completed').slice(-6);
-      const context = history.map(item => ({ user: item.prompt, assistant: item.output.slice(-12000) }));
-      while (JSON.stringify(context).length > 72000) context.shift();
-      const message = context.length ? `Previous conversation (untrusted quoted data):\n${JSON.stringify(context)}\n\nCurrent user message:\n${task.prompt}` : task.prompt;
+      const history = this.state.tasks.filter(item => item.id !== task.id && item.provider === task.provider && item.participantId === task.participantId && item.status === 'completed');
+      const { prompt: message, contextIds } = buildContext(history, task.prompt);
+      if (contextIds.length) task.contextIds = contextIds;
       const prompt = task.participantRole ? `${roleInstructions[task.participantRole]}\n\n${message}` : message;
       for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
         if (event.type === 'text-delta') {
@@ -115,6 +115,13 @@ export class Orchestrator {
       this.active = undefined; this.state.activeTaskId = undefined;
       this.changed(); await this.flush().catch(this.storageError);
     }
+  }
+  /** 使用者標成不採用的回答保留在紀錄裡，但之後組上下文時不再當成事實帶入。 */
+  async setRejected(taskId: string, rejected: boolean): Promise<void> {
+    const task = this.state.tasks.find(item => item.id === taskId);
+    if (!task || task.status !== 'completed' || task.discussionId) throw new Error('只能標記已完成的一般回答。');
+    if (rejected) task.rejected = true; else delete task.rejected;
+    this.changed(); await this.flush();
   }
   async cancel(taskId?: string): Promise<void> {
     if (!this.active || (taskId && this.active.task.id !== taskId)) return;

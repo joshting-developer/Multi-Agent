@@ -15,7 +15,8 @@ export const taskSchema = z.object({
   discussionId: z.string().optional(), roundNo: z.number().int().positive().optional(),
   model: modelIdSchema.optional(), effort: z.union([effortSchema, z.literal('default')]).optional().transform(value => value === 'default' ? undefined : value).optional(),
   approvalMode: z.enum(approvalModes).optional(),
-  failureKind: z.enum(['quota', 'rate-limit']).optional(), substitute: z.boolean().optional()
+  failureKind: z.enum(['quota', 'rate-limit']).optional(), substitute: z.boolean().optional(),
+  rejected: z.boolean().optional(), contextIds: z.array(z.string()).optional()
 });
 export type Task = z.infer<typeof taskSchema>;
 export type Classification = 'unclassified' | 'personal' | 'company' | 'restricted';
@@ -47,6 +48,7 @@ export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('start-discussion'), provider: agentIdSchema, partner: agentIdSchema.optional(), text: z.string().trim().min(1).max(32000), rounds: z.number().int().min(2).max(8), preferences: providerPreferencesSchema.optional() }),
   z.object({ ...base, type: z.literal('extend-discussion'), discussionId: z.string().min(1).max(100), rounds: z.number().int().min(1).max(6) }),
   z.object({ ...base, type: z.literal('resolve-discussion'), discussionId: z.string().min(1).max(100), decision: z.enum(['retry', 'substitute', 'end']), provider: agentIdSchema.optional() }),
+  z.object({ ...base, type: z.literal('reject-answer'), taskId: z.string().min(1).max(100), rejected: z.boolean() }),
   z.object({ ...base, type: z.literal('answer-approval'), approvalId: z.string().min(1).max(100), allow: z.boolean() }),
   z.object({ ...base, type: z.literal('new-conversation') }),
   z.object({ ...base, type: z.literal('open-conversation'), conversationId: z.string().min(1).max(100) }),

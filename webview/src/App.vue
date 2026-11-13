@@ -46,6 +46,7 @@ function historySearch(query: string) { historyQuery.value = query; searchConver
 function openConversation(id: string) { navigate({ version: 1, type: 'open-conversation', requestId: crypto.randomUUID(), conversationId: id }); historyShown.value = false; }
 function renameConversation(id: string, title: string) { post({ version: 1, type: 'rename-conversation', requestId: crypto.randomUUID(), conversationId: id, title }); }
 function deleteConversation(id: string) { post({ version: 1, type: 'delete-conversation', requestId: crypto.randomUUID(), conversationId: id }); }
+function rejectAnswer(taskId: string, rejected: boolean) { post({ version: 1, type: 'reject-answer', requestId: crypto.randomUUID(), taskId, rejected }); }
 function answerApproval(id: string, allow: boolean) { post({ version: 1, type: 'answer-approval', requestId: crypto.randomUUID(), approvalId: id, allow }); }
 function submit(text: string, mode: ExecutionMode, approvalMode: import('../../src/bridge/preferences').ApprovalMode) {
   send({ version: 1, type: 'send-message', requestId: crypto.randomUUID(), provider: selected.value, text, mode, approvalMode, preferences: { ...preferences.value } });
@@ -90,7 +91,7 @@ function cancel() {
     <header class="chat-toolbar"><button type="button" class="conversation-title text-button" :disabled="busy" :aria-expanded="historyShown" @click="historyShown = !historyShown; historyQuery = ''">{{ historyShown ? '歷史對話' : conversationTitle }}</button><div><button type="button" class="icon-button" aria-label="歷史對話" :disabled="busy" :aria-pressed="historyShown" @click="historyShown = !historyShown; historyQuery = ''"><ChatIcon name="history" /></button><button type="button" class="icon-button" aria-label="新增對話" :disabled="busy" @click="action('new-conversation'); historyShown = false"><ChatIcon name="new" /></button></div></header>
     <p v-if="historyShown && error" class="error notice" role="alert">{{ error }}</p>
     <HistoryPanel v-if="historyShown" :conversations="history" :active-id="snapshot.conversationId" :busy="busy" :searching="historySearching" @search="historySearch" @open="openConversation" @rename="renameConversation" @delete="deleteConversation" />
-    <Conversation v-else :key="snapshot.conversationId" :tasks="snapshot.tasks" />
+    <Conversation v-else :key="snapshot.conversationId" :tasks="snapshot.tasks" @reject="rejectAnswer" />
     <div v-if="!historyShown" class="input-area">
       <p v-if="error" class="error notice" role="alert">{{ error }}</p>
       <div v-else-if="notice" class="notice" role="status"><span>{{ notice.text }}</span><button v-if="notice.action" type="button" class="text-button" :disabled="busy" @click="action(notice.action)">{{ notice.action === 'authorize-workspace' ? '授權' : '設定' }}</button></div>

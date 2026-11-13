@@ -30,6 +30,8 @@ Claude 使用官方 stream-json 輸入／輸出與 control_request/control_respo
 
 WASM 模式採 SQLite 交易後原子匯出單檔，短生命週期寫入鎖避免其他視窗覆蓋不同對話；可回收已退出程序的舊鎖。這不是 native WAL 設計。大規模歷史的效能、備份及 native WAL／FTS5 是後續工作。
 
+續聊上下文由 `ContextBuilder` 組裝：只取同一 Participant 已完成的回合，依時間排序並標明來源 ID 與時間，使用者訊息與 Agent 過去回答（標示可能有誤）分開；超過 48000 字元預算時先省略較舊的回答，再省略較舊的回合並註明數量。使用者標成「不採用」的回答保留紀錄但不再帶入；每次執行把帶入的 run ID 記在 `contextIds`。目前不使用 LLM 摘要舊回合。
+
 目前搜尋是參數化 SQL 的子字串查詢；中英文字面查詢已測試。打包的 sql.js 沒有 FTS5，評估與啟用條件見 [全文索引評估](research/fts-search.md)。日期／Provider 篩選、FTS5、工程記憶與來源引用依 v0.2 後續里程碑增加。
 
 ## UI

@@ -81,6 +81,15 @@ describe('Vue chat', () => {
     expect(timeline.get('.message-label strong').text()).toBe('Claude Code B · 審查 · 第 2 輪 · 代替');
     timeline.unmount();
   });
+  it('lets the user reject or restore an ordinary answer but not a discussion round', async () => {
+    const base = { provider: 'codex' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, prompt: '問', output: '答' };
+    const timeline = mount(Conversation, { props: { tasks: [{ ...base, id: 'a' }, { ...base, id: 'b', rejected: true }, { ...base, id: 'c', discussionId: 'd', participantRole: 'architect' as const, roundNo: 1 }] } });
+    const buttons = timeline.findAll('.message-label button');
+    expect(buttons.map(button => button.text())).toEqual(['不採用', '恢復採用']); expect(timeline.text()).toContain('已不採用');
+    await buttons[0]!.trigger('click'); await buttons[1]!.trigger('click');
+    expect(timeline.emitted('reject')).toEqual([['a', true], ['b', false]]);
+    timeline.unmount();
+  });
   it('moves focus to Stop while running and back to the input when the removed control dropped it', async () => {
     const wrapper = mount(Composer, { attachTo: document.body, props: { busy: false, running: false, canSend: true, initialDraft: '' } });
     await wrapper.setProps({ running: true, busy: true }); await nextTick();

@@ -71,6 +71,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         const answer = await vscode.window.showWarningMessage('刪除此對話及其本機訊息？此操作無法復原。', { modal: true }, '刪除');
         if (answer === '刪除') await this.orchestrator.deleteConversation(message.conversationId); break;
       }
+      case 'reject-answer': await this.orchestrator.setRejected(message.taskId, message.rejected); break;
       case 'answer-approval': this.orchestrator.answerApproval(message.approvalId, message.allow); break;
       case 'check-providers': await this.orchestrator.checkProviders(); break;
       case 'cancel-task': if (this.orchestrator.state.discussionId) await this.discussions.cancel(); else await this.orchestrator.cancel(message.taskId); break;

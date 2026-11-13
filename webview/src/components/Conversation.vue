@@ -4,6 +4,7 @@ import type { Task } from '../../../src/bridge/messages';
 import MessageBody from './MessageBody.vue';
 import ChatIcon from './ChatIcon.vue';
 const props = defineProps<{ tasks: Task[] }>();
+const emit = defineEmits<{ reject: [taskId: string, rejected: boolean] }>();
 const viewport = ref<HTMLElement>();
 const follow = ref(true);
 const now = ref(Date.now());
@@ -35,7 +36,10 @@ const statusLabel = (task: Task) => ({ running: '執行中', completed: '', fail
     <article v-for="task in tasks" :key="task.id" class="turn">
       <div v-if="!task.discussionId || task.roundNo === 1" class="message user-message"><p class="prompt">{{ task.prompt }}</p></div>
       <div class="message assistant-message">
-        <div class="message-label"><strong>{{ speaker(task) }}</strong><span v-if="task.status !== 'completed'" :class="['task-status', task.status]">{{ statusLabel(task) }}<template v-if="task.status === 'running'"> · {{ elapsed(task) }}s</template></span></div>
+        <div class="message-label">
+          <strong>{{ speaker(task) }}</strong><span v-if="task.status !== 'completed'" :class="['task-status', task.status]">{{ statusLabel(task) }}<template v-if="task.status === 'running'"> · {{ elapsed(task) }}s</template></span><span v-else-if="task.rejected" class="task-status">已不採用</span>
+          <button v-if="task.status === 'completed' && !task.discussionId" type="button" class="text-button" @click="emit('reject', task.id, !task.rejected)">{{ task.rejected ? '恢復採用' : '不採用' }}</button>
+        </div>
         <MessageBody v-if="task.output" :text="task.output" />
         <p v-else-if="task.status === 'running'" class="muted">等待 Provider 輸出…</p>
         <p v-if="task.activity" role="status" class="activity">{{ task.activity }}</p>

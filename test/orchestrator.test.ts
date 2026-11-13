@@ -52,6 +52,20 @@ describe('Manual orchestration', () => {
     expect(adapters[0]?.requests[1]?.prompt).toContain('Claude private context');
     await orchestrator.dispose();
   });
+  it('records the context it sent and excludes answers the user rejected, only for the same participant', async () => {
+    const { orchestrator, adapters } = await setup();
+    await orchestrator.send('claude', 'first question', 'read-only');
+    const first = orchestrator.state.tasks[0]!;
+    await orchestrator.setRejected(first.id, true);
+    await orchestrator.send('claude', 'second question', 'read-only');
+    expect(adapters[0]!.requests[1]!.prompt).toContain('first question'); expect(adapters[0]!.requests[1]!.prompt).not.toContain('claude reply');
+    expect(orchestrator.state.tasks[1]!.contextIds).toEqual([first.id]);
+    await orchestrator.setRejected(first.id, false);
+    await orchestrator.send('claude', 'third question', 'read-only');
+    expect(adapters[0]!.requests[2]!.prompt).toContain('claude reply'); expect(orchestrator.state.tasks[2]!.contextIds).toHaveLength(2);
+    await expect(orchestrator.setRejected('missing', true)).rejects.toThrow(/已完成/);
+    await orchestrator.dispose();
+  });
   it('locks before awaiting and supports cancellation', async () => {
     const { orchestrator } = await setup([new FakeAdapter('claude', true, true)]);
     const running = orchestrator.send('claude', 'long task', 'workspace-write');
