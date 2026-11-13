@@ -32,7 +32,7 @@ Claude 使用官方 stream-json 輸入／輸出與 control_request/control_respo
 
 一般任務可在背景執行：任務屬於送出當下的對話，切換或新增對話只改變檢視，執行中與排隊中的對話保留在記憶體並持續寫回原對話。同一 workspace 由單一序列執行器依送出順序執行，最多 3 個排隊，排隊中的任務可直接取消；歷史列表標示執行中、排隊中、等待核准，核准卡標示背景對話。有執行中或排隊任務的對話不能刪除。討論進行中仍鎖住切換。VS Code 關閉時執行中與排隊中的任務標為已中斷，不宣稱會在背景持續執行。
 
-WASM 模式採 SQLite 交易後原子匯出單檔，短生命週期寫入鎖避免其他視窗覆蓋不同對話；可回收已退出程序的舊鎖。這不是 native WAL 設計。大規模歷史的效能、備份及 native WAL／FTS5 是後續工作。
+WASM 模式採 SQLite 交易後原子匯出單檔，短生命週期寫入鎖避免其他視窗覆蓋不同對話；可回收已退出程序的舊鎖。這不是 native WAL 設計。大規模歷史：只寫有變動的執行、開啟對話只載入最新 100 次、偵測其他視窗新增的執行，見 [歷史量測](research/history-scale.md)；native WAL／FTS5 依該文件的條件再評估。
 
 執行過程保存在 task 的 `steps`：Agent 文字與工具依實際順序交錯，工具有開始／完成／失敗／已停止狀態；Claude 取 `tool_use`／`tool_result`，Codex 取 App Server `item/started`／`item/completed`。工具 IN／OUT 先經 `Redact` 遮罩常見秘密格式，再截斷為 2000／4000 字，單次最多 100 個工具；Stop 或失敗時仍在執行的工具改為已停止。聊天中工具預設收合，展開才顯示 IN／OUT。
 

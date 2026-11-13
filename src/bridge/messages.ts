@@ -47,6 +47,8 @@ export interface Snapshot {
   settings?: WorkspaceSettings; models?: ModelCatalog;
   conversations?: ConversationSummary[]; conversationId?: string; approvals?: ApprovalRequest[];
   accounts?: AccountSummary[]; selectedAccounts?: Partial<Record<AgentId, string>>; persistent?: boolean;
+  /** 目前對話還有更早的訊息未載入；externalChanges：其他視窗寫入、本視窗尚未載入的執行數。 */
+  hasEarlier?: boolean; externalChanges?: number;
 }
 /** 規格 §7：討論最多 8 輪，超出不可延長。 */
 export const maxDiscussionRounds = 8;
@@ -74,6 +76,7 @@ export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('backup-history') }),
   z.object({ ...base, type: z.literal('set-persistence'), enabled: z.boolean() }),
   z.object({ ...base, type: z.literal('clear-project') }),
+  z.object({ ...base, type: z.literal('load-earlier') }),
   z.object({ ...base, type: z.literal('restore-history') }),
   z.object({ ...base, type: z.literal('resolve-discussion'), discussionId: z.string().min(1).max(100), decision: z.enum(['retry', 'substitute', 'end']), provider: agentIdSchema.optional() }),
   z.object({ ...base, type: z.literal('reject-answer'), taskId: z.string().min(1).max(100), rejected: z.boolean() }),

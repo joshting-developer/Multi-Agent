@@ -45,6 +45,33 @@ describe('SQLite conversation history', () => {
     expect(db.list('失效')[0]?.preview).toContain('失效');
     await db.close();
   });
+  it('pages long histories newest first, writes back only changed runs, and reports runs another window added', async () => {
+    const { db, path } = await setup();
+    const tasks = Array.from({ length: 250 }, (_, index) => ({ ...task(`r${index}`, `第 ${index} 則`), startedAt: index }));
+    await db.save('long', '長對話', tasks, policy);
+    const repository = new SessionRepository({ get: () => undefined, update: async () => undefined }, '/project', db);
+    const page = repository.select('long');
+    expect(page.map(item => item.startedAt)).toEqual(Array.from({ length: 100 }, (_, index) => 150 + index));
+    expect(repository.hasEarlier('long', page[0]!.startedAt)).toBe(true);
+    const earlier = repository.loadEarlier('long', page[0]!.startedAt);
+    expect(earlier.map(item => item.startedAt)).toEqual(Array.from({ length: 100 }, (_, index) => 50 + index));
+    expect(repository.hasEarlier('long', repository.loadEarlier('long', 50)[0]!.startedAt)).toBe(false);
+    // 只寫回有變動的執行：未載入的舊訊息不會被覆寫或刪除。
+    const changed = { ...page.at(-1)!, output: '更新後' }; const added = { ...task('new', '新問題'), startedAt: 300 };
+    let written: Task[] = []; const original = db.save.bind(db);
+    db.save = async (id, title, list, value) => { written = list; return original(id, title, list, value); };
+    await repository.save([...page.slice(0, -1), changed, added], policy, 'long');
+    expect(written.map(item => item.id)).toEqual(['r249', 'new']);
+    await repository.save([...page.slice(0, -1), changed, added], policy, 'long'); expect(written.map(item => item.id)).toEqual(['r249', 'new']);
+    expect(db.load('long').length).toBe(251); expect(db.load('long').find(item => item.id === 'r0')?.prompt).toBe('第 0 則');
+    // 另一個視窗（另一個連線）在同一對話新增訊息：本視窗看得到數量，不會覆蓋它。
+    const other = await ConversationDatabase.open(path, '/project', wasm);
+    await other.save('long', '長對話', [{ ...task('other-window', '別的視窗'), startedAt: 400 }], policy); await other.close();
+    await repository.save([...page.slice(0, -1), changed, added, { ...task('mine', '我的'), startedAt: 401 }], policy, 'long');
+    expect(repository.externalRuns('long', page[0]!.startedAt)).toBe(1);
+    expect(db.load('long').map(item => item.id)).toEqual(expect.arrayContaining(['other-window', 'mine']));
+    await db.close();
+  });
   it('exports a conversation as JSON and Markdown with stable ids, scope, schema version and status', async () => {
     const { db } = await setup();
     await db.save('one', '快取設計', [task('r1', '要用哪種快取？'), { ...task('r2', '再想想'), status: 'failed', error: '額度不足', rejected: true, steps: [{ kind: 'tool', id: 't', name: 'Read', status: 'done' }] }], policy);

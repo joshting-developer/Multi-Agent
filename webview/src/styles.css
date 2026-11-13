@@ -151,3 +151,4 @@ select { min-width: 0; max-width: 100%; border: 0; border-radius: 5px; padding: 
 .history-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .turn.focused .assistant-message, .turn.focused .user-message { outline: 1px solid var(--vscode-focusBorder); outline-offset: 4px; }
 mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inherit; }
+.load-earlier { display: block; margin: 0 auto 12px; }

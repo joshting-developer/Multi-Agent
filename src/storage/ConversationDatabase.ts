@@ -173,9 +173,17 @@ export class ConversationDatabase {
         ...(typeof row.match_id === 'string' && { preview: String(row.preview ?? ''), match: { runId: row.match_id, ...(typeof row.match_message === 'string' && { messageId: row.match_message }), at: Number(row.match_at), provider: agentIdSchema.parse(row.match_provider), discussion: row.match_discussion !== null } })
       }));
   }
-  load(id: string): Task[] {
-    if (!this.list().some(item => item.id === id)) throw new Error('找不到目前專案的對話。');
-    return this.rows('SELECT task_json FROM runs WHERE conversation_id=? ORDER BY started_at,rowid', [id]).map(row => taskSchema.parse(JSON.parse(String(row.task_json))));
+  /** 預設載入全部；limit 時只取最新的幾次（可用 before 往前翻頁），回傳順序仍是由舊到新。 */
+  load(id: string, page: { limit?: number; before?: number } = {}): Task[] {
+    if (!this.rows('SELECT 1 FROM conversations WHERE id=? AND root=?', [id, this.root]).length) throw new Error('找不到目前專案的對話。');
+    if (!page.limit) return this.rows('SELECT task_json FROM runs WHERE conversation_id=? ORDER BY started_at,rowid', [id]).map(row => taskSchema.parse(JSON.parse(String(row.task_json))));
+    return this.rows(`SELECT task_json FROM (SELECT task_json,started_at,rowid FROM runs WHERE conversation_id=?${page.before !== undefined ? ' AND started_at<?' : ''} ORDER BY started_at DESC,rowid DESC LIMIT ?) ORDER BY started_at,rowid`,
+      page.before !== undefined ? [id, page.before, page.limit] : [id, page.limit]).map(row => taskSchema.parse(JSON.parse(String(row.task_json))));
+  }
+  /** 指定時間範圍內的執行 ID（since 含、before 不含），用來翻頁與發現其他視窗寫入的新訊息。 */
+  runIds(id: string, since?: number, before?: number): string[] {
+    return this.rows(`SELECT id FROM runs WHERE conversation_id=?${since !== undefined ? ' AND started_at>=?' : ''}${before !== undefined ? ' AND started_at<?' : ''}`,
+      [id, ...(since !== undefined ? [since] : []), ...(before !== undefined ? [before] : [])]).map(row => String(row.id));
   }
   policy(): WorkspacePolicy | undefined {
     const value = this.rows('SELECT value FROM metadata WHERE key=?', ['policy:' + this.root])[0]?.value;

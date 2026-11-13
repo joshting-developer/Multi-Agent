@@ -135,6 +135,16 @@ describe('Vue chat', () => {
     expect(timeline.get('[role="alert"]').text()).toBe('找不到原始訊息，可能已刪除。');
     timeline.unmount();
   });
+  it('offers earlier messages and a reload when another window added messages', async () => {
+    const base = { provider: 'codex' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, prompt: '問', output: '答' };
+    const timeline = mount(Conversation, { props: { tasks: [{ ...base, id: 'a' }], hasEarlier: true, externalChanges: 2 } });
+    expect(timeline.get('[role="status"]').text()).toContain('其他視窗有 2 則新訊息');
+    await timeline.get('.load-earlier').trigger('click'); await timeline.findAll('button').find(button => button.text() === '重新載入')!.trigger('click');
+    expect(timeline.emitted('earlier')).toHaveLength(1); expect(timeline.emitted('reload')).toHaveLength(1);
+    await timeline.setProps({ hasEarlier: false, externalChanges: 0 });
+    expect(timeline.find('.load-earlier').exists()).toBe(false); expect(timeline.text()).not.toContain('其他視窗');
+    timeline.unmount();
+  });
   it('moves focus to Stop while running and back to the input when the removed control dropped it', async () => {
     const wrapper = mount(Composer, { attachTo: document.body, props: { busy: false, running: false, canSend: true, initialDraft: '' } });
     await wrapper.setProps({ running: true, busy: true }); await nextTick();

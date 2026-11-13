@@ -42,7 +42,7 @@ export class Orchestrator {
     private readonly accountEnv: (provider: AgentId, accountId?: string) => Record<string, string> | undefined = () => undefined) {
     const stored = repository.load();
     this.listed = repository.list();
-    this.state = { persistent: repository.persistent, workspace: cwd, tasks: stored.tasks, policy: stored.policy, providers: [], checking: false, trusted: isTrusted(), conversationId: repository.conversationId, conversations: this.listed, approvals: [] };
+    this.state = { persistent: repository.persistent, hasEarlier: repository.hasEarlier(repository.conversationId, stored.tasks[0]?.startedAt) || undefined, workspace: cwd, tasks: stored.tasks, policy: stored.policy, providers: [], checking: false, trusted: isTrusted(), conversationId: repository.conversationId, conversations: this.listed, approvals: [] };
   }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   private changed(persist = false): void {
@@ -58,7 +58,18 @@ export class Orchestrator {
     await this.repository.save(this.state.tasks, this.state.policy);
     for (const [id, tasks] of this.live) if (id !== this.repository.conversationId) await this.repository.save(tasks, this.state.policy, id);
     for (const [id, tasks] of this.live) if (!tasks.some(task => task.status === 'running' || task.status === 'queued')) this.live.delete(id);
-    this.listed = this.repository.list(); this.changed();
+    this.listed = this.repository.list();
+    const external = this.live.has(this.repository.conversationId) ? 0 : this.repository.externalRuns(this.repository.conversationId, this.state.tasks[0]?.startedAt);
+    this.state.externalChanges = external || undefined;
+    this.changed();
+  }
+  private paging(): void { this.state.hasEarlier = this.repository.hasEarlier(this.repository.conversationId, this.state.tasks[0]?.startedAt) || undefined; }
+  /** 往前載入一頁更早的訊息，接在目前清單前面。 */
+  async loadEarlier(): Promise<void> {
+    const first = this.state.tasks[0];
+    if (!first) return;
+    const earlier = this.repository.loadEarlier(this.repository.conversationId, first.startedAt).filter(task => !this.state.tasks.some(item => item.id === task.id));
+    this.state.tasks.unshift(...earlier); this.paging(); this.changed();
   }
   /** 歷史列表標示背景對話的執行、排隊或等待核准狀態。 */
   private decorate(list: ConversationSummary[]): ConversationSummary[] {
@@ -254,7 +265,7 @@ export class Orchestrator {
   async newConversation(): Promise<void> {
     await this.navigate(async () => {
       await this.flush(); this.repository.create();
-      this.state.conversationId = this.repository.conversationId; this.state.tasks = [];
+      this.state.conversationId = this.repository.conversationId; this.state.tasks = []; this.state.hasEarlier = undefined; this.state.externalChanges = undefined;
     });
   }
   async openConversation(id: string): Promise<void> {
@@ -263,7 +274,7 @@ export class Orchestrator {
       const live = this.live.get(id);
       if (live) this.repository.use(id);
       this.state.tasks = live ?? this.repository.select(id);
-      this.state.conversationId = id;
+      this.state.conversationId = id; this.state.externalChanges = undefined; this.paging();
     });
   }
   /** 搜尋只返回目前工作區允許的 Provider 紀錄。 */

@@ -157,6 +157,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         }
         await this.orchestrator.setPersistence(message.enabled); break;
       }
+      case 'load-earlier': await this.orchestrator.loadEarlier(); break;
       case 'clear-project': {
         const answer = await vscode.window.showWarningMessage(`刪除「${this.orchestrator.state.workspace}」的所有對話與稽核紀錄？其他專案不受影響，此操作無法復原。`, { modal: true }, '刪除');
         if (answer === '刪除') await this.orchestrator.clearProject(); break;

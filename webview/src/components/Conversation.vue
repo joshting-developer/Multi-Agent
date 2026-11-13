@@ -3,8 +3,17 @@ import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import type { Step, Task } from '../../../src/bridge/messages';
 import MessageBody from './MessageBody.vue';
 import ChatIcon from './ChatIcon.vue';
-const props = withDefaults(defineProps<{ tasks: Task[]; focus?: { runId: string; query: string; revision: number } }>(), { focus: undefined });
-const emit = defineEmits<{ reject: [taskId: string, rejected: boolean] }>();
+const props = withDefaults(defineProps<{ tasks: Task[]; focus?: { runId: string; query: string; revision: number }; hasEarlier?: boolean; externalChanges?: number }>(), { focus: undefined, hasEarlier: false, externalChanges: 0 });
+const emit = defineEmits<{ reject: [taskId: string, rejected: boolean]; earlier: []; reload: [] }>();
+// 往前載入時維持目前看到的位置，不跳到頂端或底部。
+let anchor: number | undefined;
+function earlier() { anchor = viewport.value ? viewport.value.scrollHeight - viewport.value.scrollTop : undefined; follow.value = false; emit('earlier'); }
+watch(() => props.tasks[0]?.id, async () => {
+  if (anchor === undefined) return;
+  await nextTick(); const element = viewport.value;
+  if (element) element.scrollTop = element.scrollHeight - anchor;
+  anchor = undefined;
+});
 const viewport = ref<HTMLElement>();
 const follow = ref(true);
 const now = ref(Date.now());
@@ -61,6 +70,8 @@ const statusLabel = (task: Task) => ({ queued: '排隊中', running: '執行中'
 <template>
   <section ref="viewport" class="conversation" aria-label="對話紀錄" @scroll="onScroll">
     <div v-if="tasks.length === 0" class="empty-state" aria-label="開始對話"><ChatIcon name="chat" /></div>
+    <p v-if="externalChanges" class="notice" role="status"><span>其他視窗有 {{ externalChanges }} 則新訊息</span><button type="button" class="text-button" @click="emit('reload')">重新載入</button></p>
+    <button v-if="hasEarlier" type="button" class="text-button load-earlier" @click="earlier">載入更早的訊息</button>
     <p v-if="missing" class="notice" role="alert">找不到原始訊息，可能已刪除。</p>
     <article v-for="task in tasks" :key="task.id" :class="['turn', { focused: focus?.runId === task.id && !missing }]" :data-run="task.id">
       <div v-if="!task.discussionId || task.roundNo === 1" class="message user-message"><p class="prompt">{{ task.prompt }}</p></div>
