@@ -139,6 +139,22 @@ describe('Manual orchestration', () => {
     expect(adapter.requests.at(-1)!.resumeSessionId).toBeUndefined(); expect(adapter.requests.at(-1)!.prompt).toContain('answer rejected by the user');
     await orchestrator.dispose();
   });
+  it('runs each task with its own account directory and never resumes a session across accounts', async () => {
+    class Resumable extends FakeAdapter {
+      override capabilities() { return { ...capabilities, resumeSession: true }; }
+      override async detect(): Promise<ProviderStatus> { return { id: this.id, status: 'ready', capabilities: this.capabilities() }; }
+    }
+    const adapter = new Resumable('claude');
+    const orchestrator = new Orchestrator(new AgentRegistry([adapter]), new SessionRepository(new MemoryStorage(), '/project'), '/project', () => true, () => 5000, () => undefined,
+      (_provider, accountId) => accountId ? { CLAUDE_CONFIG_DIR: `/accounts/${accountId}` } : undefined);
+    await orchestrator.setPolicy({ classification: 'personal', allowedProviders: ['claude'] }); await orchestrator.checkProviders();
+    await orchestrator.send('claude', 'work 1', 'read-only', { model: 'sonnet', effort: 'low', accountId: 'work' });
+    await orchestrator.send('claude', 'work 2', 'read-only', { model: 'sonnet', effort: 'low', accountId: 'work' });
+    await orchestrator.send('claude', 'personal', 'read-only', { model: 'sonnet', effort: 'low', accountId: 'personal' });
+    expect(adapter.requests.map(request => [request.env?.CLAUDE_CONFIG_DIR, request.resumeSessionId ? 'resume' : 'new'])).toEqual([['/accounts/work', 'new'], ['/accounts/work', 'resume'], ['/accounts/personal', 'new']]);
+    expect(orchestrator.state.tasks.map(task => task.accountId)).toEqual(['work', 'work', 'personal']);
+    await orchestrator.dispose();
+  });
   it('queues later work behind the running task so only one writer runs, and cancels queued work without starting it', async () => {
     const adapter = new FakeAdapter('claude', true, true); const { orchestrator } = await setup([adapter]);
     const running = orchestrator.send('claude', 'long task', 'workspace-write');

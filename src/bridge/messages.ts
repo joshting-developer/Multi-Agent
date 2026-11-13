@@ -28,7 +28,7 @@ export const taskSchema = z.object({
   failureKind: z.enum(['quota', 'rate-limit']).optional(), substitute: z.boolean().optional(),
   rejected: z.boolean().optional(), contextIds: z.array(z.string()).optional(), events: z.array(auditEventSchema).optional(), steps: z.array(stepSchema).optional(),
   /** native：接續官方原生 Session；rebuilt：由 SQLite 上下文重建。persisted：這次的原生 Session 有保留，可供下次接續。 */
-  contextMode: z.enum(['native', 'rebuilt']).optional(), persisted: z.boolean().optional()
+  contextMode: z.enum(['native', 'rebuilt']).optional(), persisted: z.boolean().optional(), accountId: z.string().optional()
 });
 export type Task = z.infer<typeof taskSchema>;
 export type Classification = 'unclassified' | 'personal' | 'company' | 'restricted';
@@ -46,19 +46,27 @@ export interface Snapshot {
   activeTaskId?: string; activeConversationId?: string; discussionId?: string; discussion?: DiscussionSummary; checking: boolean; trusted: boolean;
   settings?: WorkspaceSettings; models?: ModelCatalog;
   conversations?: ConversationSummary[]; conversationId?: string; approvals?: ApprovalRequest[];
+  accounts?: AccountSummary[]; selectedAccounts?: Partial<Record<AgentId, string>>;
 }
 /** 規格 §7：討論最多 8 輪，超出不可延長。 */
 export const maxDiscussionRounds = 8;
 export interface DiscussionBlock { kind: 'quota' | 'rate-limit'; provider: AgentId; roundNo: number }
 export interface DiscussionSummary { id: string; status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'; completedRounds: number; maxRounds: number; summaryTaskId?: string; blocked?: DiscussionBlock }
 export interface ConversationSummary { id: string; title: string; createdAt: number; updatedAt: number; provider?: AgentId; preview?: string; activity?: 'running' | 'queued' | 'waiting' }
+export interface AccountSummary { id: string; provider: AgentId; name: string; builtIn: boolean; loggedIn?: boolean; account?: ProviderStatus['account'] }
 export interface ApprovalRequest { id: string; taskId: string; provider: AgentId; title: string; detail: string; conversationId?: string }
 const base = { version: z.literal(1), requestId: z.string().min(1).max(100) };
 export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('ready') }),
   z.object({ ...base, type: z.literal('send-message'), provider: agentIdSchema, text: z.string().trim().min(1).max(32000), mode: modeSchema, preferences: providerPreferencesSchema.optional(), approvalMode: z.enum(approvalModes).optional() }),
-  z.object({ ...base, type: z.literal('start-discussion'), provider: agentIdSchema, partner: agentIdSchema.optional(), text: z.string().trim().min(1).max(32000), rounds: z.number().int().min(2).max(8), preferences: providerPreferencesSchema.optional() }),
+  z.object({ ...base, type: z.literal('start-discussion'), provider: agentIdSchema, partner: agentIdSchema.optional(), text: z.string().trim().min(1).max(32000), rounds: z.number().int().min(2).max(8), preferences: providerPreferencesSchema.optional(), partnerAccountId: z.string().max(100).optional() }),
   z.object({ ...base, type: z.literal('extend-discussion'), discussionId: z.string().min(1).max(100), rounds: z.number().int().min(1).max(6) }),
+  z.object({ ...base, type: z.literal('add-account'), provider: agentIdSchema, name: z.string().trim().min(1).max(60) }),
+  z.object({ ...base, type: z.literal('rename-account'), accountId: z.string().min(1).max(100), name: z.string().trim().min(1).max(60) }),
+  z.object({ ...base, type: z.literal('remove-account'), accountId: z.string().min(1).max(100) }),
+  z.object({ ...base, type: z.literal('account-terminal'), accountId: z.string().min(1).max(100), action: z.enum(['login', 'logout']) }),
+  z.object({ ...base, type: z.literal('select-account'), provider: agentIdSchema, accountId: z.string().min(1).max(100) }),
+  z.object({ ...base, type: z.literal('check-accounts') }),
   z.object({ ...base, type: z.literal('resolve-discussion'), discussionId: z.string().min(1).max(100), decision: z.enum(['retry', 'substitute', 'end']), provider: agentIdSchema.optional() }),
   z.object({ ...base, type: z.literal('reject-answer'), taskId: z.string().min(1).max(100), rejected: z.boolean() }),
   z.object({ ...base, type: z.literal('answer-approval'), approvalId: z.string().min(1).max(100), allow: z.boolean() }),

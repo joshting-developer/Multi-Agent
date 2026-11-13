@@ -26,9 +26,9 @@ export class CodexRpc {
     }
   }
 }
-export async function readCodexAccount(processes: ProcessManager, command: string, cwd: string) {
+export async function readCodexAccount(processes: ProcessManager, command: string, cwd: string, env?: Record<string, string>) {
   const rpc = new CodexRpc(processes);
-  for await (const message of rpc.messages({ command, cwd, timeoutMs: 15000 })) {
+  for await (const message of rpc.messages({ command, cwd, timeoutMs: 15000, ...(env && { env: { ...process.env, ...env } }) })) {
     if (message.id === 1) rpc.request(2, 'account/read', { refreshToken: false });
     if (message.id !== 2) continue;
     if (message.error) throw new Error('無法查詢 Codex 帳號。');

@@ -8,7 +8,10 @@ if (args.includes('--version')) {
 } else if (args[0] === 'features') {
   console.log('shell_tool stable true\nmulti_agent stable true\nunified_exec stable true\nhooks stable true\napps stable true\nplugins stable true');
 } else if (args[0] === 'auth' || args[0] === 'login') {
-  if (provider === 'claude') console.log(JSON.stringify({ loggedIn: scenario !== 'unauthenticated', email: 'claude@example.test', orgName: 'Example Org', authMethod: 'claude.ai', subscriptionType: 'team', accessToken: 'secret-must-not-leak' }));
+  // 每個帳號目錄各自的登入狀態：目錄名稱含 logged-out 視為未登入，email 帶目錄名稱以便辨識。
+  const accountDir = process.env.CLAUDE_CONFIG_DIR;
+  if (provider === 'claude' && accountDir) console.log(JSON.stringify({ loggedIn: !accountDir.includes('logged-out'), email: `${require('node:path').basename(accountDir)}@example.test`, authMethod: 'claude.ai', accessToken: 'secret-must-not-leak' }));
+  else if (provider === 'claude') console.log(JSON.stringify({ loggedIn: scenario !== 'unauthenticated', email: 'claude@example.test', orgName: 'Example Org', authMethod: 'claude.ai', subscriptionType: 'team', accessToken: 'secret-must-not-leak' }));
   else console.log(scenario === 'unauthenticated' ? 'Not logged in' : 'Logged in using ChatGPT');
   if (scenario === 'unauthenticated') process.exitCode = 1;
 } else if (args[0] === 'app-server') {

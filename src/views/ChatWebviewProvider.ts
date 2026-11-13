@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { SettingsService } from '../settings/SettingsService';
 import { claudeModels, defaultSettings, type ProviderPreferences } from '../bridge/settings';
 import { configureWebview } from './WebviewDocument';
+import type { AccountService } from '../accounts/AccountService';
 
 export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly webviews = new Set<vscode.Webview>();
@@ -20,12 +21,13 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
   readonly whenReady = new Promise<void>(resolve => { this.resolveReady = resolve; });
   private resolveSettingsReady: () => void = () => undefined;
   readonly whenSettingsReady = new Promise<void>(resolve => { this.resolveSettingsReady = resolve; });
-  constructor(private readonly extensionUri: vscode.Uri, private readonly orchestrator: Orchestrator, private readonly settings?: SettingsService) {
+  constructor(private readonly extensionUri: vscode.Uri, private readonly orchestrator: Orchestrator, private readonly settings?: SettingsService, private readonly accounts?: AccountService) {
     this.discussions = new DiscussionCoordinator(orchestrator, () => this.snapshot());
     this.unsubscribe = orchestrator.subscribe(() => {
       if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; this.snapshot(); }, 40);
     });
     if (settings) this.disposables.push({ dispose: settings.subscribe(() => this.snapshot()) });
+    if (accounts) this.disposables.push({ dispose: accounts.subscribe(() => this.snapshot()) });
   }
   resolveWebviewView(view: vscode.WebviewView): void {
     this.attach(view.webview, 'chat');
@@ -43,14 +45,24 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
   private post(message: HostToWebview, target?: vscode.Webview): void {
     for (const webview of target ? [target] : this.webviews) void webview.postMessage(message);
   }
-  private preferencesFor(provider: AgentId, explicit?: ProviderPreferences): ProviderPreferences | undefined {
+  /** 在 VS Code 終端機執行官方登入／登出，憑證由官方 CLI 寫入該帳號自己的目錄。 */
+  private openAccountTerminal(id: string, action: 'login' | 'logout'): void {
+    if (!this.accounts) throw new Error('帳號管理尚未就緒。');
+    const { name, command, env } = this.accounts.terminal(id, action);
+    const terminal = vscode.window.createTerminal({ name, ...(env && { env }) });
+    terminal.show(); terminal.sendText(command.map(part => /^[\w./:@=-]+$/.test(part) ? part : `'${part.replace(/'/g, `'\\''`)}'`).join(' '));
+  }
+  /** 明確選擇的帳號優先，其次是該 Provider 目前選定的帳號；每個環節（A、B、總結、代替）都各自帶入。 */
+  private preferencesFor(provider: AgentId, explicit?: ProviderPreferences, accountId?: string): ProviderPreferences | undefined {
     const preferences = explicit ?? this.settings?.read()[provider];
     if (preferences) this.settings?.validate(provider, preferences);
     if (this.settings && !preferences?.model) throw new Error('請先選擇明確的模型。');
-    return preferences;
+    const account = accountId ?? explicit?.accountId ?? this.accounts?.selected()[provider];
+    if (account) this.accounts?.env(provider, account);
+    return preferences && account ? { ...preferences, accountId: account } : preferences;
   }
   private snapshot(target?: vscode.Webview): void {
-    this.post({ version: 1, type: 'snapshot', snapshot: { ...this.orchestrator.state, discussion: this.discussions.summary(),
+    this.post({ version: 1, type: 'snapshot', snapshot: { ...this.orchestrator.state, discussion: this.discussions.summary(), accounts: this.accounts?.list(), selectedAccounts: this.accounts?.selected(),
       settings: this.settings?.read() ?? defaultSettings,
       models: this.settings?.models ?? { codex: [], claude: claudeModels, loading: false }
     } }, target);
@@ -60,7 +72,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'ready':
         if (surface === 'chat') this.resolveReady(); else this.resolveSettingsReady();
         this.snapshot(source);
-        if (!this.orchestrator.state.providers.length) await this.orchestrator.checkProviders();
+        if (!this.orchestrator.state.providers.length) { await this.orchestrator.checkProviders(); void this.accounts?.refresh(); }
         if (!this.settings?.models.codex.length) void this.settings?.refreshModels();
         break;
       case 'new-conversation': await this.orchestrator.newConversation(); this.snapshot(source); this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); break;
@@ -73,7 +85,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       }
       case 'reject-answer': await this.orchestrator.setRejected(message.taskId, message.rejected); break;
       case 'answer-approval': this.orchestrator.answerApproval(message.approvalId, message.allow); break;
-      case 'check-providers': await this.orchestrator.checkProviders(); break;
+      case 'check-providers': await this.orchestrator.checkProviders(); await this.accounts?.refresh(); break;
       case 'cancel-task': if (this.orchestrator.state.discussionId) await this.discussions.cancel(); else await this.orchestrator.cancel(message.taskId); break;
       case 'clear-conversation': {
         const answer = await vscode.window.showWarningMessage('刪除目前對話的本機聊天紀錄？其他對話與官方 CLI 紀錄不受影響。', { modal: true }, '清除');
@@ -100,13 +112,13 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         if (this.approvalPending) throw new Error('請先完成目前的授權對話框。');
         const partner = message.partner ?? message.provider;
         try {
-          const preferencesFor = (provider: typeof partner, explicit?: typeof message.preferences) => this.preferencesFor(provider, explicit);
-          // A 使用畫面上選定的模型；B 若為同一 Provider 沿用相同設定，否則使用該 Provider 已保存的偏好。
-          const lead = preferencesFor(message.provider, message.preferences);
+          // A 使用畫面上選定的模型與帳號；B 若為同一 Provider 沿用相同模型，帳號可另外指定。
+          const lead = this.preferencesFor(message.provider, message.preferences);
+          const partnerPreferences = partner === message.provider ? this.preferencesFor(partner, lead, message.partnerAccountId) : this.preferencesFor(partner, undefined, message.partnerAccountId);
           // 每次討論使用新的 Participant，避免沿用前一次討論的上下文。
           const run = this.discussions.run(message.text, [
             { id: randomUUID(), provider: message.provider, role: 'architect', preferences: lead },
-            { id: randomUUID(), provider: partner, role: 'critic', preferences: partner === message.provider ? lead : preferencesFor(partner) }
+            { id: randomUUID(), provider: partner, role: 'critic', preferences: partnerPreferences }
           ], message.rounds);
           this.snapshot();
           await run;
@@ -114,6 +126,19 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         finally { this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); }
         break;
       }
+      case 'add-account': {
+        if (!this.accounts) throw new Error('帳號管理尚未就緒。');
+        const account = await this.accounts.add(message.provider, message.name);
+        this.openAccountTerminal(account.id, 'login'); break;
+      }
+      case 'rename-account': await this.accounts?.rename(message.accountId, message.name); break;
+      case 'remove-account': {
+        const answer = await vscode.window.showWarningMessage('移除這個帳號？會刪除它在 Multi-Agent 的官方 CLI 設定目錄，需要時可再登入。', { modal: true }, '移除');
+        if (answer === '移除') await this.accounts?.remove(message.accountId); break;
+      }
+      case 'account-terminal': this.openAccountTerminal(message.accountId, message.action); break;
+      case 'select-account': await this.accounts?.select(message.provider, message.accountId); break;
+      case 'check-accounts': await this.accounts?.refresh(); break;
       case 'resolve-discussion': {
         if (message.decision === 'substitute') {
           if (!message.provider) throw new Error('請選擇代替的 Provider。');

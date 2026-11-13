@@ -44,8 +44,8 @@ export abstract class CliAdapter implements AgentAdapter {
     return this.detected?.capabilities ?? { streaming: false, readOnly: false, workspaceWrite: false, resumeSession: false, toolApproval: false, structuredOutput: false };
   }
   protected abstract inspect(command: string): Promise<ProviderStatus>;
-  protected probe(command: string, args: string[]) {
-    return this.processes.collect({ command, args, cwd: this.detectionCwd, timeoutMs: 12000 });
+  protected probe(command: string, args: string[], env?: Record<string, string>) {
+    return this.processes.collect({ command, args, cwd: this.detectionCwd, timeoutMs: 12000, ...(env && { env: { ...process.env, ...env } }) });
   }
   async detect(): Promise<ProviderStatus> {
     try {
@@ -76,7 +76,7 @@ export abstract class CliAdapter implements AgentAdapter {
     const inputStream = this.inputStream(request);
     try {
       for await (const event of this.processes.run({
-        command: this.command, args: this.arguments(request), cwd: request.cwd, input: request.prompt,
+        command: this.command, args: this.arguments(request), cwd: request.cwd, input: request.prompt, ...(request.env && { env: { ...process.env, ...request.env } }),
         timeoutMs: request.timeoutMs, signal: controller.signal,
         onStdinReady: inputStream ? write => { send = write; inputStream(write); } : undefined
       })) {

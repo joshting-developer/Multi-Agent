@@ -3,7 +3,7 @@ export type ReasoningEffort = typeof reasoningEfforts[number];
 export const approvalModes = ['ask', 'auto-review', 'full-access'] as const;
 export type ApprovalMode = typeof approvalModes[number];
 export const approvalLabels: Record<ApprovalMode, string> = { ask: '要求核准', 'auto-review': '代我核准', 'full-access': '完整存取' };
-export interface ProviderPreferences { model: string; effort: ReasoningEffort }
+export interface ProviderPreferences { model: string; effort: ReasoningEffort; accountId?: string }
 export interface WorkspaceSettings {
   timeoutSeconds: number; sendShortcut: 'enter' | 'modifier-enter'; defaultMode: 'read-only' | 'workspace-write';
   codexPath: string; claudePath: string; codex: ProviderPreferences; claude: ProviderPreferences;

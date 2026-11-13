@@ -5,6 +5,13 @@ import { CliAdapter, providerFailure, record, toolText, type ParsedEvent, type S
 
 export class ClaudeCodeAdapter extends CliAdapter {
   readonly id = 'claude' as const;
+  readonly accountEnvKey = 'CLAUDE_CONFIG_DIR';
+  async account(env?: Record<string, string>) {
+    if (!this.command) await this.detect();
+    if (!this.command) return { loggedIn: false };
+    try { return claudeAccount((await this.probe(this.command, ['auth', 'status'], env)).stdout); } catch { return { loggedIn: false }; }
+  }
+  authCommand(action: 'login' | 'logout') { return this.command ? [this.command, 'auth', action] : undefined; }
   protected async inspect(command: string): Promise<ProviderStatus> {
     const version = await this.probe(command, ['--version']);
     const help = await this.probe(command, ['--help']);
@@ -13,11 +20,9 @@ export class ClaudeCodeAdapter extends CliAdapter {
     const capabilities = { streaming: compatible, readOnly: compatible, workspaceWrite: compatible, resumeSession: compatible && this.help.includes('--resume'), toolApproval: true, structuredOutput: true };
     if (!compatible) return { id: this.id, status: 'installed', version: version.stdout.trim(), reason: '此版本缺少 restricted / safe-mode 或串流能力，請更新 Claude Code。', capabilities };
     const auth = await this.probe(command, ['auth', 'status']);
-    let loggedIn = false;
-    let identity: Record<string, unknown> = {};
-    try { identity = record(JSON.parse(auth.stdout)); loggedIn = identity.loggedIn === true; } catch { /* Unknown auth format cannot establish readiness. */ }
+    const { loggedIn, account } = claudeAccount(auth.stdout);
     return { id: this.id, version: version.stdout.trim(), capabilities, approvalModes: this.help.includes('auto') ? ['ask', 'auto-review', 'full-access'] : ['ask', 'full-access'],
-      account: loggedIn ? { type: typeof identity.authMethod === 'string' ? identity.authMethod : 'Claude CLI', email: typeof identity.email === 'string' ? identity.email : undefined, organization: typeof identity.orgName === 'string' ? identity.orgName : undefined, plan: typeof identity.subscriptionType === 'string' ? identity.subscriptionType : undefined } : undefined, status: loggedIn && auth.code === 0 ? 'ready' : 'installed', reason: loggedIn ? undefined : '尚未登入。請在終端執行 claude auth login，完成後重新檢查。' };
+      account, status: loggedIn && auth.code === 0 ? 'ready' : 'installed', reason: loggedIn ? undefined : '尚未登入。請在終端執行 claude auth login，完成後重新檢查。' };
   }
   protected arguments(request: AgentRequest): string[] {
     if (request.effort && !this.help.includes('--effort')) throw new Error('此 Claude Code 版本不支援推理強度，請更新 CLI。');
@@ -106,4 +111,11 @@ function claudeInput(value: unknown): string | undefined {
   const input = record(value);
   const head = [input.description, input.command, input.file_path ?? input.path, input.pattern, input.url, input.query].filter(item => typeof item === 'string' && item);
   return head.length ? head.join('\n') : toolText(value);
+}
+/** 只取公開身分欄位；auth status 的其他內容（含任何 token）不離開 Adapter。 */
+function claudeAccount(stdout: string): { loggedIn: boolean; account?: ProviderStatus['account'] } {
+  let identity: Record<string, unknown> = {};
+  try { identity = record(JSON.parse(stdout)); } catch { return { loggedIn: false }; }
+  if (identity.loggedIn !== true) return { loggedIn: false };
+  return { loggedIn: true, account: { type: typeof identity.authMethod === 'string' ? identity.authMethod : 'Claude CLI', email: typeof identity.email === 'string' ? identity.email : undefined, organization: typeof identity.orgName === 'string' ? identity.orgName : undefined, plan: typeof identity.subscriptionType === 'string' ? identity.subscriptionType : undefined } };
 }

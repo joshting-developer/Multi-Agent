@@ -6,6 +6,14 @@ import { protectedPatterns } from '../execution/ExecutionPolicy';
 
 export class CodexAppServerAdapter extends CodexAdapter {
   private readonly running = new Map<string, AbortController>();
+  readonly accountEnvKey = 'CODEX_HOME';
+  async account(env?: Record<string, string>) {
+    if (!this.command) await this.detect();
+    if (!this.command) return { loggedIn: false };
+    try { const account = await readCodexAccount(this.processes, this.command, this.detectionCwd, env); return account ? { loggedIn: true, account } : { loggedIn: false }; }
+    catch { return { loggedIn: false }; }
+  }
+  authCommand(action: 'login' | 'logout') { return this.command ? [this.command, action] : undefined; }
   protected override async inspect(command: string) {
     const status = await super.inspect(command);
     const help = await this.probe(command, ['--help']);
@@ -38,7 +46,7 @@ export class CodexAppServerAdapter extends CodexAdapter {
     const outputs = new Map<string, string>();
     const changes = new Map<string, unknown>();
     try {
-      for await (const message of rpc.messages({ command: this.command, cwd: request.cwd, timeoutMs: request.timeoutMs, signal: controller.signal, config })) {
+      for await (const message of rpc.messages({ command: this.command, cwd: request.cwd, timeoutMs: request.timeoutMs, signal: controller.signal, config, ...(request.env && { env: { ...process.env, ...request.env } }) })) {
         if (message.error && message.id === 2 && request.resumeSessionId) throw new SessionUnavailable('原生 Session 已無法接續。');
         if (message.error && typeof message.id === 'number') throw providerFailure(JSON.stringify(message.error));
         if (message.id === 1 && !message.method) {

@@ -36,7 +36,7 @@ export class SettingsService {
     const next = this.writes.catch(() => undefined).then(operation); this.writes = next; return next;
   }
   setProvider(provider: AgentId, preferences: ProviderPreferences): Promise<void> {
-    const validated = this.validate(provider, preferences);
+    const { model, effort } = this.validate(provider, preferences); const validated = { model, effort };
     return this.enqueue(() => { const settings = this.read(); settings[provider] = validated; return this.apply(settings); });
   }
   save(value: WorkspaceSettings): Promise<void> {

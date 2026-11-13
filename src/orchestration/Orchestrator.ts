@@ -38,7 +38,8 @@ export class Orchestrator {
   private persistTimer?: ReturnType<typeof setTimeout>;
   constructor(private readonly registry: AgentRegistry, private readonly repository: SessionRepository,
     private readonly cwd: string, private readonly isTrusted: () => boolean, private readonly timeoutMs: () => number,
-    private readonly storageError: (error: unknown) => void = () => undefined) {
+    private readonly storageError: (error: unknown) => void = () => undefined,
+    private readonly accountEnv: (provider: AgentId, accountId?: string) => Record<string, string> | undefined = () => undefined) {
     const stored = repository.load();
     this.listed = repository.list();
     this.state = { workspace: cwd, tasks: stored.tasks, policy: stored.policy, providers: [], checking: false, trusted: isTrusted(), conversationId: repository.conversationId, conversations: this.listed, approvals: [] };
@@ -135,7 +136,8 @@ export class Orchestrator {
       // 使用者不採用過的回答仍在原生 Session 裡，有不採用時改以 SQLite 上下文重建。
       const native = !task.participantId && !!this.state.providers.find(item => item.id === task.provider)?.capabilities.resumeSession;
       const previous = history.at(-1);
-      const resume = native && previous?.persisted && previous.sessionId && !history.some(item => item.rejected) ? previous.sessionId : undefined;
+      // 原生 Session 存在各帳號自己的 CLI 目錄，換帳號時不接續。
+      const resume = native && previous?.persisted && previous.sessionId && previous.accountId === task.accountId && !history.some(item => item.rejected) ? previous.sessionId : undefined;
       try { await this.run(task, history, controller, native, resume); }
       catch (error) {
         if (!resume || !(error instanceof SessionUnavailable) || task.output || task.steps) throw error;
@@ -165,7 +167,8 @@ export class Orchestrator {
     if (contextIds.length) task.contextIds = contextIds; else delete task.contextIds;
     if (resumeSessionId) task.contextMode = 'native'; else if (contextIds.length) task.contextMode = 'rebuilt'; else delete task.contextMode;
     const prompt = task.participantRole ? `${roleInstructions[task.participantRole]}\n\n${message}` : message;
-    for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, persist, resumeSessionId, approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
+    const env = this.accountEnv(task.provider, task.accountId);
+    for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, persist, resumeSessionId, ...(env && { env }), approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
       if (event.type === 'text-delta') {
         if (task.output.length + event.text.length > 512 * 1024) throw new Error('回應超過 512 KB 上限，已停止任務。');
         task.output += event.text;
