@@ -90,6 +90,24 @@ describe('Vue chat', () => {
     expect(timeline.emitted('reject')).toEqual([['a', true], ['b', false]]);
     timeline.unmount();
   });
+  it('shows agent text and tools in their real order with collapsed IN／OUT and a status per tool', async () => {
+    const steps = [
+      { kind: 'text' as const, text: '先看檔案' },
+      { kind: 'tool' as const, id: '1', name: 'Read', status: 'done' as const, input: 'notes.txt\nmore', output: 'body' },
+      { kind: 'tool' as const, id: '2', name: 'Bash', status: 'failed' as const, input: 'ls missing' },
+      { kind: 'text' as const, text: '結論' },
+      { kind: 'tool' as const, id: '3', name: 'Bash', status: 'stopped' as const }
+    ];
+    const timeline = mount(Conversation, { props: { tasks: [{ id: 't', provider: 'claude' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, prompt: '問', output: '先看檔案結論', steps }] } });
+    const parts = timeline.findAll('.assistant-message > .markdown, .assistant-message > details');
+    expect(parts.map(part => part.element.tagName === 'DETAILS' ? part.get('strong').text() : part.text())).toEqual(['先看檔案', 'Read', 'Bash', '結論', 'Bash']);
+    const tools = timeline.findAll('details.tool-step');
+    expect(tools.map(tool => tool.get('.tool-dot').attributes('aria-label'))).toEqual(['完成', '失敗', '已停止']);
+    expect(tools[0]!.get('.tool-summary').text()).toBe('notes.txt'); expect(tools[0]!.attributes('open')).toBeUndefined();
+    expect(tools[0]!.findAll('.tool-io pre').map(pre => pre.text())).toEqual(['notes.txt\nmore', 'body']);
+    expect(tools[2]!.find('.tool-io').exists()).toBe(false);
+    timeline.unmount();
+  });
   it('moves focus to Stop while running and back to the input when the removed control dropped it', async () => {
     const wrapper = mount(Composer, { attachTo: document.body, props: { busy: false, running: false, canSend: true, initialDraft: '' } });
     await wrapper.setProps({ running: true, busy: true }); await nextTick();

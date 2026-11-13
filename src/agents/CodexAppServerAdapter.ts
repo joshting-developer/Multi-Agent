@@ -1,7 +1,7 @@
 import type { AgentEvent, AgentRequest } from './AgentAdapter';
 import { CodexAdapter } from './CodexAdapter';
 import { CodexRpc, readCodexAccount } from './CodexRpc';
-import { providerFailure, record } from './CliAdapter';
+import { providerFailure, record, toolText } from './CliAdapter';
 import { protectedPatterns } from '../execution/ExecutionPolicy';
 
 export class CodexAppServerAdapter extends CodexAdapter {
@@ -68,7 +68,9 @@ export class CodexAppServerAdapter extends CodexAdapter {
             outputs.set(id, item.text);
           } else if (item.type !== 'reasoning' && item.type !== 'userMessage') {
             if (message.method === 'item/started') yield { type: 'activity', taskId: request.taskId, text: `處理中：${String(item.type ?? '工具')}` };
-            yield { type: 'tool', taskId: request.taskId, tool: String(item.type ?? 'tool'), phase: message.method === 'item/started' ? 'start' : 'end', ...(message.method === 'item/completed' && { success: !['failed', 'declined'].includes(String(item.status)) }) };
+            const done = message.method === 'item/completed';
+            yield { type: 'tool', taskId: request.taskId, id, tool: String(item.type ?? 'tool'), phase: done ? 'end' : 'start', input: codexInput(item),
+              ...(done && { success: !['failed', 'declined'].includes(String(item.status)), output: toolText(item.aggregatedOutput ?? item.result ?? item.error) }) };
           }
         }
         if (message.method === 'item/autoApprovalReview/started') yield { type: 'activity', taskId: request.taskId, text: 'Codex 正在代你審查動作…' };
@@ -95,4 +97,12 @@ export class CodexAppServerAdapter extends CodexAdapter {
   }
   private hasFeature(name: string): boolean { return this.featureNames.has(name); }
   override async cancel(taskId: string): Promise<void> { this.running.get(taskId)?.abort(); await super.cancel(taskId); }
+}
+/** 命令、修改的檔案、搜尋或 MCP 工具參數；Codex 各種 item 只取使用者看得懂的部分。 */
+function codexInput(item: Record<string, unknown>): string | undefined {
+  if (typeof item.command === 'string') return item.command;
+  if (Array.isArray(item.changes)) return item.changes.map(change => `${String(record(change).kind ?? '')} ${String(record(change).path ?? '')}`.trim()).join('\n');
+  if (typeof item.query === 'string') return item.query;
+  if (item.tool) return [`${String(item.server ?? '')} ${String(item.tool)}`.trim(), toolText(item.arguments)].filter(Boolean).join('\n');
+  return undefined;
 }

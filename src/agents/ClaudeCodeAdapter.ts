@@ -1,7 +1,7 @@
 import type { ProviderStatus } from '../bridge/messages';
 import { protectedPatterns } from '../execution/ExecutionPolicy';
 import type { AgentRequest } from './AgentAdapter';
-import { CliAdapter, providerFailure, record, type ParsedEvent, type StreamState } from './CliAdapter';
+import { CliAdapter, providerFailure, record, toolText, type ParsedEvent, type StreamState } from './CliAdapter';
 
 export class ClaudeCodeAdapter extends CliAdapter {
   readonly id = 'claude' as const;
@@ -72,17 +72,21 @@ export class ClaudeCodeAdapter extends CliAdapter {
       const block = record(event.content_block);
       if (block.type === 'tool_use') {
         (state.tools ??= new Map()).set(String(block.id), String(block.name));
-        events.push({ type: 'activity', text: `使用工具：${String(block.name)}` }, { type: 'tool', tool: String(block.name), phase: 'start' });
+        events.push({ type: 'activity', text: `使用工具：${String(block.name)}` }, { type: 'tool', id: String(block.id), tool: String(block.name), phase: 'start' });
       }
     }
     if (line.type === 'user') {
       const content = record(line.message).content;
       for (const block of Array.isArray(content) ? content.map(record) : []) {
-        if (block.type === 'tool_result') events.push({ type: 'tool', tool: state.tools?.get(String(block.tool_use_id)) ?? 'tool', phase: 'end', success: block.is_error !== true });
+        if (block.type === 'tool_result') events.push({ type: 'tool', id: String(block.tool_use_id), tool: state.tools?.get(String(block.tool_use_id)) ?? 'tool', phase: 'end', success: block.is_error !== true, output: toolText(block.content) });
       }
     }
     if (line.type === 'assistant') {
       const content = record(line.message).content;
+      // 完整訊息才帶齊工具參數；同一個 id 由 Orchestrator 合併成一筆。
+      for (const block of Array.isArray(content) ? content.map(record) : []) {
+        if (block.type === 'tool_use') events.push({ type: 'tool', id: String(block.id), tool: String(block.name), phase: 'start', input: claudeInput(block.input) });
+      }
       const text = Array.isArray(content) ? content.map(record).filter(block => block.type === 'text').map(block => String(block.text ?? '')).join('') : '';
       // Older releases may emit complete assistant messages but no partial deltas.
       if (text && !state.text) { events.push({ type: 'text-delta', text }); state.emitted = true; }
@@ -95,4 +99,10 @@ export class ClaudeCodeAdapter extends CliAdapter {
     }
     return events;
   }
+}
+/** 優先顯示 Claude 工具自己的描述，其次是命令、路徑或查詢；其餘參數以 JSON 呈現。 */
+function claudeInput(value: unknown): string | undefined {
+  const input = record(value);
+  const head = [input.description, input.command, input.file_path ?? input.path, input.pattern, input.url, input.query].filter(item => typeof item === 'string' && item);
+  return head.length ? head.join('\n') : toolText(value);
 }

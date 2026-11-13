@@ -30,8 +30,8 @@ if (args.includes('--version')) {
       if (scenario === 'approval') emit({ id: 99, method: 'item/commandExecution/requestApproval', params: { command: 'echo approval', cwd: requestCwd(), reason: 'Synthetic test' } });
       else if (scenario === 'tools') {
         emit({ method: 'item/started', params: { item: { id: 'r', type: 'reasoning' } } });
-        emit({ method: 'item/started', params: { item: { id: 'c', type: 'commandExecution', command: 'cat secret-token-should-never-appear' } } });
-        emit({ method: 'item/completed', params: { item: { id: 'c', type: 'commandExecution', status: 'failed' } } });
+        emit({ method: 'item/started', params: { item: { id: 'c', type: 'commandExecution', command: 'ls missing' } } });
+        emit({ method: 'item/completed', params: { item: { id: 'c', type: 'commandExecution', command: 'ls missing', status: 'failed', aggregatedOutput: 'No such file' } } });
         finish();
       } else finish();
     } else if (message.id === 99 && message.result) { emit({ method: 'item/agentMessage/delta', params: { itemId: 'answer', delta: message.result.decision } }); finish(false); }
@@ -77,7 +77,8 @@ if (args.includes('--version')) {
   });
 } else if (provider === 'claude' && scenario === 'tools') {
   emit({ type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'tool_use', id: 'tu1', name: 'Read', input: {} } } });
-  emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', is_error: false, content: 'secret-token-should-never-appear' }] } });
+  emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu1', name: 'Read', input: { file_path: 'notes.txt' } }] } });
+  emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', is_error: false, content: [{ type: 'text', text: 'file body' }] }] } });
   emit({ type: 'result', subtype: 'success', result: 'done' });
 } else if (provider === 'claude') {
   emit({ type: 'system', session_id: 'claude-session' });

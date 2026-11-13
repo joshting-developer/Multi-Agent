@@ -11,6 +11,12 @@ export type ParticipantRole = z.infer<typeof participantRoleSchema>;
 export const auditKinds = ['tool-start', 'tool-end', 'tool-failed', 'approval-requested', 'approval-allowed', 'approval-denied', 'cancelled', 'data-outbound', 'policy-changed', 'full-access-granted'] as const;
 export const auditEventSchema = z.object({ at: z.number(), kind: z.enum(auditKinds), detail: z.string().max(200) });
 export type AuditEvent = z.infer<typeof auditEventSchema>;
+/** 執行過程依實際順序保存：Agent 文字與工具交錯；工具 IN／OUT 已遮罩並截斷。 */
+export const stepSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('text'), text: z.string() }),
+  z.object({ kind: z.literal('tool'), id: z.string(), name: z.string(), status: z.enum(['running', 'done', 'failed', 'stopped']), input: z.string().optional(), output: z.string().optional() })
+]);
+export type Step = z.infer<typeof stepSchema>;
 export const taskSchema = z.object({
   id: z.string(), provider: agentIdSchema, mode: modeSchema, prompt: z.string(), output: z.string(),
   status: z.enum(['running', 'completed', 'failed', 'cancelled', 'interrupted']),
@@ -20,7 +26,7 @@ export const taskSchema = z.object({
   model: modelIdSchema.optional(), effort: z.union([effortSchema, z.literal('default')]).optional().transform(value => value === 'default' ? undefined : value).optional(),
   approvalMode: z.enum(approvalModes).optional(),
   failureKind: z.enum(['quota', 'rate-limit']).optional(), substitute: z.boolean().optional(),
-  rejected: z.boolean().optional(), contextIds: z.array(z.string()).optional(), events: z.array(auditEventSchema).optional()
+  rejected: z.boolean().optional(), contextIds: z.array(z.string()).optional(), events: z.array(auditEventSchema).optional(), steps: z.array(stepSchema).optional()
 });
 export type Task = z.infer<typeof taskSchema>;
 export type Classification = 'unclassified' | 'personal' | 'company' | 'restricted';

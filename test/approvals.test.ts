@@ -22,13 +22,12 @@ describe.each(['codex', 'claude'] as const)('%s official approval protocol', pro
     expect(text).toBe(provider === 'codex' ? allow ? 'accept' : 'decline' : allow ? 'allow' : 'deny');
     await processes.dispose();
   });
-  it('reports structured tool start and finish without command or file content', async () => {
+  it('reports each tool with a stable id, readable input, result and success', async () => {
     const { adapter, processes } = setup('tools'); await adapter.detect();
     const tools = []; for await (const event of adapter.execute({ ...request, approvalMode: undefined })) if (event.type === 'tool') tools.push(event);
     expect(tools).toEqual(provider === 'codex'
-      ? [{ type: 'tool', taskId: 'task', tool: 'commandExecution', phase: 'start' }, { type: 'tool', taskId: 'task', tool: 'commandExecution', phase: 'end', success: false }]
-      : [{ type: 'tool', taskId: 'task', tool: 'Read', phase: 'start' }, { type: 'tool', taskId: 'task', tool: 'Read', phase: 'end', success: true }]);
-    expect(JSON.stringify(tools)).not.toContain('secret-token');
+      ? [{ type: 'tool', taskId: 'task', id: 'c', tool: 'commandExecution', phase: 'start', input: 'ls missing' }, { type: 'tool', taskId: 'task', id: 'c', tool: 'commandExecution', phase: 'end', input: 'ls missing', success: false, output: 'No such file' }]
+      : [{ type: 'tool', taskId: 'task', id: 'tu1', tool: 'Read', phase: 'start' }, { type: 'tool', taskId: 'task', id: 'tu1', tool: 'Read', phase: 'start', input: 'notes.txt' }, { type: 'tool', taskId: 'task', id: 'tu1', tool: 'Read', phase: 'end', success: true, output: 'file body' }]);
     await processes.dispose();
   });
   it('does not approve a write in read-only mode even with an allow callback', async () => {

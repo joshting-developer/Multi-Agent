@@ -5,6 +5,8 @@ import { assertAuthorized } from '../execution/ExecutionPolicy';
 import { ProcessError } from '../execution/ProcessManager';
 import { ProviderFailure } from '../agents/CliAdapter';
 import { buildContext } from './ContextBuilder';
+import { redact } from '../execution/Redact';
+import type { AgentEvent } from '../agents/AgentAdapter';
 import { SessionRepository } from '../storage/SessionRepository';
 import type { ApprovalMode, ProviderPreferences } from '../bridge/settings';
 
@@ -12,6 +14,8 @@ export interface ParticipantRef { id: string; role: ParticipantRole; substitute?
 export interface SendOptions { participant?: ParticipantRef; discussion?: { id: string; roundNo?: number }; outbound?: string }
 /** 單次執行最多保留的稽核事件數，避免長任務的工具事件撐大歷史。 */
 const maxEvents = 200;
+/** 單次執行最多保留的工具步驟數，以及 IN／OUT 的保存長度。 */
+const maxTools = 100; const inputLimit = 2000; const outputLimit = 4000;
 const roleInstructions: Record<ParticipantRole, string> = {
   architect: 'Your role in this discussion: Architect. Propose a concrete, well-reasoned approach and state its trade-offs.',
   critic: 'Your role in this discussion: Critic. Challenge the proposal on performance, testing, security and maintainability, and suggest corrections.',
@@ -104,8 +108,10 @@ export class Orchestrator {
         if (event.type === 'text-delta') {
           if (task.output.length + event.text.length > 512 * 1024) throw new Error('回應超過 512 KB 上限，已停止任務。');
           task.output += event.text;
+          const last = task.steps?.at(-1);
+          if (last?.kind === 'text') last.text += event.text; else task.steps?.push({ kind: 'text', text: event.text });
         } else if (event.type === 'activity') task.activity = event.text;
-        else if (event.type === 'tool') this.audit(task, event.phase === 'start' ? 'tool-start' : event.success === false ? 'tool-failed' : 'tool-end', event.tool);
+        else if (event.type === 'tool') this.toolStep(task, event);
         else task.sessionId = event.sessionId;
         this.changed(true);
       }
@@ -116,6 +122,8 @@ export class Orchestrator {
       task.error = error instanceof Error ? error.message : '未知的執行錯誤。';
       if (task.status === 'failed' && error instanceof ProviderFailure && error.kind) task.failureKind = error.kind;
     } finally {
+      // 失敗、拒絕或 Stop 後不留下一直「執行中」的工具。
+      for (const step of task.steps ?? []) if (step.kind === 'tool' && step.status === 'running') step.status = task.status === 'completed' ? 'done' : 'stopped';
       task.endedAt = Date.now(); task.activity = undefined;
       for (const resolve of this.approvalAnswers.values()) resolve(false);
       this.active = undefined; this.state.activeTaskId = undefined;
@@ -124,6 +132,23 @@ export class Orchestrator {
   }
   /** 工作區層級的授權事件（授權變更、完整存取）不屬於單次執行，直接寫入稽核紀錄。 */
   auditWorkspace(kind: AuditEvent['kind'], detail: string): Promise<void> { return this.repository.audit({ at: Date.now(), kind, detail: detail.slice(0, 200) }); }
+  /** 第一次出現工具時才建立步驟清單，先放入目前為止的文字，之後文字與工具依實際順序交錯。 */
+  private toolStep(task: Task, event: Extract<AgentEvent, { type: 'tool' }>): void {
+    const steps = task.steps ??= task.output ? [{ kind: 'text', text: task.output }] : [];
+    let step = steps.find(item => item.kind === 'tool' && item.id === event.id);
+    if (!step) {
+      if (steps.filter(item => item.kind === 'tool').length >= maxTools) return;
+      step = { kind: 'tool', id: event.id, name: event.tool, status: 'running' }; steps.push(step);
+      this.audit(task, 'tool-start', event.tool);
+    }
+    if (step.kind !== 'tool') return;
+    if (event.input) step.input = redact(event.input, inputLimit);
+    if (event.phase === 'end') {
+      step.status = event.success === false ? 'failed' : 'done';
+      if (event.output) step.output = redact(event.output, outputLimit);
+      this.audit(task, event.success === false ? 'tool-failed' : 'tool-end', event.tool);
+    }
+  }
   private audit(task: Task, kind: AuditEvent['kind'], detail: string): void {
     const events = task.events ??= [];
     if (events.length < maxEvents) events.push({ at: Date.now(), kind, detail: detail.slice(0, 200) });

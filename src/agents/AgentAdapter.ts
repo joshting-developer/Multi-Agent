@@ -10,7 +10,7 @@ export interface AgentRequest {
 export type AgentEvent =
   | { type: 'text-delta'; taskId: string; text: string }
   | { type: 'activity'; taskId: string; text: string }
-  | { type: 'tool'; taskId: string; tool: string; phase: 'start' | 'end'; success?: boolean }
+  | { type: 'tool'; taskId: string; id: string; tool: string; phase: 'start' | 'end'; success?: boolean; input?: string; output?: string }
   | { type: 'complete'; taskId: string; sessionId?: string };
 export interface AgentAdapter {
   readonly id: AgentId;

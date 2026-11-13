@@ -127,3 +127,16 @@ select { min-width: 0; max-width: 100%; border: 0; border-radius: 5px; padding: 
 .advanced-settings > label { display:grid; gap:7px; margin-top:12px; }
 .advanced-settings > code { display:block; margin-top:10px; user-select:all; }
 .model-fields .advanced-settings { margin-top:0; grid-row:3; }
+.tool-step { margin: 6px 0; font-size: 12px; min-width: 0; }
+.tool-step summary { display: flex; align-items: center; gap: 6px; min-width: 0; cursor: pointer; list-style: none; }
+.tool-step summary::-webkit-details-marker { display: none; }
+.tool-step strong { font-weight: 500; flex: none; }
+.tool-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); }
+.tool-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--vscode-descriptionForeground); }
+.tool-step.running .tool-dot { background: var(--vscode-progressBar-background); }
+.tool-step.done .tool-dot { background: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+.tool-step.failed .tool-dot { background: var(--vscode-errorForeground); }
+.tool-io { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; margin: 4px 0 0 13px; }
+.tool-io span { font-size: 10px; color: var(--vscode-descriptionForeground); padding-top: 4px; }
+.tool-io pre { margin: 0; padding: 4px 6px; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: 11px; }
+

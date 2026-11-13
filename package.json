@@ -198,6 +198,7 @@
     "vscode:prepublish": "npm run build",
     "test:approvals": "node --import tsx scripts/approval-smoke.ts",
     "test:discussion": "node --import tsx scripts/discussion-smoke.ts",
+    "test:tools": "node --import tsx scripts/tool-smoke.ts",
     "tracker": "node scripts/tasktracker.mjs"
   },
   "dependencies": {

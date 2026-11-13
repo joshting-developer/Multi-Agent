@@ -72,9 +72,9 @@ describe('Manual orchestration', () => {
       const db = await ConversationDatabase.open(join(dir, 'history.sqlite'), '/project', resolve('node_modules/sql.js/dist/sql-wasm.wasm'));
       class ToolAdapter extends FakeAdapter {
         override async *execute(request: AgentRequest): AsyncGenerator<AgentEvent> {
-          yield { type: 'tool' as const, taskId: request.taskId, tool: 'Bash', phase: 'start' as const };
+          yield { type: 'tool' as const, taskId: request.taskId, id: 't1', tool: 'Bash', phase: 'start' as const, input: 'cat secret.txt # token=abcdef1234567890' };
           await request.approve?.({ title: '核准 Claude 工具：Bash', detail: '{"command":"cat secret-token-xyz"}' });
-          yield { type: 'tool' as const, taskId: request.taskId, tool: 'Bash', phase: 'end' as const, success: false };
+          yield { type: 'tool' as const, taskId: request.taskId, id: 't1', tool: 'Bash', phase: 'end' as const, success: false, output: 'denied' };
           yield* super.execute(request);
         }
       }
@@ -90,8 +90,25 @@ describe('Manual orchestration', () => {
       expect(stored.map(event => [event.kind, event.runId])).toEqual(task.events!.map(event => [event.kind, task.id]));
       expect(db.auditEvents().map(event => [event.kind, event.detail])).toEqual([['policy-changed', 'personal: claude']]);
       expect(JSON.stringify([stored, db.auditEvents()])).not.toContain('secret-token');
+      // 執行過程依序保存；IN 已遮罩秘密。
+      expect(task.steps).toEqual([{ kind: 'tool', id: 't1', name: 'Bash', status: 'failed', input: 'cat secret.txt # token=[已遮罩]', output: 'denied' }, { kind: 'text', text: 'claude reply' }]);
       await orchestrator.dispose();
     } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+  it('marks a tool still running at Stop as stopped and keeps text before it in order', async () => {
+    class HangingTool extends FakeAdapter {
+      override async *execute(request: AgentRequest): AsyncGenerator<AgentEvent> {
+        yield { type: 'text-delta' as const, taskId: request.taskId, text: 'looking' };
+        yield { type: 'tool' as const, taskId: request.taskId, id: 'x', tool: 'Bash', phase: 'start' as const, input: 'sleep 100' };
+        await new Promise<void>(resolve => { if (request.signal.aborted) resolve(); else request.signal.addEventListener('abort', () => resolve(), { once: true }); });
+      }
+    }
+    const { orchestrator } = await setup([new HangingTool('claude')]);
+    const running = orchestrator.send('claude', 'long tool', 'read-only');
+    await vi.waitFor(() => expect(orchestrator.state.tasks[0]?.steps).toHaveLength(2));
+    await orchestrator.cancel(); await running;
+    expect(orchestrator.state.tasks[0]!.steps).toEqual([{ kind: 'text', text: 'looking' }, { kind: 'tool', id: 'x', name: 'Bash', status: 'stopped', input: 'sleep 100' }]);
+    await orchestrator.dispose();
   });
   it('locks before awaiting and supports cancellation', async () => {
     const { orchestrator } = await setup([new FakeAdapter('claude', true, true)]);
