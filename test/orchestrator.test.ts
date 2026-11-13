@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AgentRegistry } from '../src/agents/AgentRegistry';
-import type { AgentAdapter, AgentRequest } from '../src/agents/AgentAdapter';
+import type { AgentAdapter, AgentEvent, AgentRequest } from '../src/agents/AgentAdapter';
 import { Orchestrator } from '../src/orchestration/Orchestrator';
 import { SessionRepository, type StateStorage } from '../src/storage/SessionRepository';
 import { assertAuthorized } from '../src/execution/ExecutionPolicy';
@@ -20,7 +20,7 @@ class FakeAdapter implements AgentAdapter {
   constructor(readonly id: AgentId, readonly available = true, readonly wait = false) {}
   capabilities() { return capabilities; }
   async detect(): Promise<ProviderStatus> { return { id: this.id, status: this.available ? 'ready' : 'not-installed', capabilities }; }
-  async *execute(request: AgentRequest) {
+  async *execute(request: AgentRequest): AsyncGenerator<AgentEvent> {
     this.requests.push(request);
     yield { type: 'text-delta' as const, taskId: request.taskId, text: `${this.id} reply` };
     if (this.wait) await new Promise<void>(resolve => { if (request.signal.aborted) resolve(); else request.signal.addEventListener('abort', () => resolve(), { once: true }); });
@@ -65,6 +65,33 @@ describe('Manual orchestration', () => {
     expect(adapters[0]!.requests[2]!.prompt).toContain('claude reply'); expect(orchestrator.state.tasks[2]!.contextIds).toHaveLength(2);
     await expect(orchestrator.setRejected('missing', true)).rejects.toThrow(/已完成/);
     await orchestrator.dispose();
+  });
+  it('keeps a trace of tools, approval decisions and workspace authorization in SQLite without raw payloads', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'multi-agent-audit-'));
+    try {
+      const db = await ConversationDatabase.open(join(dir, 'history.sqlite'), '/project', resolve('node_modules/sql.js/dist/sql-wasm.wasm'));
+      class ToolAdapter extends FakeAdapter {
+        override async *execute(request: AgentRequest): AsyncGenerator<AgentEvent> {
+          yield { type: 'tool' as const, taskId: request.taskId, tool: 'Bash', phase: 'start' as const };
+          await request.approve?.({ title: '核准 Claude 工具：Bash', detail: '{"command":"cat secret-token-xyz"}' });
+          yield { type: 'tool' as const, taskId: request.taskId, tool: 'Bash', phase: 'end' as const, success: false };
+          yield* super.execute(request);
+        }
+      }
+      const orchestrator = new Orchestrator(new AgentRegistry([new ToolAdapter('claude')]), new SessionRepository(new MemoryStorage(), '/project', db), '/project', () => true, () => 5000);
+      await orchestrator.setPolicy({ classification: 'personal', allowedProviders: ['claude'] }); await orchestrator.checkProviders();
+      const running = orchestrator.send('claude', 'run a tool', 'workspace-write');
+      await vi.waitFor(() => expect(orchestrator.state.approvals).toHaveLength(1));
+      orchestrator.answerApproval(orchestrator.state.approvals![0]!.id, false);
+      await running; await orchestrator.flush();
+      const task = orchestrator.state.tasks[0]!;
+      expect(task.events?.map(event => [event.kind, event.detail])).toEqual([['tool-start', 'Bash'], ['approval-requested', '核准 Claude 工具：Bash'], ['approval-denied', '核准 Claude 工具：Bash'], ['tool-failed', 'Bash']]);
+      const stored = db.auditEvents(orchestrator.state.conversationId!);
+      expect(stored.map(event => [event.kind, event.runId])).toEqual(task.events!.map(event => [event.kind, task.id]));
+      expect(db.auditEvents().map(event => [event.kind, event.detail])).toEqual([['policy-changed', 'personal: claude']]);
+      expect(JSON.stringify([stored, db.auditEvents()])).not.toContain('secret-token');
+      await orchestrator.dispose();
+    } finally { await rm(dir, { recursive: true, force: true }); }
   });
   it('locks before awaiting and supports cancellation', async () => {
     const { orchestrator } = await setup([new FakeAdapter('claude', true, true)]);

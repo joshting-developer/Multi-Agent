@@ -100,9 +100,9 @@ export abstract class CliAdapter implements AgentAdapter {
   async cancel(taskId: string): Promise<void> { this.active.get(taskId)?.abort(); }
 }
 export interface StreamState {
-  text: string; itemText: Map<string, string>; completed: boolean; emitted: boolean; sessionId?: string;
+  text: string; itemText: Map<string, string>; completed: boolean; emitted: boolean; sessionId?: string; tools?: Map<string, string>;
 }
-export type ParsedEvent = { type: 'text-delta'; text: string } | { type: 'activity'; text: string };
+export type ParsedEvent = { type: 'text-delta'; text: string } | { type: 'activity'; text: string } | { type: 'tool'; tool: string; phase: 'start' | 'end'; success?: boolean };
 export function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

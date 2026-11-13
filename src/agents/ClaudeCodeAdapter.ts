@@ -70,7 +70,16 @@ export class ClaudeCodeAdapter extends CliAdapter {
         events.push({ type: 'text-delta', text: delta.text });
       }
       const block = record(event.content_block);
-      if (block.type === 'tool_use') events.push({ type: 'activity', text: `使用工具：${String(block.name)}` });
+      if (block.type === 'tool_use') {
+        (state.tools ??= new Map()).set(String(block.id), String(block.name));
+        events.push({ type: 'activity', text: `使用工具：${String(block.name)}` }, { type: 'tool', tool: String(block.name), phase: 'start' });
+      }
+    }
+    if (line.type === 'user') {
+      const content = record(line.message).content;
+      for (const block of Array.isArray(content) ? content.map(record) : []) {
+        if (block.type === 'tool_result') events.push({ type: 'tool', tool: state.tools?.get(String(block.tool_use_id)) ?? 'tool', phase: 'end', success: block.is_error !== true });
+      }
     }
     if (line.type === 'assistant') {
       const content = record(line.message).content;

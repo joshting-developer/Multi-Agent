@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentId, ApprovalRequest, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
+import type { AgentId, ApprovalRequest, AuditEvent, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
 import { AgentRegistry } from '../agents/AgentRegistry';
 import { assertAuthorized } from '../execution/ExecutionPolicy';
 import { ProcessError } from '../execution/ProcessManager';
@@ -9,7 +9,9 @@ import { SessionRepository } from '../storage/SessionRepository';
 import type { ApprovalMode, ProviderPreferences } from '../bridge/settings';
 
 export interface ParticipantRef { id: string; role: ParticipantRole; substitute?: boolean }
-export interface SendOptions { participant?: ParticipantRef; discussion?: { id: string; roundNo?: number } }
+export interface SendOptions { participant?: ParticipantRef; discussion?: { id: string; roundNo?: number }; outbound?: string }
+/** 單次執行最多保留的稽核事件數，避免長任務的工具事件撐大歷史。 */
+const maxEvents = 200;
 const roleInstructions: Record<ParticipantRole, string> = {
   architect: 'Your role in this discussion: Architect. Propose a concrete, well-reasoned approach and state its trade-offs.',
   critic: 'Your role in this discussion: Critic. Challenge the proposal on performance, testing, security and maintainability, and suggest corrections.',
@@ -52,6 +54,7 @@ export class Orchestrator {
   async setPolicy(policy: WorkspacePolicy): Promise<void> {
     if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
     this.state.policy = policy; this.changed(); await this.flush();
+    await this.auditWorkspace('policy-changed', `${policy.classification}: ${policy.allowedProviders.join(', ') || '無'}`);
   }
   assertCanSend(provider: AgentId, mode: ExecutionMode, discussionId?: string): void {
     if (this.navigating) throw new Error('正在切換對話，請稍候。');
@@ -64,11 +67,12 @@ export class Orchestrator {
     if (mode === 'workspace-write' && !status.capabilities.workspaceWrite) throw new Error('此 CLI 版本不支援工作區寫入。');
   }
   /** 每次只執行一個 Participant；不會自動接續另一方，下一輪由呼叫端（Coordinator）決定。 */
-  async send(provider: AgentId, text: string, mode: ExecutionMode, preferences?: ProviderPreferences, approvalMode: ApprovalMode = 'ask', { participant, discussion }: SendOptions = {}): Promise<Task> {
+  async send(provider: AgentId, text: string, mode: ExecutionMode, preferences?: ProviderPreferences, approvalMode: ApprovalMode = 'ask', { participant, discussion, outbound }: SendOptions = {}): Promise<Task> {
     this.assertCanSend(provider, mode, discussion?.id);
     if (discussion && (mode !== 'read-only' || !participant)) throw new Error('討論輪次必須為唯讀且指定 Participant。');
     if (participant && this.state.tasks.some(item => item.participantId === participant.id && (item.provider !== provider || item.participantRole !== participant.role))) throw new Error('Participant 已綁定其他 Provider 或角色。');
     const task: Task = { id: randomUUID(), provider, mode, prompt: text, output: '', status: 'running', startedAt: Date.now(), activity: '啟動官方 CLI…', approvalMode, ...preferences, ...(participant && { participantId: participant.id, participantRole: participant.role, ...(participant.substitute && { substitute: true }) }), ...(discussion && { discussionId: discussion.id, ...(discussion.roundNo && { roundNo: discussion.roundNo }) }) };
+    if (outbound) this.audit(task, 'data-outbound', outbound);
     const controller = new AbortController();
     // Set the lock before the first await, including persistence and CLI detection.
     const active = { task, controller, finished: Promise.resolve() };
@@ -101,12 +105,14 @@ export class Orchestrator {
           if (task.output.length + event.text.length > 512 * 1024) throw new Error('回應超過 512 KB 上限，已停止任務。');
           task.output += event.text;
         } else if (event.type === 'activity') task.activity = event.text;
+        else if (event.type === 'tool') this.audit(task, event.phase === 'start' ? 'tool-start' : event.success === false ? 'tool-failed' : 'tool-end', event.tool);
         else task.sessionId = event.sessionId;
         this.changed(true);
       }
       task.status = controller.signal.aborted ? 'cancelled' : 'completed';
     } catch (error) {
       task.status = controller.signal.aborted || (error instanceof ProcessError && error.kind === 'cancelled') ? 'cancelled' : 'failed';
+      if (task.status === 'cancelled') this.audit(task, 'cancelled', '使用者停止');
       task.error = error instanceof Error ? error.message : '未知的執行錯誤。';
       if (task.status === 'failed' && error instanceof ProviderFailure && error.kind) task.failureKind = error.kind;
     } finally {
@@ -115,6 +121,12 @@ export class Orchestrator {
       this.active = undefined; this.state.activeTaskId = undefined;
       this.changed(); await this.flush().catch(this.storageError);
     }
+  }
+  /** 工作區層級的授權事件（授權變更、完整存取）不屬於單次執行，直接寫入稽核紀錄。 */
+  auditWorkspace(kind: AuditEvent['kind'], detail: string): Promise<void> { return this.repository.audit({ at: Date.now(), kind, detail: detail.slice(0, 200) }); }
+  private audit(task: Task, kind: AuditEvent['kind'], detail: string): void {
+    const events = task.events ??= [];
+    if (events.length < maxEvents) events.push({ at: Date.now(), kind, detail: detail.slice(0, 200) });
   }
   /** 使用者標成不採用的回答保留在紀錄裡，但之後組上下文時不再當成事實帶入。 */
   async setRejected(taskId: string, rejected: boolean): Promise<void> {
@@ -141,12 +153,14 @@ export class Orchestrator {
       const abort = () => finish(false);
       const timer = setTimeout(() => finish(false), Math.max(1, this.timeoutMs() - (Date.now() - task.startedAt)));
       const finish = (allow: boolean) => {
+        this.audit(task, allow ? 'approval-allowed' : 'approval-denied', request.title);
         clearTimeout(timer); signal.removeEventListener('abort', abort);
         this.approvalAnswers.delete(id); this.state.approvals = this.state.approvals?.filter(item => item.id !== id);
         this.changed(); resolve(allow);
       };
       this.approvalAnswers.set(id, finish);
       signal.addEventListener('abort', abort, { once: true });
+      this.audit(task, 'approval-requested', request.title);
       this.state.approvals!.push({ id, taskId: task.id, provider: task.provider, ...request }); this.changed();
     });
   }

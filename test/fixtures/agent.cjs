@@ -28,7 +28,12 @@ if (args.includes('--version')) {
     else if (message.method === 'turn/start') {
       emit({ id: message.id, result: { turn: { id: 'turn' } } });
       if (scenario === 'approval') emit({ id: 99, method: 'item/commandExecution/requestApproval', params: { command: 'echo approval', cwd: requestCwd(), reason: 'Synthetic test' } });
-      else finish();
+      else if (scenario === 'tools') {
+        emit({ method: 'item/started', params: { item: { id: 'r', type: 'reasoning' } } });
+        emit({ method: 'item/started', params: { item: { id: 'c', type: 'commandExecution', command: 'cat secret-token-should-never-appear' } } });
+        emit({ method: 'item/completed', params: { item: { id: 'c', type: 'commandExecution', status: 'failed' } } });
+        finish();
+      } else finish();
     } else if (message.id === 99 && message.result) { emit({ method: 'item/agentMessage/delta', params: { itemId: 'answer', delta: message.result.decision } }); finish(false); }
     else if (message.method === 'model/list') {
       if (!initialized) { emit({ id: message.id, error: { message: 'Initialize first' } }); return; }
@@ -70,6 +75,10 @@ if (args.includes('--version')) {
     if (message.type === 'user') emit({ type: 'control_request', request_id: 'approval', request: { subtype: 'can_use_tool', tool_name: 'Write', input: { file_path: '/synthetic/file.txt', content: 'hello' } } });
     if (message.type === 'control_response') { emit({ type: 'result', subtype: 'success', result: message.response.response.behavior }); }
   });
+} else if (provider === 'claude' && scenario === 'tools') {
+  emit({ type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'tool_use', id: 'tu1', name: 'Read', input: {} } } });
+  emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', is_error: false, content: 'secret-token-should-never-appear' }] } });
+  emit({ type: 'result', subtype: 'success', result: 'done' });
 } else if (provider === 'claude') {
   emit({ type: 'system', session_id: 'claude-session' });
   emit({ type: 'stream_event', event: { type: 'message_start' } });

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ConversationDatabase } from './ConversationDatabase';
-import type { ConversationSummary } from '../bridge/messages';
+import type { AuditEvent, ConversationSummary } from '../bridge/messages';
 import { z } from 'zod';
 import { agentIdSchema, taskSchema, type Task, type WorkspacePolicy } from '../bridge/messages';
 
@@ -42,5 +42,6 @@ export class SessionRepository {
   create(): void { this.conversationId = randomUUID(); }
   async rename(id: string, title: string): Promise<void> { if (this.database) await this.database.rename(id, title); else { const value = this.memory.get(id); if (value) value.title = title; } }
   async delete(id: string): Promise<void> { if (this.database) await this.database.delete(id); else this.memory.delete(id); }
+  async audit(event: AuditEvent): Promise<void> { await this.database?.audit(event); }
   async close(): Promise<void> { await this.database?.close(); }
 }

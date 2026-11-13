@@ -143,6 +143,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
               const answer = await vscode.window.showWarningMessage('完整存取會允許 Agent 存取工作區外的檔案、執行命令與使用網路。本次 VS Code 視窗中要啟用嗎？', { modal: true }, '啟用完整存取');
               if (answer !== '啟用完整存取') return;
               this.fullAccessGrants.add(message.provider);
+              await this.orchestrator.auditWorkspace('full-access-granted', message.provider);
             } finally { this.approvalPending = false; }
           }
           const execution = this.orchestrator.send(message.provider, message.text, message.mode, preferences, approvalMode);

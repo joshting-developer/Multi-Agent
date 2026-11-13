@@ -139,6 +139,8 @@ describe('Discussion Coordinator', () => {
     expect(result).toMatchObject({ status: 'completed', completedRounds: 3 });
     expect(claude.requests.map(request => request.model)).toEqual(['sonnet', 'sonnet', 'sonnet']); expect(codex.requests.map(request => request.model)).toEqual(['gpt-x']);
     expect(codex.requests[0]!.prompt).toContain('claude 第 1 次觀點'); expect(claude.requests[1]!.prompt).toContain('codex 第 1 次觀點');
+    // 跨 Provider 轉交內容留下資料外送紀錄；第一輪只有主題，沒有外送。
+    expect(orchestrator.state.tasks.map(task => task.events?.find(event => event.kind === 'data-outbound')?.detail)).toEqual([undefined, 'Claude Code 的討論內容轉交給 Codex', 'Codex 的討論內容轉交給 Claude Code', 'Codex 的討論內容轉交給 Claude Code 總結']);
     expect(orchestrator.state.tasks.map(task => [task.provider, task.roundNo ?? task.participantRole])).toEqual([['claude', 1], ['codex', 2], ['claude', 3], ['claude', 'summarizer']]);
     await orchestrator.dispose();
   });

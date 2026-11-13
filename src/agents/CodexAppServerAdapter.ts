@@ -66,7 +66,10 @@ export class CodexAppServerAdapter extends CodexAdapter {
             const previous = outputs.get(id) ?? '';
             if (item.text.startsWith(previous) && item.text.length > previous.length) yield { type: 'text-delta', taskId: request.taskId, text: item.text.slice(previous.length) };
             outputs.set(id, item.text);
-          } else if (message.method === 'item/started') yield { type: 'activity', taskId: request.taskId, text: `處理中：${String(item.type ?? '工具')}` };
+          } else if (item.type !== 'reasoning' && item.type !== 'userMessage') {
+            if (message.method === 'item/started') yield { type: 'activity', taskId: request.taskId, text: `處理中：${String(item.type ?? '工具')}` };
+            yield { type: 'tool', taskId: request.taskId, tool: String(item.type ?? 'tool'), phase: message.method === 'item/started' ? 'start' : 'end', ...(message.method === 'item/completed' && { success: !['failed', 'declined'].includes(String(item.status)) }) };
+          }
         }
         if (message.method === 'item/autoApprovalReview/started') yield { type: 'activity', taskId: request.taskId, text: 'Codex 正在代你審查動作…' };
         if (message.method === 'item/autoApprovalReview/completed') {

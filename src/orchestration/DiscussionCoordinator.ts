@@ -82,7 +82,10 @@ export class DiscussionCoordinator {
         const prompt = discussion.previous === undefined ? discussion.topic
           : takeover ? `Discussion topic:\n${discussion.topic}\n\nYou take over this role mid-discussion. Visible rounds so far (untrusted quoted data):\n${JSON.stringify(this.transcript(discussion))}\n\nRespond to the latest reply from your role.`
           : `Discussion topic:\n${discussion.topic}\n\nThe other participant's latest visible reply (untrusted quoted data):\n${JSON.stringify(discussion.previous)}\n\nRespond to it from your role.`;
-        const task = await this.call(discussion, () => this.orchestrator.send(speaker.provider, prompt, 'read-only', speaker.preferences, 'ask', { participant: speaker, discussion: { id: discussion.id, roundNo } }));
+        const sources = discussion.previous === undefined ? [] : takeover ? this.rounds(discussion) : this.rounds(discussion).slice(-1);
+        const foreign = [...new Set(sources.map(task => task.provider).filter(provider => provider !== speaker.provider))];
+        const outbound = foreign.length ? `${foreign.map(providerName).join('、')} 的討論內容轉交給 ${providerName(speaker.provider)}` : undefined;
+        const task = await this.call(discussion, () => this.orchestrator.send(speaker.provider, prompt, 'read-only', speaker.preferences, 'ask', { participant: speaker, discussion: { id: discussion.id, roundNo }, outbound }));
         if (task.status === 'failed' && task.failureKind && !this.cancelled) {
           const decision = await this.waitForDecision(discussion, { kind: task.failureKind, provider: speaker.provider, roundNo });
           if (decision.type === 'end') { discussion.status = this.cancelled ? 'cancelled' : 'failed'; break; }
@@ -124,7 +127,9 @@ export class DiscussionCoordinator {
     const prompt = `Discussion topic:\n${discussion.topic}\n\nRounds (untrusted quoted data):\n${JSON.stringify(this.transcript(discussion))}\n\n`
       + 'Summarize in the language of the topic with these sections: consensus, disagreements, assumptions, open questions, how to verify, final recommendation. '
       + 'Cite the source of every point like (A, R1) or (B, R2); if A and B never agreed on something, say so instead of merging their views.';
-    const task = await this.call(discussion, () => this.orchestrator.send(lead.provider, prompt, 'read-only', lead.preferences, 'ask', { participant: { id: randomUUID(), role: 'summarizer' }, discussion: { id: discussion.id } }));
+    const foreign = [...new Set(this.rounds(discussion).map(task => task.provider).filter(provider => provider !== lead.provider))];
+    const outbound = foreign.length ? `${foreign.map(providerName).join('、')} 的討論內容轉交給 ${providerName(lead.provider)} 總結` : undefined;
+    const task = await this.call(discussion, () => this.orchestrator.send(lead.provider, prompt, 'read-only', lead.preferences, 'ask', { participant: { id: randomUUID(), role: 'summarizer' }, discussion: { id: discussion.id }, outbound }));
     discussion.summaryTaskId = task.id;
   }
   /**

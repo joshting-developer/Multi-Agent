@@ -2,11 +2,12 @@ import initSqlJs, { type Database } from 'sql.js';
 import { mkdir, readFile, rename, writeFile, open, unlink, chmod, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { AgentId, ConversationSummary, Task, WorkspacePolicy } from '../bridge/messages';
+import type { AgentId, AuditEvent, ConversationSummary, Task, WorkspacePolicy } from '../bridge/messages';
 import { agentIdSchema, taskSchema } from '../bridge/messages';
 
 export interface StoredParticipant { id: string; provider: AgentId; role: string; nativeSessionId?: string }
 export interface StoredRound { discussionId: string; roundNo: number; senderParticipantId: string; runId: string; messageId: string }
+export interface StoredAudit extends AuditEvent { runId?: string }
 export interface StoredSummary { discussionId: string; runId: string; messageId: string; throughRound: number }
 export interface StoredMessage { id: string; runId: string; participantId?: string; senderType: 'user' | 'agent'; content: string; status: string; createdAt: number }
 
@@ -24,14 +25,14 @@ export class ConversationDatabase {
   }
   private migrate(db: Database) {
     const version = Number(db.exec('PRAGMA user_version')[0]?.values[0]?.[0] ?? 0);
-    if (version > 4) throw new Error('歷史資料庫版本較新，請更新插件後再開啟。');
+    if (version > 5) throw new Error('歷史資料庫版本較新，請更新插件後再開啟。');
     db.exec(`PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY,root TEXT NOT NULL,title TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,provider TEXT NOT NULL,started_at INTEGER NOT NULL,search_body TEXT NOT NULL,task_json TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS conversations_root_time ON conversations(root,updated_at DESC);
       CREATE INDEX IF NOT EXISTS runs_conversation ON runs(conversation_id,started_at);`);
-    if (version < 2) this.migrateV2(db);
+    if (version < 2) this.schemaV2(db);
     if (version < 3) {
       db.exec(`CREATE TABLE discussion_rounds(discussion_id TEXT NOT NULL,round_no INTEGER NOT NULL,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,participant_id TEXT NOT NULL REFERENCES participants(id),run_id TEXT NOT NULL UNIQUE REFERENCES runs(id) ON DELETE CASCADE,message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,PRIMARY KEY(discussion_id,round_no));
         PRAGMA user_version=3;`);
@@ -42,17 +43,27 @@ export class ConversationDatabase {
         CREATE INDEX discussion_summaries_discussion ON discussion_summaries(discussion_id);
         PRAGMA user_version=4;`);
     }
+    if (version < 5) {
+      // v5：稽核事件只存種類與簡短說明；工作區層級事件沒有 conversation／run。
+      db.exec(`CREATE TABLE audit_events(root TEXT NOT NULL,conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,kind TEXT NOT NULL,detail TEXT NOT NULL,created_at INTEGER NOT NULL);
+        CREATE INDEX audit_events_run ON audit_events(run_id);
+        CREATE INDEX audit_events_root_time ON audit_events(root,created_at);
+        PRAGMA user_version=5;`);
+    }
+    // 舊紀錄等所有資料表都建好後才回填，回填與一般寫入走同一條 writeRun。
+    if (version < 2) {
+      const now = Date.now();
+      for (const row of this.rowsOf(db, 'SELECT conversation_id,task_json FROM runs ORDER BY started_at,rowid')) this.writeRun(db, String(row.conversation_id), taskSchema.parse(JSON.parse(String(row.task_json))), now);
+    }
   }
-  private migrateV2(db: Database) {
+  private schemaV2(db: Database) {
     // v2: Participant／Message 各有主鍵；原生 Session 屬於 Participant，不與 ConversationId 混用。
     db.exec(`CREATE TABLE participants(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,provider TEXT NOT NULL,role TEXT NOT NULL,native_session_id TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
       CREATE INDEX participants_conversation ON participants(conversation_id,provider);
       ALTER TABLE runs ADD COLUMN participant_id TEXT REFERENCES participants(id) ON DELETE SET NULL;
       CREATE TABLE messages(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,participant_id TEXT REFERENCES participants(id) ON DELETE SET NULL,run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,sender_type TEXT NOT NULL CHECK(sender_type IN ('user','agent')),content TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,UNIQUE(run_id,sender_type));
-      CREATE INDEX messages_conversation ON messages(conversation_id,created_at);`);
-    const now = Date.now();
-    for (const row of this.rowsOf(db, 'SELECT conversation_id,task_json FROM runs ORDER BY started_at,rowid')) this.writeRun(db, String(row.conversation_id), taskSchema.parse(JSON.parse(String(row.task_json))), now);
-    db.exec('PRAGMA user_version=2');
+      CREATE INDEX messages_conversation ON messages(conversation_id,created_at);
+      PRAGMA user_version=2;`);
   }
   private mutate(operation: (db: Database) => void): Promise<void> {
     const next = this.writes.catch(() => undefined).then(async () => {
@@ -114,6 +125,8 @@ export class ConversationDatabase {
       db.run(`INSERT OR IGNORE INTO discussion_rounds SELECT ?,?,?,?,?,id FROM messages WHERE run_id=? AND sender_type='agent'`, [task.discussionId, task.roundNo, conversationId, participantId, task.id, task.id]);
       if (!this.rowsOf(db, 'SELECT 1 FROM discussion_rounds WHERE discussion_id=? AND round_no=? AND run_id=?', [task.discussionId, task.roundNo, task.id]).length) throw new Error('討論輪次已被其他執行占用。');
     }
+    db.run('DELETE FROM audit_events WHERE run_id=?', [task.id]);
+    for (const event of task.events ?? []) db.run('INSERT INTO audit_events VALUES(?,?,?,?,?,?)', [this.root, conversationId, task.id, event.kind, event.detail, event.at]);
     // 重試或改由其他 Provider 執行時，失敗的那次保留紀錄但不再占用輪次。
     if (task.discussionId && !task.roundNo) db.run('DELETE FROM discussion_rounds WHERE run_id=?', [task.id]);
     if (task.discussionId && task.participantRole === 'summarizer') {
@@ -163,6 +176,14 @@ export class ConversationDatabase {
     return this.rows(`SELECT d.* FROM discussion_rounds d JOIN conversations c ON c.id=d.conversation_id WHERE c.root=? AND d.conversation_id=? ORDER BY d.discussion_id,d.round_no`, [this.root, conversationId]).map(row => ({
       discussionId: String(row.discussion_id), roundNo: Number(row.round_no), senderParticipantId: String(row.participant_id), runId: String(row.run_id), messageId: String(row.message_id)
     }));
+  }
+  audit(event: AuditEvent): Promise<void> {
+    return this.mutate(db => { db.run('INSERT INTO audit_events VALUES(?,?,?,?,?,?)', [this.root, null, null, event.kind, event.detail, event.at]); });
+  }
+  /** 指定對話時回傳該對話各次執行的事件，否則回傳目前專案的工作區層級事件。 */
+  auditEvents(conversationId?: string): StoredAudit[] {
+    return this.rows(conversationId ? 'SELECT * FROM audit_events WHERE root=? AND conversation_id=? ORDER BY created_at,rowid' : 'SELECT * FROM audit_events WHERE root=? AND conversation_id IS NULL ORDER BY created_at,rowid',
+      conversationId ? [this.root, conversationId] : [this.root]).map(row => ({ at: Number(row.created_at), kind: row.kind as AuditEvent['kind'], detail: String(row.detail), ...(typeof row.run_id === 'string' && { runId: row.run_id }) }));
   }
   summaries(conversationId: string): StoredSummary[] {
     return this.rows(`SELECT s.* FROM discussion_summaries s JOIN conversations c ON c.id=s.conversation_id WHERE c.root=? AND s.conversation_id=? ORDER BY s.rowid`, [this.root, conversationId]).map(row => ({
