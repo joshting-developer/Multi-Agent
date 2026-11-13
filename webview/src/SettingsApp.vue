@@ -21,13 +21,14 @@ function reset() {
 watch(() => JSON.stringify(snapshot.value.settings), () => { if (!loaded.value || (!dirty.value && !settingsSaving.value)) reset(); });
 watch(settingsSaved, () => { reset(); saved.value = true; });
 watch(dirty, value => { if (value) saved.value = false; });
-function action(type: 'check-providers' | 'refresh-models' | 'authorize-workspace' | 'clear-conversation') {
+function action(type: 'check-providers' | 'refresh-models' | 'authorize-workspace' | 'clear-conversation' | 'backup-history' | 'restore-history') {
   post({ version: 1, type, requestId: crypto.randomUUID() } as WebviewToHost);
 }
 type AccountMessage = Extract<WebviewToHost, { type: 'add-account' | 'rename-account' | 'remove-account' | 'account-terminal' | 'select-account' }>;
 function account(message: AccountMessage extends infer M ? M extends AccountMessage ? Omit<M, 'version' | 'requestId'> : never : never) {
   post({ version: 1, requestId: crypto.randomUUID(), ...message } as WebviewToHost);
 }
+const newId = () => crypto.randomUUID();
 const pathKey = computed(() => provider.value === 'codex' ? 'codexPath' : 'claudePath');
 </script>
 
@@ -49,7 +50,7 @@ const pathKey = computed(() => provider.value === 'codex' ? 'codexPath' : 'claud
       <AccountSettings v-else-if="section === 'accounts'" :accounts="snapshot.accounts" :selected="snapshot.selectedAccounts" :checking="snapshot.checking" @refresh="action('check-providers')" @add="(provider, name) => account({ type: 'add-account', provider, name })" @rename="(accountId, name) => account({ type: 'rename-account', accountId, name })" @remove="accountId => account({ type: 'remove-account', accountId })" @terminal="(accountId, action) => account({ type: 'account-terminal', accountId, action })" @select="(provider, accountId) => account({ type: 'select-account', provider, accountId })" />
       <template v-else>
         <section class="settings-card"><h2>工作區授權</h2><p class="workspace-location">{{ snapshot.workspace }}</p><p class="setting-description">資料分類：{{ snapshot.policy.classification }}<br>允許的 Agent：{{ snapshot.policy.allowedProviders.join('、') || '尚未授權' }}</p><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId" @click="action('authorize-workspace')">設定工作區授權</button></section>
-        <section class="settings-card"><h2>本機紀錄</h2><p class="setting-description">{{ snapshot.conversations?.length ?? 0 }} 個對話</p><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId || !snapshot.tasks.length" @click="action('clear-conversation')">刪除目前對話</button></section>
+        <section class="settings-card"><h2>本機紀錄</h2><p class="setting-description">{{ snapshot.conversations?.length ?? 0 }} 個對話</p><div class="settings-card-actions"><button type="button" class="secondary-button" :disabled="!snapshot.tasks.length" @click="post({ version: 1, type: 'export-conversation', requestId: newId(), format: 'markdown' })">匯出目前對話（Markdown）</button><button type="button" class="secondary-button" :disabled="!snapshot.tasks.length" @click="post({ version: 1, type: 'export-conversation', requestId: newId(), format: 'json' })">匯出目前對話（JSON）</button></div><div class="settings-card-actions"><button type="button" class="secondary-button" @click="action('backup-history')">備份歷史資料庫</button><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId || !!snapshot.discussionId" @click="action('restore-history')">從備份還原</button></div><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId || !snapshot.tasks.length" @click="action('clear-conversation')">刪除目前對話</button></section>
       </template>
       <footer class="settings-footer"><span role="status">{{ settingsSaving ? '儲存中…' : saved ? '已儲存' : dirty ? '有尚未儲存的變更' : '' }}</span><button type="button" class="secondary-button" :disabled="!dirty || settingsSaving" @click="reset">還原</button><button type="submit" class="primary-button" :disabled="!dirty || settingsSaving">儲存設定</button></footer>
     </form>

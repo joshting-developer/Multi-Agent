@@ -285,6 +285,20 @@ export class Orchestrator {
       this.listed = this.repository.list();
     });
   }
+  exportConversation(id: string) { return this.repository.exportConversation(id); }
+  backupHistory(target: string): Promise<void> { return this.repository.backup(target); }
+  /** 還原備份會取代整個資料庫，只能在沒有任何執行、排隊或討論時進行；完成後重新載入目前專案最新的對話。 */
+  async restoreHistory(source: string): Promise<string> {
+    if (this.active || this.pending() || this.state.discussionId || this.navigating) throw new Error('請先停止目前任務或討論，再還原備份。');
+    let previous = '';
+    await this.navigate(async () => {
+      await this.flush(); previous = await this.repository.restore(source);
+      const stored = this.repository.load();
+      this.state.tasks = stored.tasks; this.state.policy = stored.policy; this.state.conversationId = this.repository.conversationId;
+      this.listed = this.repository.list();
+    });
+    return previous;
+  }
   async invalidateWorkspace(): Promise<void> { this.state.trusted = false; this.changed(); await this.cancel(); }
   async dispose(): Promise<void> {
     for (const task of [...this.live.values()].flat()) if (task.status === 'queued') { task.status = 'cancelled'; task.endedAt = Date.now(); }

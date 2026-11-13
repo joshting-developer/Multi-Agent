@@ -7,6 +7,8 @@ import { SettingsService } from '../settings/SettingsService';
 import { claudeModels, defaultSettings, type ProviderPreferences } from '../bridge/settings';
 import { configureWebview } from './WebviewDocument';
 import type { AccountService } from '../accounts/AccountService';
+import { toMarkdown } from '../storage/Export';
+import { writeFile } from 'node:fs/promises';
 
 export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly webviews = new Set<vscode.Webview>();
@@ -139,6 +141,29 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'account-terminal': this.openAccountTerminal(message.accountId, message.action); break;
       case 'select-account': await this.accounts?.select(message.provider, message.accountId); break;
       case 'check-accounts': await this.accounts?.refresh(); break;
+      case 'export-conversation': {
+        const id = this.orchestrator.state.conversationId;
+        if (!id || !this.orchestrator.state.tasks.length) throw new Error('目前對話沒有可匯出的內容。');
+        await this.orchestrator.flush();
+        const data = this.orchestrator.exportConversation(id);
+        const target = await vscode.window.showSaveDialog({ title: '匯出對話（含完整訊息，可能包含程式碼或機密，請自行保管）', defaultUri: vscode.Uri.file(`${data.conversation.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)}.${message.format === 'json' ? 'json' : 'md'}`), filters: message.format === 'json' ? { JSON: ['json'] } : { Markdown: ['md'] } });
+        if (target) { await writeFile(target.fsPath, message.format === 'json' ? JSON.stringify(data, null, 2) : toMarkdown(data), { mode: 0o600 }); void vscode.window.showInformationMessage('已匯出對話。'); }
+        break;
+      }
+      case 'backup-history': {
+        const target = await vscode.window.showSaveDialog({ title: '備份歷史資料庫（含所有專案的完整對話，只存在本機）', defaultUri: vscode.Uri.file(`multi-agent-history-${new Date().toISOString().slice(0, 10)}.sqlite`), filters: { SQLite: ['sqlite'] } });
+        if (target) { await this.orchestrator.flush(); await this.orchestrator.backupHistory(target.fsPath); void vscode.window.showInformationMessage('已備份歷史資料庫。'); }
+        break;
+      }
+      case 'restore-history': {
+        const [source] = await vscode.window.showOpenDialog({ title: '選擇要還原的備份', canSelectMany: false, filters: { SQLite: ['sqlite'] } }) ?? [];
+        if (!source) break;
+        const answer = await vscode.window.showWarningMessage('用備份取代目前所有專案的歷史紀錄？目前的資料庫會另存一份 before-restore 檔。', { modal: true }, '還原');
+        if (answer !== '還原') break;
+        const previous = await this.orchestrator.restoreHistory(source.fsPath);
+        void vscode.window.showInformationMessage(`已還原。原本的資料庫另存為 ${previous}`);
+        this.snapshot(); break;
+      }
       case 'resolve-discussion': {
         if (message.decision === 'substitute') {
           if (!message.provider) throw new Error('請選擇代替的 Provider。');

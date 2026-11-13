@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ConversationDatabase } from './ConversationDatabase';
+import { ConversationDatabase, type ConversationExport } from './ConversationDatabase';
 import type { AgentId, AuditEvent, ConversationSummary, SearchFilters } from '../bridge/messages';
 import { z } from 'zod';
 import { agentIdSchema, taskSchema, type Task, type WorkspacePolicy } from '../bridge/messages';
@@ -46,5 +46,9 @@ export class SessionRepository {
   async rename(id: string, title: string): Promise<void> { if (this.database) await this.database.rename(id, title); else { const value = this.memory.get(id); if (value) value.title = title; } }
   async delete(id: string): Promise<void> { if (this.database) await this.database.delete(id); else this.memory.delete(id); }
   async audit(event: AuditEvent): Promise<void> { await this.database?.audit(event); }
+  private requireDatabase(): ConversationDatabase { if (!this.database) throw new Error('目前沒有可用的歷史資料庫。'); return this.database; }
+  exportConversation(id: string): ConversationExport { return this.requireDatabase().exportConversation(id); }
+  backup(target: string): Promise<void> { return this.requireDatabase().backup(target); }
+  restore(source: string): Promise<string> { return this.requireDatabase().restore(source); }
   async close(): Promise<void> { await this.database?.close(); }
 }

@@ -1,5 +1,5 @@
 import initSqlJs, { type Database } from 'sql.js';
-import { mkdir, readFile, rename, writeFile, open, unlink, chmod, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, writeFile, open, unlink, chmod, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentId, AuditEvent, ConversationSummary, SearchFilters, Task, WorkspacePolicy } from '../bridge/messages';
@@ -8,6 +8,12 @@ import { agentIdSchema, taskSchema } from '../bridge/messages';
 export interface StoredParticipant { id: string; provider: AgentId; role: string; nativeSessionId?: string }
 export interface StoredRound { discussionId: string; roundNo: number; senderParticipantId: string; runId: string; messageId: string }
 export interface StoredAudit extends AuditEvent { runId?: string }
+/** 單一對話的完整匯出：保留各自的 ID、專案 scope、schema 版本與狀態，供人閱讀或另存。 */
+export interface ConversationExport {
+  format: 'multi-agent-conversation'; schemaVersion: number; exportedAt: string; root: string;
+  conversation: { id: string; title: string; createdAt: number; updatedAt: number };
+  runs: Task[]; messages: StoredMessage[]; participants: StoredParticipant[]; rounds: StoredRound[]; summaries: StoredSummary[];
+}
 export interface StoredSummary { discussionId: string; runId: string; messageId: string; throughRound: number }
 export interface StoredMessage { id: string; runId: string; participantId?: string; senderType: 'user' | 'agent'; content: string; status: string; createdAt: number }
 
@@ -65,7 +71,7 @@ export class ConversationDatabase {
       CREATE INDEX messages_conversation ON messages(conversation_id,created_at);
       PRAGMA user_version=2;`);
   }
-  private mutate(operation: (db: Database) => void): Promise<void> {
+  private mutate(operation: (db: Database) => void, replacement?: Uint8Array): Promise<void> {
     const next = this.writes.catch(() => undefined).then(async () => {
       await mkdir(dirname(this.filename), { recursive: true, mode: 0o700 });
       // Short exclusive write lock prevents separate VS Code windows overwriting each other.
@@ -86,8 +92,11 @@ export class ConversationDatabase {
       }
       const temp = this.filename + '.' + randomUUID() + '.tmp';
       try {
-        try { const bytes = await readFile(this.filename); this.db.close(); this.db = new this.sql.Database(bytes); }
-        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+        if (replacement) { this.db.close(); this.db = new this.sql.Database(replacement); }
+        else {
+          try { const bytes = await readFile(this.filename); this.db.close(); this.db = new this.sql.Database(bytes); }
+          catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+        }
         this.db.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE');
         try { operation(this.db); this.db.exec('COMMIT'); } catch (error) { this.db.exec('ROLLBACK'); throw error; }
         await writeFile(temp, this.db.export(), { mode: 0o600 });
@@ -214,6 +223,42 @@ export class ConversationDatabase {
   /** 總結只涵蓋開始前已完成的輪次；延長後新增的輪次不算進舊總結。 */
   private roundsBefore(db: Database, task: Task): number {
     return Number(this.rowsOf(db, 'SELECT coalesce(max(round_no),0) n FROM discussion_rounds d JOIN runs r ON r.id=d.run_id WHERE d.discussion_id=? AND r.started_at<=?', [task.discussionId!, task.startedAt])[0]?.n ?? 0);
+  }
+  exportConversation(id: string): ConversationExport {
+    const conversation = this.list().find(item => item.id === id);
+    if (!conversation) throw new Error('找不到目前專案的對話。');
+    return {
+      format: 'multi-agent-conversation', schemaVersion: Number(this.db.exec('PRAGMA user_version')[0]?.values[0]?.[0] ?? 0), exportedAt: new Date().toISOString(), root: this.root,
+      conversation: { id, title: conversation.title, createdAt: conversation.createdAt, updatedAt: conversation.updatedAt },
+      runs: this.load(id), messages: this.messages(id), participants: this.participants(id), rounds: this.rounds(id), summaries: this.summaries(id)
+    };
+  }
+  /** 備份整個本機資料庫檔（含所有專案），只寫到使用者選的本機位置。 */
+  async backup(target: string): Promise<void> {
+    await this.writes.catch(() => undefined);
+    try { await copyFile(this.filename, target); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; await writeFile(target, this.db.export()); }
+    await chmod(target, 0o600);
+  }
+  /**
+   * 從備份還原：先確認是 Multi-Agent 資料庫且版本不比目前新，原檔另存一份 before-restore 再取代；
+   * 舊版備份會照一般升級流程補齊資料表，ID 與專案 scope 原樣保留。
+   */
+  async restore(source: string): Promise<string> {
+    const bytes = await readFile(source);
+    let candidate: Database | undefined;
+    try {
+      candidate = new this.sql.Database(bytes);
+      const version = Number(candidate.exec('PRAGMA user_version')[0]?.values[0]?.[0] ?? 0);
+      if (version > 5) throw new Error('備份來自較新的版本，請更新插件後再還原。');
+      if (!candidate.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name IN ('conversations','runs')")[0]?.values.length) throw new Error('這不是 Multi-Agent 的歷史資料庫備份。');
+    } catch (error) { throw error instanceof Error && /備份|版本/.test(error.message) ? error : new Error('無法讀取備份檔，請確認檔案是 Multi-Agent 的歷史資料庫。'); }
+    finally { candidate?.close(); }
+    await this.writes.catch(() => undefined);
+    const previous = `${this.filename}.before-restore-${Date.now()}`;
+    try { await copyFile(this.filename, previous); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    await this.mutate(db => this.migrate(db), bytes);
+    return previous;
   }
   rename(id: string, title: string): Promise<void> { return this.mutate(db => { db.run('UPDATE conversations SET title=?,updated_at=? WHERE id=? AND root=?', [title, Date.now(), id, this.root]); }); }
   delete(id: string): Promise<void> { return this.mutate(db => { db.run('DELETE FROM conversations WHERE id=? AND root=?', [id, this.root]); }); }

@@ -4,6 +4,7 @@ import initSqlJs from 'sql.js';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ConversationDatabase } from '../src/storage/ConversationDatabase';
+import { toMarkdown } from '../src/storage/Export';
 import { SessionRepository } from '../src/storage/SessionRepository';
 import type { Task } from '../src/bridge/messages';
 const roots: string[] = [];
@@ -42,6 +43,37 @@ describe('SQLite conversation history', () => {
     expect(db.list('快取', {}, ['codex']).find(item => item.id === 'solo')?.match?.provider).toBe('codex');
     expect(ids('', {}, ['codex'])).toEqual(['solo', 'talk', 'title']);
     expect(db.list('失效')[0]?.preview).toContain('失效');
+    await db.close();
+  });
+  it('exports a conversation as JSON and Markdown with stable ids, scope, schema version and status', async () => {
+    const { db } = await setup();
+    await db.save('one', '快取設計', [task('r1', '要用哪種快取？'), { ...task('r2', '再想想'), status: 'failed', error: '額度不足', rejected: true, steps: [{ kind: 'tool', id: 't', name: 'Read', status: 'done' }] }], policy);
+    const data = db.exportConversation('one');
+    expect(data).toMatchObject({ format: 'multi-agent-conversation', schemaVersion: 5, root: '/project', conversation: { id: 'one', title: '快取設計' } });
+    expect(data.runs.map(run => [run.id, run.status])).toEqual([['r1', 'completed'], ['r2', 'failed']]);
+    expect(data.messages.map(message => [message.runId, message.senderType])).toEqual([['r1', 'user'], ['r1', 'agent'], ['r2', 'user'], ['r2', 'agent']]);
+    expect(data.messages.every(message => message.id.length > 10)).toBe(true);
+    const markdown = toMarkdown(data);
+    for (const text of ['# 快取設計', '對話 ID：one', 'run：`r1`', '要用哪種快取？', '· 失敗', '已不採用', 'Read（done）', '> 錯誤：額度不足']) expect(markdown).toContain(text);
+    expect(() => db.exportConversation('missing')).toThrow(/找不到/);
+    await db.close();
+  });
+  it('backs up and restores the whole database with ids and scope, keeping the replaced file and refusing foreign files', async () => {
+    const { db, path } = await setup();
+    await db.save('one', '保留', [task('r1', '備份前')], policy);
+    const backup = path + '.backup.sqlite'; await db.backup(backup);
+    await db.save('two', '之後才有', [task('r2', '備份後')], policy); await db.delete('one');
+    expect(db.list().map(item => item.id)).toEqual(['two']);
+    const previous = await db.restore(backup);
+    expect(db.list().map(item => item.id)).toEqual(['one']); expect(db.load('one')[0]?.id).toBe('r1');
+    const replaced = await ConversationDatabase.open(previous, '/project', wasm);
+    expect(replaced.list().map(item => item.id)).toEqual(['two']); await replaced.close();
+    const foreign = path + '.foreign.sqlite'; const SQL = await initSqlJs(); const other = new SQL.Database(); other.exec('CREATE TABLE notes(x)'); await writeFile(foreign, other.export());
+    await expect(db.restore(foreign)).rejects.toThrow(/不是 Multi-Agent/);
+    const newer = new SQL.Database(); newer.exec('CREATE TABLE conversations(id); PRAGMA user_version=9'); await writeFile(foreign, newer.export());
+    await expect(db.restore(foreign)).rejects.toThrow(/較新/);
+    await writeFile(foreign, 'not sqlite'); await expect(db.restore(foreign)).rejects.toThrow(/無法讀取/);
+    expect(db.list().map(item => item.id)).toEqual(['one']);
     await db.close();
   });
   it('preserves more than 60 tasks, isolates workspace roots, renames and cascades deletion', async () => {
