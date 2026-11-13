@@ -8,7 +8,7 @@
 
 - 網站：`http://localhost:5174`；工作區：`SideProject`
 - 專案：[Multi-Agent／MA](http://localhost:5174/#/projects/796d764a-e7fb-4eb2-a99d-8b7cc249b98b), Project ID `796d764a-e7fb-4eb2-a99d-8b7cc249b98b`
-- 看板：[里程碑總覽](http://localhost:5174/#/projects/796d764a-e7fb-4eb2-a99d-8b7cc249b98b/board/3c976a6d-580f-49d0-bd38-a08648f42646)、[M2 討論 MVP](http://localhost:5174/#/projects/796d764a-e7fb-4eb2-a99d-8b7cc249b98b/board/01669d16-4eed-448e-a6b8-dcba4da63262)。未完成項目以目前卡片及 v0.2 規格為準
+- 看板：[看板列表](http://localhost:5174/#/projects/796d764a-e7fb-4eb2-a99d-8b7cc249b98b/boards) 依主要驗收目的分 11 個主題看板, 每張 Task／Bug 只收進一個, 新卡依看板簡述歸類；[里程碑總覽](http://localhost:5174/#/projects/796d764a-e7fb-4eb2-a99d-8b7cc249b98b/board/f122abb0-d322-474e-bcb1-158963ac1029) 收全部 Epic, 依 Epic 看進度。未完成項目以目前卡片及 v0.2 規格為準
 
 ### 帳號與工具
 
