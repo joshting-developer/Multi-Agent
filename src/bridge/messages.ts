@@ -52,7 +52,10 @@ export interface Snapshot {
 export const maxDiscussionRounds = 8;
 export interface DiscussionBlock { kind: 'quota' | 'rate-limit'; provider: AgentId; roundNo: number }
 export interface DiscussionSummary { id: string; status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'; completedRounds: number; maxRounds: number; summaryTaskId?: string; blocked?: DiscussionBlock }
-export interface ConversationSummary { id: string; title: string; createdAt: number; updatedAt: number; provider?: AgentId; preview?: string; activity?: 'running' | 'queued' | 'waiting' }
+export interface SearchFilters { provider?: AgentId; mode?: 'solo' | 'discussion'; since?: number; until?: number }
+/** 搜尋命中的那一次執行：實際來源與時間，供結果顯示與跳到原始訊息。 */
+export interface SearchMatch { runId: string; at: number; provider: AgentId; discussion: boolean }
+export interface ConversationSummary { id: string; title: string; createdAt: number; updatedAt: number; provider?: AgentId; preview?: string; activity?: 'running' | 'queued' | 'waiting'; match?: SearchMatch }
 export interface AccountSummary { id: string; provider: AgentId; name: string; builtIn: boolean; loggedIn?: boolean; account?: ProviderStatus['account'] }
 export interface ApprovalRequest { id: string; taskId: string; provider: AgentId; title: string; detail: string; conversationId?: string }
 const base = { version: z.literal(1), requestId: z.string().min(1).max(100) };
@@ -72,7 +75,7 @@ export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('answer-approval'), approvalId: z.string().min(1).max(100), allow: z.boolean() }),
   z.object({ ...base, type: z.literal('new-conversation') }),
   z.object({ ...base, type: z.literal('open-conversation'), conversationId: z.string().min(1).max(100) }),
-  z.object({ ...base, type: z.literal('search-conversations'), query: z.string().max(500) }),
+  z.object({ ...base, type: z.literal('search-conversations'), query: z.string().max(500), filters: z.object({ provider: agentIdSchema.optional(), mode: z.enum(['solo', 'discussion']).optional(), since: z.number().int().nonnegative().optional(), until: z.number().int().nonnegative().optional() }).optional() }),
   z.object({ ...base, type: z.literal('rename-conversation'), conversationId: z.string().min(1).max(100), title: z.string().trim().min(1).max(120) }),
   z.object({ ...base, type: z.literal('delete-conversation'), conversationId: z.string().min(1).max(100) }),
   z.object({ ...base, type: z.literal('cancel-task'), taskId: z.string().max(100) }),

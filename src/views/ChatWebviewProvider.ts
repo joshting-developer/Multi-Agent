@@ -77,7 +77,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         break;
       case 'new-conversation': await this.orchestrator.newConversation(); this.snapshot(source); this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); break;
       case 'open-conversation': await this.orchestrator.openConversation(message.conversationId); this.snapshot(source); this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); break;
-      case 'search-conversations': this.post({ version: 1, type: 'conversation-results', requestId: message.requestId, conversations: this.orchestrator.searchConversations(message.query) }, source); break;
+      case 'search-conversations': this.post({ version: 1, type: 'conversation-results', requestId: message.requestId, conversations: this.orchestrator.searchConversations(message.query, message.filters) }, source); break;
       case 'rename-conversation': await this.orchestrator.renameConversation(message.conversationId, message.title); break;
       case 'delete-conversation': {
         const answer = await vscode.window.showWarningMessage('刪除此對話及其本機訊息？此操作無法復原。', { modal: true }, '刪除');

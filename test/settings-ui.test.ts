@@ -75,7 +75,15 @@ describe('Explicit models, accounts and history controls', () => {
     const { default: History } = await import('../webview/src/components/HistoryPanel.vue');
     const wrapper = mount(History, { props: { conversations: [{ id: 'one', title: '注入失敗修復', createdAt: 1, updatedAt: 1 }], busy: false, searching: false } });
     await wrapper.get('input').setValue('注入'); await new Promise(resolve => setTimeout(resolve, 210));
-    expect(wrapper.emitted('search')).toEqual([['注入']]);
+    expect(wrapper.emitted('search')).toEqual([['注入', {}]]);
+    await wrapper.setProps({ providers: ['codex'] });
+    expect(wrapper.findAll('select[aria-label="Provider"] option').map(option => option.text())).toEqual(['全部 Agent', 'Codex']);
+    await wrapper.get('select[aria-label="Provider"]').setValue('codex'); await wrapper.get('select[aria-label="類型"]').setValue('discussion'); await wrapper.get('select[aria-label="時間"]').setValue('7');
+    await new Promise(resolve => setTimeout(resolve, 210));
+    const [, filters] = wrapper.emitted('search')!.at(-1) as [string, { provider: string; mode: string; since: number }];
+    expect(filters).toMatchObject({ provider: 'codex', mode: 'discussion' }); expect(Date.now() - filters.since).toBeGreaterThan(6.9 * 86400000);
+    await wrapper.setProps({ conversations: [{ id: 'one', title: '注入失敗修復', createdAt: 1, updatedAt: 1, preview: '…注入失敗…', match: { runId: 'r', at: Date.UTC(2026, 10, 3), provider: 'claude' as const, discussion: true } }] });
+    expect(wrapper.get('.history-open small').text()).toContain('Claude'); expect(wrapper.get('.history-open small').text()).toContain('討論');
     await wrapper.get('.history-open').trigger('click'); expect(wrapper.emitted('open')).toEqual([['one']]);
     await wrapper.setProps({ conversations: [{ id: 'one', title: '背景', createdAt: 1, updatedAt: 1, activity: 'waiting' as const }] });
     expect(wrapper.get('.history-open small').text()).toContain('等待核准'); wrapper.unmount();

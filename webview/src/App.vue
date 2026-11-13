@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { AgentId, ExecutionMode, WebviewToHost } from '../../src/bridge/messages';
+import type { AgentId, ExecutionMode, SearchFilters, WebviewToHost } from '../../src/bridge/messages';
 import { useHost } from './composables/useHost';
 import Conversation from './components/Conversation.vue';
 import Composer from './components/Composer.vue';
@@ -15,8 +15,9 @@ const insert = ref<{ text: string; revision: number }>();
 const userSelected = ref(false);
 const historyShown = ref(false);
 const historyQuery = ref('');
-const history = computed(() => historyQuery.value ? searchResults.value : snapshot.value.conversations ?? []);
-watch(() => JSON.stringify(snapshot.value.conversations), () => { if (historyShown.value && historyQuery.value) searchConversations(historyQuery.value); });
+const historyFilters = ref<SearchFilters>({});
+const history = computed(() => historyQuery.value || Object.keys(historyFilters.value).length ? searchResults.value : snapshot.value.conversations ?? []);
+watch(() => JSON.stringify(snapshot.value.conversations), () => { if (historyShown.value && (historyQuery.value || Object.keys(historyFilters.value).length)) searchConversations(historyQuery.value, historyFilters.value); });
 const conversationTitle = computed(() => snapshot.value.conversations?.find(item => item.id === snapshot.value.conversationId)?.title ?? '新對話');
 watch(() => snapshot.value.conversationId, (id, previous) => {
   const last = snapshot.value.tasks.at(-1); if (last) selected.value = last.provider;
@@ -48,7 +49,7 @@ function action(type: 'new-conversation' | 'authorize-workspace' | 'show-options
   const message = { version: 1, type, requestId: crypto.randomUUID() } as WebviewToHost;
   if (message.type === 'new-conversation') navigate(message); else post(message);
 }
-function historySearch(query: string) { historyQuery.value = query; searchConversations(query); }
+function historySearch(query: string, filters: SearchFilters = {}) { historyQuery.value = query; historyFilters.value = filters; searchConversations(query, filters); }
 function openConversation(id: string) { navigate({ version: 1, type: 'open-conversation', requestId: crypto.randomUUID(), conversationId: id }); historyShown.value = false; }
 function renameConversation(id: string, title: string) { post({ version: 1, type: 'rename-conversation', requestId: crypto.randomUUID(), conversationId: id, title }); }
 function deleteConversation(id: string) { post({ version: 1, type: 'delete-conversation', requestId: crypto.randomUUID(), conversationId: id }); }
@@ -94,9 +95,9 @@ function cancel() {
 
 <template>
   <main class="workspace">
-    <header class="chat-toolbar"><button type="button" class="conversation-title text-button" :disabled="navigationLocked" :aria-expanded="historyShown" @click="historyShown = !historyShown; historyQuery = ''">{{ historyShown ? '歷史對話' : conversationTitle }}</button><div><button type="button" class="icon-button" aria-label="歷史對話" :disabled="navigationLocked" :aria-pressed="historyShown" @click="historyShown = !historyShown; historyQuery = ''"><ChatIcon name="history" /></button><button type="button" class="icon-button" aria-label="新增對話" :disabled="navigationLocked" @click="action('new-conversation'); historyShown = false"><ChatIcon name="new" /></button></div></header>
+    <header class="chat-toolbar"><button type="button" class="conversation-title text-button" :disabled="navigationLocked" :aria-expanded="historyShown" @click="historyShown = !historyShown; historyQuery = ''; historyFilters = {}">{{ historyShown ? '歷史對話' : conversationTitle }}</button><div><button type="button" class="icon-button" aria-label="歷史對話" :disabled="navigationLocked" :aria-pressed="historyShown" @click="historyShown = !historyShown; historyQuery = ''; historyFilters = {}"><ChatIcon name="history" /></button><button type="button" class="icon-button" aria-label="新增對話" :disabled="navigationLocked" @click="action('new-conversation'); historyShown = false"><ChatIcon name="new" /></button></div></header>
     <p v-if="historyShown && error" class="error notice" role="alert">{{ error }}</p>
-    <HistoryPanel v-if="historyShown" :conversations="history" :active-id="snapshot.conversationId" :busy="navigationLocked" :searching="historySearching" @search="historySearch" @open="openConversation" @rename="renameConversation" @delete="deleteConversation" />
+    <HistoryPanel v-if="historyShown" :conversations="history" :active-id="snapshot.conversationId" :busy="navigationLocked" :searching="historySearching" :providers="snapshot.policy.allowedProviders" @search="historySearch" @open="openConversation" @rename="renameConversation" @delete="deleteConversation" />
     <Conversation v-else :key="snapshot.conversationId" :tasks="snapshot.tasks" @reject="rejectAnswer" />
     <div v-if="!historyShown" class="input-area">
       <p v-if="error" class="error notice" role="alert">{{ error }}</p>

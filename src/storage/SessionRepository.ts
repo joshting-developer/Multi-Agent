@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ConversationDatabase } from './ConversationDatabase';
-import type { AuditEvent, ConversationSummary } from '../bridge/messages';
+import type { AgentId, AuditEvent, ConversationSummary, SearchFilters } from '../bridge/messages';
 import { z } from 'zod';
 import { agentIdSchema, taskSchema, type Task, type WorkspacePolicy } from '../bridge/messages';
 
@@ -32,8 +32,8 @@ export class SessionRepository {
     return this.writes;
   }
   private recover(tasks: Task[]): Task[] { return tasks.map(task => task.status === 'running' || task.status === 'queued' ? { ...task, status: 'interrupted', endedAt: Date.now(), error: task.status === 'queued' ? '上次 VS Code 關閉時任務仍在排隊；沒有執行。' : '上次 VS Code 關閉時任務仍在執行；未判定為成功。' } : task); }
-  list(query = ''): ConversationSummary[] {
-    return this.database?.list(query) ?? [...this.memory].filter(([, value]) => JSON.stringify(value).toLowerCase().includes(query.toLowerCase())).map(([id, value]) => ({ id, title: value.title, createdAt: value.createdAt, updatedAt: value.createdAt }));
+  list(query = '', filters: SearchFilters = {}, allowed?: AgentId[]): ConversationSummary[] {
+    return this.database?.list(query, filters, allowed) ?? [...this.memory].filter(([, value]) => JSON.stringify(value).toLowerCase().includes(query.toLowerCase())).map(([id, value]) => ({ id, title: value.title, createdAt: value.createdAt, updatedAt: value.createdAt }));
   }
   select(id: string): Task[] {
     const tasks = this.database ? this.database.load(id) : this.memory.get(id)?.tasks;

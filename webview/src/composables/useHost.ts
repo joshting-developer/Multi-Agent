@@ -1,5 +1,5 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import type { ConversationSummary, HostToWebview, Snapshot, WebviewToHost } from '../../../src/bridge/messages';
+import type { ConversationSummary, HostToWebview, SearchFilters, Snapshot, WebviewToHost } from '../../../src/bridge/messages';
 import type { WorkspaceSettings } from '../../../src/bridge/preferences';
 
 declare function acquireVsCodeApi(): { postMessage(message: WebviewToHost): void; getState(): unknown; setState(value: unknown): void };
@@ -53,9 +53,9 @@ export function useHost() {
   function navigate(message: Extract<WebviewToHost, { type: 'new-conversation' | 'open-conversation' }>) {
     navigating.value = true; navigationRequestId = message.requestId; post(message);
   }
-  function searchConversations(query: string) {
+  function searchConversations(query: string, filters: SearchFilters = {}) {
     searchRequestId = crypto.randomUUID(); historySearching.value = true;
-    post({ version: 1, type: 'search-conversations', requestId: searchRequestId, query });
+    post({ version: 1, type: 'search-conversations', requestId: searchRequestId, query, ...(Object.keys(filters).length && { filters }) });
   }
   function send(message: Extract<WebviewToHost, { type: 'send-message' | 'start-discussion' | 'extend-discussion' }>) {
     submitting.value = true; pendingRequestId = message.requestId; pendingDiscussion = message.type !== 'send-message'; post(message);

@@ -23,6 +23,27 @@ describe('SQLite conversation history', () => {
     expect(reopened.list('error42')[0]).toMatchObject({ id: 'one', provider: 'codex' });
     expect(reopened.policy()).toEqual(policy); await reopened.close();
   });
+  it('combines provider, solo／discussion and time filters, reports the matching run and hides providers that are not allowed', async () => {
+    const { db } = await setup();
+    const at = (day: number) => Date.UTC(2026, 10, day);
+    await db.save('solo', '單 Agent', [{ ...task('s1', '快取失效'), startedAt: at(1) }, { ...task('s2', '快取'), provider: 'claude', startedAt: at(10) }], policy);
+    await db.save('talk', '討論', [{ ...task('d1', '快取策略'), discussionId: 'd', roundNo: 1, participantId: 'a', participantRole: 'architect', startedAt: at(12) }], policy);
+    await db.save('title', '快取 標題', [{ ...task('t1', '無關'), output: '無關', provider: 'claude', startedAt: at(2) }], policy);
+    const ids = (query: string, filters = {}, allowed?: Array<'codex' | 'claude'>) => db.list(query, filters, allowed).map(item => item.id).sort();
+    expect(ids('快取')).toEqual(['solo', 'talk', 'title']);
+    expect(ids('快取', { mode: 'discussion' })).toEqual(['talk']);
+    expect(ids('快取', { mode: 'solo', provider: 'codex' })).toEqual(['solo']);
+    expect(ids('', { since: at(5) })).toEqual(['solo', 'talk']); expect(ids('', { since: at(5), until: at(11) })).toEqual(['solo']);
+    // 結果顯示實際命中的那一次執行：Claude 在 11/10。
+    expect(db.list('', { provider: 'claude', since: at(5) })[0]).toMatchObject({ id: 'solo', match: { runId: 's2', provider: 'claude', at: at(10), discussion: false } });
+    expect(db.list('快取', { mode: 'discussion' })[0]?.match).toMatchObject({ runId: 'd1', discussion: true });
+    // 不允許的 Provider：不返回它的執行，也不因標題命中而返回只有它紀錄的對話。
+    expect(ids('快取', {}, ['codex'])).toEqual(['solo', 'talk']);
+    expect(db.list('快取', {}, ['codex']).find(item => item.id === 'solo')?.match?.provider).toBe('codex');
+    expect(ids('', {}, ['codex'])).toEqual(['solo', 'talk', 'title']);
+    expect(db.list('失效')[0]?.preview).toContain('失效');
+    await db.close();
+  });
   it('preserves more than 60 tasks, isolates workspace roots, renames and cascades deletion', async () => {
     const { db, path } = await setup();
     const tasks = Array.from({ length: 65 }, (_, index) => task(String(index), `hello ${index}`));

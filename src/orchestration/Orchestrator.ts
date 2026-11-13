@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentId, ApprovalRequest, AuditEvent, ConversationSummary, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
+import type { AgentId, ApprovalRequest, AuditEvent, ConversationSummary, SearchFilters, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
 import { AgentRegistry } from '../agents/AgentRegistry';
 import { assertAuthorized } from '../execution/ExecutionPolicy';
 import { ProcessError } from '../execution/ProcessManager';
@@ -266,7 +266,8 @@ export class Orchestrator {
       this.state.conversationId = id;
     });
   }
-  searchConversations(query: string) { return this.repository.list(query); }
+  /** 搜尋只返回目前工作區允許的 Provider 紀錄。 */
+  searchConversations(query: string, filters: SearchFilters = {}) { return this.repository.list(query, filters, this.state.policy.allowedProviders); }
   async renameConversation(id: string, title: string): Promise<void> {
     await this.navigate(async () => { await this.repository.rename(id, title); this.listed = this.repository.list(); });
   }

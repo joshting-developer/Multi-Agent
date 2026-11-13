@@ -2,7 +2,7 @@ import initSqlJs, { type Database } from 'sql.js';
 import { mkdir, readFile, rename, writeFile, open, unlink, chmod, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { AgentId, AuditEvent, ConversationSummary, Task, WorkspacePolicy } from '../bridge/messages';
+import type { AgentId, AuditEvent, ConversationSummary, SearchFilters, Task, WorkspacePolicy } from '../bridge/messages';
 import { agentIdSchema, taskSchema } from '../bridge/messages';
 
 export interface StoredParticipant { id: string; provider: AgentId; role: string; nativeSessionId?: string }
@@ -134,13 +134,33 @@ export class ConversationDatabase {
         [task.discussionId, conversationId, task.id, this.roundsBefore(db, task), task.id]);
     }
   }
-  list(query = ''): ConversationSummary[] {
+  /**
+   * 只搜尋目前專案。allowed 是目前工作區允許的 Provider：搜尋時不返回其他 Provider 的紀錄。
+   * 有篩選條件時必須有一次執行同時符合全部條件；只有純文字搜尋才接受標題命中。
+   */
+  list(query = '', filters: SearchFilters = {}, allowed?: AgentId[]): ConversationSummary[] {
     const pattern = query.trim().toLocaleLowerCase();
+    const filtered = !!(filters.provider || filters.mode || filters.since !== undefined || filters.until !== undefined);
+    const searching = !!pattern || filtered;
+    const clauses: string[] = []; const values: Array<string | number> = [];
+    if (pattern) { clauses.push('instr(lower(r.search_body),?)>0'); values.push(pattern); }
+    if (filters.provider) { clauses.push('r.provider=?'); values.push(filters.provider); }
+    if (filters.since !== undefined) { clauses.push('r.started_at>=?'); values.push(filters.since); }
+    if (filters.until !== undefined) { clauses.push('r.started_at<?'); values.push(filters.until); }
+    if (filters.mode) clauses.push(`json_extract(r.task_json,'$.discussionId') IS ${filters.mode === 'discussion' ? 'NOT ' : ''}NULL`);
+    if (searching && allowed) { clauses.push(`r.provider IN (${allowed.map(() => '?').join(',') || "''"})`); values.push(...allowed); }
+    const match = `SELECT r.id FROM runs r WHERE r.conversation_id=c.id${clauses.map(clause => ` AND ${clause}`).join('')} ORDER BY r.started_at DESC,r.rowid DESC LIMIT 1`;
+    const title = pattern && !filtered ? ` OR (instr(lower(c.title),?)>0${allowed ? ` AND EXISTS(SELECT 1 FROM runs a WHERE a.conversation_id=c.id AND a.provider IN (${allowed.map(() => '?').join(',') || "''"}))` : ''})` : '';
+    const where = searching ? ` AND ((${match}) IS NOT NULL${title})` : '';
     return this.rows(`SELECT c.*, (SELECT provider FROM runs WHERE conversation_id=c.id ORDER BY started_at DESC LIMIT 1) provider,
-      (SELECT substr(search_body,1,180) FROM runs WHERE conversation_id=c.id AND instr(lower(search_body),?)>0 ORDER BY started_at DESC LIMIT 1) preview
-      FROM conversations c WHERE root=? AND (?='' OR instr(lower(title),?)>0 OR EXISTS(SELECT 1 FROM runs r WHERE r.conversation_id=c.id AND instr(lower(r.search_body),?)>0)) ORDER BY updated_at DESC`, [pattern, this.root, pattern, pattern, pattern]).map(row => ({
+      m.id match_id, m.provider match_provider, m.started_at match_at, json_extract(m.task_json,'$.discussionId') match_discussion,
+      substr(m.search_body, max(1, instr(lower(m.search_body),?)-60), 180) preview
+      FROM conversations c LEFT JOIN runs m ON ${searching ? `m.id=(${match})` : '0'} WHERE c.root=?${where} ORDER BY c.updated_at DESC`,
+    // 參數順序對應 SQL 中 ? 的出現順序：片段、JOIN 的命中條件、專案、WHERE 的命中條件、標題。
+    [pattern, ...(searching ? values : []), this.root, ...(searching ? values : []), ...(title ? [pattern, ...(allowed ?? [])] : [])]).map(row => ({
         id: String(row.id), title: String(row.title), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
-        provider: row.provider === 'claude' || row.provider === 'codex' ? row.provider : undefined, preview: typeof row.preview === 'string' ? row.preview : undefined
+        provider: row.provider === 'claude' || row.provider === 'codex' ? row.provider : undefined,
+        ...(typeof row.match_id === 'string' && { preview: String(row.preview ?? ''), match: { runId: row.match_id, at: Number(row.match_at), provider: agentIdSchema.parse(row.match_provider), discussion: row.match_discussion !== null } })
       }));
   }
   load(id: string): Task[] {
