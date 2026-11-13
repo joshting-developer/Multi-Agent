@@ -28,6 +28,9 @@
 | 0.1.4 真實歷史 Webview | 通過 | 隔離 VS Code 開啟既存 SQLite 對話、中文訊息搜尋、新增獨立對話後再回歷史開啟；已完成原生側邊欄截圖 |
 | 真實 Claude 同 Agent 討論 | 通過 | `TEST_PROVIDER=claude npm run test:discussion`：合成題目 2 輪與 3 輪，A／B 各有原生 Session、回合依序保存 |
 | 真實 Claude 討論 Stop | 通過 | 第 2 輪輸出中停止，約 0.5 秒結束，後續回合未啟動、無殘留程序 |
+| 真實討論隔離與重開（2026-11-14） | 通過 | `npm run test:discussion` 跑 Claude A／B、Codex A／B、`TEST_PARTNER=codex` 跑 Claude＋Codex：討論前的單 Agent 聊天標記字串沒有出現在任何討論輸入或輸出；Claude 專案記憶與 Codex sessions 沒有寫入這次的臨時工作區；結論標明 (A, R1)／(B, R2)；重新開啟 SQLite 後輪次與結論仍在 |
+| 真實工具過程（2026-11-14） | 通過 | `npm run test:tools`：Claude（Read）與 Codex（commandExecution）讀合成檔案，工具依實際順序出現在文字之間，狀態為完成且有 IN／OUT |
+| 真實 VS Code 聊天截圖（2026-11-14） | 通過 | `MULTI_AGENT_SCREENSHOT=… npm run test:host`：工具收合列、長路徑在窄側欄截斷、不採用淡化、討論「代替」與「討論結論」標籤 |
 | 正式相依套件 audit | 通過 | npm audit --omit=dev：0 個已知漏洞 |
 
 真實 CLI 測試只傳送固定訊息與隨機合成資料，沒有傳送此專案原始碼或真實機密。不是僅檢查 Adapter 假資料。
