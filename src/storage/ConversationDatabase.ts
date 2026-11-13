@@ -114,6 +114,8 @@ export class ConversationDatabase {
       db.run(`INSERT OR IGNORE INTO discussion_rounds SELECT ?,?,?,?,?,id FROM messages WHERE run_id=? AND sender_type='agent'`, [task.discussionId, task.roundNo, conversationId, participantId, task.id, task.id]);
       if (!this.rowsOf(db, 'SELECT 1 FROM discussion_rounds WHERE discussion_id=? AND round_no=? AND run_id=?', [task.discussionId, task.roundNo, task.id]).length) throw new Error('討論輪次已被其他執行占用。');
     }
+    // 重試或改由其他 Provider 執行時，失敗的那次保留紀錄但不再占用輪次。
+    if (task.discussionId && !task.roundNo) db.run('DELETE FROM discussion_rounds WHERE run_id=?', [task.id]);
     if (task.discussionId && task.participantRole === 'summarizer') {
       db.run(`INSERT OR IGNORE INTO discussion_summaries SELECT ?,?,?,id,? FROM messages WHERE run_id=? AND sender_type='agent'`,
         [task.discussionId, conversationId, task.id, this.roundsBefore(db, task), task.id]);

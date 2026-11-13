@@ -1,7 +1,7 @@
 import type { AgentEvent, AgentRequest } from './AgentAdapter';
 import { CodexAdapter } from './CodexAdapter';
 import { CodexRpc, readCodexAccount } from './CodexRpc';
-import { friendlyFailure, record } from './CliAdapter';
+import { providerFailure, record } from './CliAdapter';
 import { protectedPatterns } from '../execution/ExecutionPolicy';
 
 export class CodexAppServerAdapter extends CodexAdapter {
@@ -39,7 +39,7 @@ export class CodexAppServerAdapter extends CodexAdapter {
     const changes = new Map<string, unknown>();
     try {
       for await (const message of rpc.messages({ command: this.command, cwd: request.cwd, timeoutMs: request.timeoutMs, signal: controller.signal, config })) {
-        if (message.error && typeof message.id === 'number') throw new Error(friendlyFailure(JSON.stringify(message.error)));
+        if (message.error && typeof message.id === 'number') throw providerFailure(JSON.stringify(message.error));
         if (message.id === 1 && !message.method) {
           rpc.request(2, 'thread/start', {
             model: request.model, cwd: request.cwd, ephemeral: true,
@@ -84,7 +84,7 @@ export class CodexAppServerAdapter extends CodexAdapter {
         }
         if (message.method === 'turn/completed') {
           const turn = record(params.turn);
-          if (turn.status !== 'completed') throw new Error(friendlyFailure(JSON.stringify(turn.error ?? turn)));
+          if (turn.status !== 'completed') throw providerFailure(JSON.stringify(turn.error ?? turn));
           yield { type: 'complete', taskId: request.taskId, sessionId: threadId }; return;
         }
       }

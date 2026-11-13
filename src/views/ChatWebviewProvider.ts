@@ -4,7 +4,7 @@ import { Orchestrator } from '../orchestration/Orchestrator';
 import { DiscussionCoordinator } from '../orchestration/DiscussionCoordinator';
 import { randomUUID } from 'node:crypto';
 import { SettingsService } from '../settings/SettingsService';
-import { claudeModels, defaultSettings } from '../bridge/settings';
+import { claudeModels, defaultSettings, type ProviderPreferences } from '../bridge/settings';
 import { configureWebview } from './WebviewDocument';
 
 export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -21,7 +21,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
   private resolveSettingsReady: () => void = () => undefined;
   readonly whenSettingsReady = new Promise<void>(resolve => { this.resolveSettingsReady = resolve; });
   constructor(private readonly extensionUri: vscode.Uri, private readonly orchestrator: Orchestrator, private readonly settings?: SettingsService) {
-    this.discussions = new DiscussionCoordinator(orchestrator);
+    this.discussions = new DiscussionCoordinator(orchestrator, () => this.snapshot());
     this.unsubscribe = orchestrator.subscribe(() => {
       if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; this.snapshot(); }, 40);
     });
@@ -42,6 +42,12 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
   }
   private post(message: HostToWebview, target?: vscode.Webview): void {
     for (const webview of target ? [target] : this.webviews) void webview.postMessage(message);
+  }
+  private preferencesFor(provider: AgentId, explicit?: ProviderPreferences): ProviderPreferences | undefined {
+    const preferences = explicit ?? this.settings?.read()[provider];
+    if (preferences) this.settings?.validate(provider, preferences);
+    if (this.settings && !preferences?.model) throw new Error('請先選擇明確的模型。');
+    return preferences;
   }
   private snapshot(target?: vscode.Webview): void {
     this.post({ version: 1, type: 'snapshot', snapshot: { ...this.orchestrator.state, discussion: this.discussions.summary(),
@@ -93,12 +99,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         if (this.approvalPending) throw new Error('請先完成目前的授權對話框。');
         const partner = message.partner ?? message.provider;
         try {
-          const preferencesFor = (provider: typeof partner, explicit?: typeof message.preferences) => {
-            const preferences = explicit ?? this.settings?.read()[provider];
-            if (preferences) this.settings?.validate(provider, preferences);
-            if (this.settings && !preferences?.model) throw new Error('請先選擇明確的模型。');
-            return preferences;
-          };
+          const preferencesFor = (provider: typeof partner, explicit?: typeof message.preferences) => this.preferencesFor(provider, explicit);
           // A 使用畫面上選定的模型；B 若為同一 Provider 沿用相同設定，否則使用該 Provider 已保存的偏好。
           const lead = preferencesFor(message.provider, message.preferences);
           // 每次討論使用新的 Participant，避免沿用前一次討論的上下文。
@@ -110,6 +111,13 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
           await run;
         }
         finally { this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); }
+        break;
+      }
+      case 'resolve-discussion': {
+        if (message.decision === 'substitute') {
+          if (!message.provider) throw new Error('請選擇代替的 Provider。');
+          this.discussions.resolve(message.discussionId, { type: 'substitute', provider: message.provider, preferences: this.preferencesFor(message.provider) });
+        } else this.discussions.resolve(message.discussionId, { type: message.decision });
         break;
       }
       case 'extend-discussion': {

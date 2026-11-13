@@ -3,10 +3,11 @@ import type { AgentId, ApprovalRequest, ExecutionMode, ParticipantRole, Snapshot
 import { AgentRegistry } from '../agents/AgentRegistry';
 import { assertAuthorized } from '../execution/ExecutionPolicy';
 import { ProcessError } from '../execution/ProcessManager';
+import { ProviderFailure } from '../agents/CliAdapter';
 import { SessionRepository } from '../storage/SessionRepository';
 import type { ApprovalMode, ProviderPreferences } from '../bridge/settings';
 
-export interface ParticipantRef { id: string; role: ParticipantRole }
+export interface ParticipantRef { id: string; role: ParticipantRole; substitute?: boolean }
 export interface SendOptions { participant?: ParticipantRef; discussion?: { id: string; roundNo?: number } }
 const roleInstructions: Record<ParticipantRole, string> = {
   architect: 'Your role in this discussion: Architect. Propose a concrete, well-reasoned approach and state its trade-offs.',
@@ -66,7 +67,7 @@ export class Orchestrator {
     this.assertCanSend(provider, mode, discussion?.id);
     if (discussion && (mode !== 'read-only' || !participant)) throw new Error('討論輪次必須為唯讀且指定 Participant。');
     if (participant && this.state.tasks.some(item => item.participantId === participant.id && (item.provider !== provider || item.participantRole !== participant.role))) throw new Error('Participant 已綁定其他 Provider 或角色。');
-    const task: Task = { id: randomUUID(), provider, mode, prompt: text, output: '', status: 'running', startedAt: Date.now(), activity: '啟動官方 CLI…', approvalMode, ...preferences, ...(participant && { participantId: participant.id, participantRole: participant.role }), ...(discussion && { discussionId: discussion.id, ...(discussion.roundNo && { roundNo: discussion.roundNo }) }) };
+    const task: Task = { id: randomUUID(), provider, mode, prompt: text, output: '', status: 'running', startedAt: Date.now(), activity: '啟動官方 CLI…', approvalMode, ...preferences, ...(participant && { participantId: participant.id, participantRole: participant.role, ...(participant.substitute && { substitute: true }) }), ...(discussion && { discussionId: discussion.id, ...(discussion.roundNo && { roundNo: discussion.roundNo }) }) };
     const controller = new AbortController();
     // Set the lock before the first await, including persistence and CLI detection.
     const active = { task, controller, finished: Promise.resolve() };
@@ -107,6 +108,7 @@ export class Orchestrator {
     } catch (error) {
       task.status = controller.signal.aborted || (error instanceof ProcessError && error.kind === 'cancelled') ? 'cancelled' : 'failed';
       task.error = error instanceof Error ? error.message : '未知的執行錯誤。';
+      if (task.status === 'failed' && error instanceof ProviderFailure && error.kind) task.failureKind = error.kind;
     } finally {
       task.endedAt = Date.now(); task.activity = undefined;
       for (const resolve of this.approvalAnswers.values()) resolve(false);

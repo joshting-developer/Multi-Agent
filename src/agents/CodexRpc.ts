@@ -1,5 +1,5 @@
 import { ProcessManager, type ProcessRequest } from '../execution/ProcessManager';
-import { friendlyFailure, record } from './CliAdapter';
+import { providerFailure, record } from './CliAdapter';
 
 /** One isolated official App Server, JSONL over stdin/stdout. Never reads auth files. */
 export class CodexRpc {
@@ -15,7 +15,7 @@ export class CodexRpc {
       args: ['app-server', '--listen', 'stdio://', ...['model_provider="openai"', 'mcp_servers={}', 'features.apps=false', 'features.plugins=false', 'features.hooks=false', 'analytics.enabled=false', ...(options.config ?? [])].flatMap(value => ['-c', value])],
       onStdinReady: send => { this.send = send; this.request(1, 'initialize', { clientInfo: { name: 'multi_agent_workspace', version: '0.1.4' }, capabilities: { experimentalApi: true } }); }
     })) {
-      if (event.type === 'exit') throw new Error(event.code ? friendlyFailure(event.stderr, event.code) : 'Codex 在完成事件前結束。');
+      if (event.type === 'exit') throw event.code ? providerFailure(event.stderr, event.code) : new Error('Codex 在完成事件前結束。');
       let message: Record<string, unknown>;
       try { message = record(JSON.parse(event.text)); } catch { throw new Error('Codex 傳回無效 JSONL。'); }
       if (message.id === 1) {

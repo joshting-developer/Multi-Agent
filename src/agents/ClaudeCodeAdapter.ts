@@ -1,7 +1,7 @@
 import type { ProviderStatus } from '../bridge/messages';
 import { protectedPatterns } from '../execution/ExecutionPolicy';
 import type { AgentRequest } from './AgentAdapter';
-import { CliAdapter, friendlyFailure, record, type ParsedEvent, type StreamState } from './CliAdapter';
+import { CliAdapter, providerFailure, record, type ParsedEvent, type StreamState } from './CliAdapter';
 
 export class ClaudeCodeAdapter extends CliAdapter {
   readonly id = 'claude' as const;
@@ -80,7 +80,7 @@ export class ClaudeCodeAdapter extends CliAdapter {
       state.text = ''; // Next assistant message can stream independently.
     }
     if (line.type === 'result') {
-      if (line.is_error || (typeof line.subtype === 'string' && line.subtype !== 'success')) throw new Error(friendlyFailure(JSON.stringify(line)));
+      if (line.is_error || (typeof line.subtype === 'string' && line.subtype !== 'success')) throw providerFailure(JSON.stringify(line));
       if (!state.emitted && typeof line.result === 'string') events.push({ type: 'text-delta', text: line.result });
       state.completed = true;
     }

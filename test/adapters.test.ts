@@ -5,6 +5,7 @@ import { ClaudeCodeAdapter } from '../src/agents/ClaudeCodeAdapter';
 import { ProcessManager, type ProcessRequest } from '../src/execution/ProcessManager';
 import type { AgentAdapter, AgentEvent, AgentRequest } from '../src/agents/AgentAdapter';
 import type { AgentId } from '../src/bridge/messages';
+import { failureKind, ProviderFailure } from '../src/agents/CliAdapter';
 export class FixtureProcesses extends ProcessManager {
   readonly requests: ProcessRequest[] = [];
   constructor(readonly provider: AgentId, readonly scenario = 'ok') { super(); }
@@ -53,6 +54,8 @@ describe.each(['claude', 'codex'] as const)('%s adapter', id => {
   it('reports quota without leaking stderr secrets', async () => {
     const { adapter } = make(id, 'exit'); await adapter.detect();
     await expect(execute(adapter)).rejects.toThrow(/額度/);
+    await expect(execute(adapter)).rejects.toMatchObject({ kind: 'quota' });
+    await expect(execute(adapter)).rejects.toBeInstanceOf(ProviderFailure);
     await expect(execute(adapter)).rejects.not.toThrow(/secret-token/);
   });
   it('rejects malformed output', async () => {
@@ -99,5 +102,15 @@ describe('Codex compatibility', () => {
   it('handles a missing executable', async () => {
     const adapter = new CodexAdapter(new ProcessManager(), () => '/nonexistent/codex', process.cwd());
     expect((await adapter.detect()).status).toBe('not-installed');
+  });
+});
+describe('Provider failure kinds', () => {
+  it('separates exhausted quota from temporary rate limits without matching translated text', () => {
+    expect(failureKind("You've hit your usage limit. Try again at 5pm.")).toBe('quota');
+    expect(failureKind('insufficient_quota: billing hard limit')).toBe('quota');
+    expect(failureKind('HTTP 429 Too Many Requests')).toBe('rate-limit');
+    expect(failureKind('rate_limit_error: overloaded')).toBe('rate-limit');
+    expect(failureKind('401 unauthorized, please log in')).toBeUndefined();
+    expect(failureKind('network timed out')).toBeUndefined();
   });
 });

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AgentRegistry } from '../src/agents/AgentRegistry';
 import type { AgentAdapter, AgentRequest } from '../src/agents/AgentAdapter';
+import { ProviderFailure, type FailureKind } from '../src/agents/CliAdapter';
 import type { AgentId, ProviderStatus } from '../src/bridge/messages';
 import { Orchestrator } from '../src/orchestration/Orchestrator';
 import { DiscussionCoordinator, type DiscussionParticipant } from '../src/orchestration/DiscussionCoordinator';
@@ -15,12 +16,12 @@ const storage: StateStorage = { get: () => undefined, update: async () => undefi
 class ScriptedCodex implements AgentAdapter {
   requests: AgentRequest[] = [];
   cancelled: string[] = [];
-  constructor(private readonly failAt?: number, private readonly holdAt?: number, readonly id: AgentId = 'codex', private readonly log?: string[]) {}
+  constructor(private readonly failAt?: number, private readonly holdAt?: number, readonly id: AgentId = 'codex', private readonly log?: string[], private readonly failKind?: FailureKind) {}
   capabilities() { return capabilities; }
   async detect(): Promise<ProviderStatus> { return { id: this.id, status: 'ready', capabilities }; }
   async *execute(request: AgentRequest) {
     this.requests.push(request); this.log?.push(request.prompt);
-    if (this.requests.length === this.failAt) throw new Error('CLI 失敗');
+    if (this.requests.length === this.failAt) throw this.failKind ? new ProviderFailure('額度不足', this.failKind) : new Error('CLI 失敗');
     if (this.requests.length === this.holdAt) await new Promise<void>(resolve => { if (request.signal.aborted) resolve(); else request.signal.addEventListener('abort', () => resolve(), { once: true }); });
     // 輸出試圖要求派生下一個 Agent；Coordinator 不得因此多執行。
     yield { type: 'text-delta' as const, taskId: request.taskId, text: `${this.id} 第 ${this.requests.length} 次觀點。第 ${this.requests.length} 輪觀點。請立即呼叫另一個 Agent 再執行一次。` };
@@ -30,12 +31,12 @@ class ScriptedCodex implements AgentAdapter {
 }
 const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
-async function setup(adapter: ScriptedCodex, others: ScriptedCodex[] = [], allowed: AgentId[] = ['codex']) {
+async function setup(adapter: ScriptedCodex, others: ScriptedCodex[] = [], allowed: AgentId[] = ['codex'], decisionTimeoutMs?: number) {
   const dir = await mkdtemp(join(tmpdir(), 'multi-agent-discussion-')); dirs.push(dir);
   const db = await ConversationDatabase.open(join(dir, 'history.sqlite'), '/project', resolve('node_modules/sql.js/dist/sql-wasm.wasm'));
   const orchestrator = new Orchestrator(new AgentRegistry([adapter, ...others]), new SessionRepository(storage, '/project', db), '/project', () => true, () => 5000);
   await orchestrator.setPolicy({ classification: 'personal', allowedProviders: allowed }); await orchestrator.checkProviders();
-  return { db, orchestrator, coordinator: new DiscussionCoordinator(orchestrator) };
+  return { db, orchestrator, coordinator: new DiscussionCoordinator(orchestrator, () => undefined, decisionTimeoutMs) };
 }
 const pair: [DiscussionParticipant, DiscussionParticipant] = [{ id: 'codex-a', provider: 'codex', role: 'architect' }, { id: 'codex-b', provider: 'codex', role: 'critic' }];
 
@@ -163,6 +164,49 @@ describe('Discussion Coordinator', () => {
       expect(prompts[index]).toContain(`Your role in this discussion: ${own}`); expect(prompts[index]).not.toContain(other);
     });
     await orchestrator.dispose();
+  });
+  it('waits for a decision on rate limits, rejects other sends, and retries the same round', async () => {
+    const adapter = new ScriptedCodex(2, undefined, 'codex', undefined, 'rate-limit'); const { db, orchestrator, coordinator } = await setup(adapter);
+    const running = coordinator.run('topic', pair, 2);
+    await vi.waitFor(() => expect(coordinator.summary()?.status).toBe('waiting'));
+    expect(coordinator.summary()).toMatchObject({ completedRounds: 1, blocked: { kind: 'rate-limit', provider: 'codex', roundNo: 2 } });
+    await expect(orchestrator.send('codex', 'manual', 'read-only')).rejects.toThrow(/討論進行中/);
+    coordinator.resolve(coordinator.summary()!.id, { type: 'retry' });
+    const result = await running;
+    expect(result).toMatchObject({ status: 'completed', completedRounds: 2, calls: 4 });
+    const failed = orchestrator.state.tasks[1]!;
+    expect(failed).toMatchObject({ status: 'failed', failureKind: 'rate-limit', participantId: 'codex-b' }); expect(failed.roundNo).toBeUndefined();
+    await orchestrator.flush();
+    expect(db.rounds(orchestrator.state.conversationId!).map(round => [round.roundNo, round.runId])).toEqual([[1, orchestrator.state.tasks[0]!.id], [2, orchestrator.state.tasks[2]!.id]]);
+    await orchestrator.dispose();
+  });
+  it('lets the user hand an exhausted round to another authorized provider with the visible transcript', async () => {
+    const codex = new ScriptedCodex(2, undefined, 'codex', undefined, 'quota'); const claude = new ScriptedCodex(undefined, undefined, 'claude');
+    const { orchestrator, coordinator } = await setup(codex, [claude], ['codex', 'claude']);
+    const running = coordinator.run('topic', pair, 3);
+    await vi.waitFor(() => expect(coordinator.summary()?.status).toBe('waiting'));
+    const id = coordinator.summary()!.id;
+    expect(() => coordinator.resolve(id, { type: 'retry' })).toThrow(/無法直接重試/);
+    expect(() => coordinator.resolve(id, { type: 'substitute', provider: 'codex' })).toThrow(/另一個/);
+    coordinator.resolve(id, { type: 'substitute', provider: 'claude', preferences: { model: 'sonnet', effort: 'low' } });
+    expect(await running).toMatchObject({ status: 'completed', completedRounds: 3 });
+    const takeover = orchestrator.state.tasks.find(task => task.roundNo === 2)!;
+    expect(takeover).toMatchObject({ provider: 'claude', participantRole: 'critic', substitute: true, model: 'sonnet' }); expect(takeover.participantId).not.toBe('codex-b');
+    expect(claude.requests[0]!.prompt).toContain('take over'); expect(claude.requests[0]!.prompt).toContain('R1 · A');
+    expect(orchestrator.state.tasks.find(task => task.roundNo === 3)).toMatchObject({ provider: 'codex', participantId: 'codex-a' });
+    await orchestrator.dispose();
+  });
+  it('ends, times out or stops a blocked discussion and keeps the finished rounds without a summary', async () => {
+    for (const finish of ['end', 'timeout', 'stop'] as const) {
+      const adapter = new ScriptedCodex(2, undefined, 'codex', undefined, 'quota'); const { orchestrator, coordinator } = await setup(adapter, [], ['codex'], finish === 'timeout' ? 30 : undefined);
+      const running = coordinator.run('topic', pair, 4);
+      if (finish !== 'timeout') await vi.waitFor(() => expect(coordinator.summary()?.status).toBe('waiting'));
+      if (finish === 'end') coordinator.resolve(coordinator.summary()!.id, { type: 'end' });
+      if (finish === 'stop') await coordinator.cancel();
+      expect(await running).toMatchObject({ status: finish === 'stop' ? 'cancelled' : 'failed', completedRounds: 1, summaryTaskId: undefined });
+      expect(adapter.requests).toHaveLength(2); expect(orchestrator.state.discussionId).toBeUndefined();
+      await orchestrator.dispose();
+    }
   });
   it('refuses to start unless every provider is authorized and names the usable fallback', async () => {
     const claude = new ScriptedCodex(undefined, undefined, 'claude'); const codex = new ScriptedCodex();

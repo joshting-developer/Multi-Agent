@@ -64,6 +64,14 @@ const insert = ref<{ text: string; revision: number }>();
 function adoptSummary() {
   if (summaryTask.value) insert.value = { text: `依照下面的討論結論處理：\n\n${summaryTask.value.output}`, revision: (insert.value?.revision ?? 0) + 1 };
 }
+// 只列出已授權、可用且不是卡住的那個 Provider；實際送出前 Host 仍會再檢查。
+const alternatives = computed(() => {
+  const blocked = discussion.value?.blocked?.provider;
+  return snapshot.value.providers.filter(provider => provider.id !== blocked && provider.status === 'ready' && snapshot.value.policy.allowedProviders.includes(provider.id)).map(provider => provider.id);
+});
+function resolveDiscussion(decision: 'retry' | 'substitute' | 'end', provider?: AgentId) {
+  if (discussion.value) post({ version: 1, type: 'resolve-discussion', requestId: crypto.randomUUID(), discussionId: discussion.value.id, decision, provider });
+}
 function extendDiscussion(rounds: number) {
   if (discussion.value) send({ version: 1, type: 'extend-discussion', requestId: crypto.randomUUID(), discussionId: discussion.value.id, rounds });
 }
@@ -86,7 +94,7 @@ function cancel() {
     <div v-if="!historyShown" class="input-area">
       <p v-if="error" class="error notice" role="alert">{{ error }}</p>
       <div v-else-if="notice" class="notice" role="status"><span>{{ notice.text }}</span><button v-if="notice.action" type="button" class="text-button" :disabled="busy" @click="action(notice.action)">{{ notice.action === 'authorize-workspace' ? '授權' : '設定' }}</button></div>
-      <DiscussionBar v-if="discussion && !error && !notice" :discussion="discussion" :busy="busy" :summary-ready="!!summaryTask" @extend="extendDiscussion" @adopt="adoptSummary" />
+      <DiscussionBar v-if="discussion && !error && !notice" :discussion="discussion" :busy="busy" :summary-ready="!!summaryTask" :alternatives="alternatives" @extend="extendDiscussion" @adopt="adoptSummary" @resolve="resolveDiscussion" />
       <ApprovalCard v-for="request in snapshot.approvals ?? []" :key="request.id" :request="request" @answer="answerApproval" />
       <Composer :insert="insert" :approval-mode="settings.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="busy" :running="running || !!snapshot.discussionId" :can-send="canSend" :can-write="canWrite" :provider="selected" :preferences="preferences" :models="snapshot.models?.[selected] ?? []" :models-loading="snapshot.models?.loading ?? false" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="submit" @discuss="discuss" @cancel="cancel" @draft="saveDraft" @select="selected = $event; userSelected = true" @preferences="selectPreferences" @settings="action('show-options')" @refresh-models="action('refresh-models')" />
     </div>

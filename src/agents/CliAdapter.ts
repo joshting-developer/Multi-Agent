@@ -3,9 +3,27 @@ import { ProcessError, ProcessManager } from '../execution/ProcessManager';
 import type { AgentAdapter, AgentEvent, AgentRequest } from './AgentAdapter';
 import { resolveExecutable } from './ExecutableResolver';
 
+/** 額度類失敗的結構化分類，討論流程依此決定能提供哪些選項，不比對中文訊息。 */
+export type FailureKind = 'quota' | 'rate-limit';
+export class ProviderFailure extends Error {
+  constructor(message: string, readonly kind?: FailureKind) { super(message); }
+}
+const loginPattern = /not.?logged|not.?authenticated|login|log in|sign.?in|unauthorized|authentication|401|invalid.?api.?key/i;
+export function failureKind(text: string): FailureKind | undefined {
+  if (loginPattern.test(text)) return undefined;
+  // 用量上限通常附「稍後再試」時間，仍屬帳號額度；只有明確的頻率限制才算暫時性。
+  if (/quota|usage.limit|credit|budget|insufficient|billing/i.test(text)) return 'quota';
+  if (/rate.?limit|too many requests|429|limit.reached|overloaded/i.test(text)) return 'rate-limit';
+  return undefined;
+}
+export function providerFailure(text: string, code?: number): ProviderFailure {
+  return new ProviderFailure(friendlyFailure(text, code), failureKind(text));
+}
 export function friendlyFailure(text: string, code?: number): string {
-  if (/not.?logged|not.?authenticated|login|log in|sign.?in|unauthorized|authentication|401|invalid.?api.?key/i.test(text)) return '官方 CLI 尚未登入或登入已失效。請在終端完成官方登入，再按 Check connection。';
-  if (/quota|usage.limit|rate.limit|credit|budget|429|limit.reached/i.test(text)) return 'Provider 額度不足或請求頻率受限。請檢查官方帳號額度，稍後手動重試。';
+  if (loginPattern.test(text)) return '官方 CLI 尚未登入或登入已失效。請在終端完成官方登入，再按 Check connection。';
+  const kind = failureKind(text);
+  if (kind === 'quota') return 'Provider 額度已用完。請檢查官方帳號額度，或改用其他 Provider。';
+  if (kind === 'rate-limit') return 'Provider 請求頻率受限。請稍後重試。';
   if (/network|connection|dns|fetch failed|timed out|stream disconnected/i.test(text)) return '無法連線到 Provider。請檢查網路、Proxy 與官方服務狀態。';
   if (/model.*(?:not found|does not exist|not supported|not available)|unsupported.*model|invalid.*model|reasoning.effort.*(?:unsupported|not supported)/i.test(text)) return '此模型或推理強度不適用於目前帳號。請在設定重新選擇模型與強度。';
   if (/unknown|unexpected|unrecognized|unsupported|invalid.*(argument|config|permission)|configuration.*error|loading config|FilesystemPermissionToml/i.test(text)) return 'CLI 參數或安全設定不相容。請更新官方 CLI，並重新檢查連線。';
@@ -60,7 +78,7 @@ export abstract class CliAdapter implements AgentAdapter {
         onStdinReady: inputStream ? write => { send = write; inputStream(write); } : undefined
       })) {
         if (event.type === 'exit') {
-          if (event.code !== 0) throw new Error(friendlyFailure(event.stderr, event.code));
+          if (event.code !== 0) throw providerFailure(event.stderr, event.code);
           if (!state.completed) throw new Error('CLI 在完成事件前結束，請更新 CLI 或重新執行。');
         } else if (event.text.trim()) {
           let value: unknown;

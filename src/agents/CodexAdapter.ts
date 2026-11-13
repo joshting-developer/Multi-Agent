@@ -1,7 +1,7 @@
 import type { ProviderStatus } from '../bridge/messages';
 import { protectedPatterns } from '../execution/ExecutionPolicy';
 import type { AgentRequest } from './AgentAdapter';
-import { CliAdapter, friendlyFailure, record, type ParsedEvent, type StreamState } from './CliAdapter';
+import { CliAdapter, providerFailure, record, type ParsedEvent, type StreamState } from './CliAdapter';
 
 export class CodexAdapter extends CliAdapter {
   readonly id = 'codex' as const;
@@ -49,7 +49,7 @@ export class CodexAdapter extends CliAdapter {
   }
   protected parse(line: Record<string, unknown>, state: StreamState): ParsedEvent[] {
     if (line.type === 'thread.started' && typeof line.thread_id === 'string') state.sessionId = line.thread_id;
-    if (line.type === 'error' || line.type === 'turn.failed') throw new Error(friendlyFailure(JSON.stringify(line)));
+    if (line.type === 'error' || line.type === 'turn.failed') throw providerFailure(JSON.stringify(line));
     if (line.type === 'turn.completed') state.completed = true;
     const item = record(line.item);
     if (item.type === 'agent_message' && typeof item.text === 'string') {

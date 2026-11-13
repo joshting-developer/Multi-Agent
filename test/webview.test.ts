@@ -67,6 +67,20 @@ describe('Vue chat', () => {
     expect((composer.get('textarea').element as HTMLTextAreaElement).value).toContain('共識'); expect(composer.emitted('send')).toBeUndefined();
     composer.unmount();
   });
+  it('offers retry only for rate limits and names each authorized substitute provider', async () => {
+    const waiting = (kind: 'quota' | 'rate-limit') => ({ id: 'd', status: 'waiting' as const, completedRounds: 1, maxRounds: 4, blocked: { kind, provider: 'codex' as const, roundNo: 2 } });
+    const bar = mount(DiscussionBar, { props: { busy: true, discussion: waiting('quota'), alternatives: ['claude' as const] } });
+    expect(bar.get('[role="alert"]').text()).toContain('Codex 額度已用完 · 第 2 輪');
+    expect(bar.findAll('button').map(button => button.text())).toEqual(['改用 Claude Code', '結束']);
+    await bar.findAll('button')[0]!.trigger('click'); await bar.findAll('button')[1]!.trigger('click');
+    expect(bar.emitted('resolve')).toEqual([['substitute', 'claude'], ['end']]);
+    await bar.setProps({ discussion: waiting('rate-limit'), alternatives: [] });
+    expect(bar.findAll('button').map(button => button.text())).toEqual(['重試', '結束']);
+    bar.unmount();
+    const timeline = mount(Conversation, { props: { tasks: [{ id: 't', provider: 'claude' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, prompt: '轉交', output: '接手', discussionId: 'd', participantId: 'x', participantRole: 'critic' as const, roundNo: 2, substitute: true }] } });
+    expect(timeline.get('.message-label strong').text()).toBe('Claude Code B · 審查 · 第 2 輪 · 代替');
+    timeline.unmount();
+  });
   it('moves focus to Stop while running and back to the input when the removed control dropped it', async () => {
     const wrapper = mount(Composer, { attachTo: document.body, props: { busy: false, running: false, canSend: true, initialDraft: '' } });
     await wrapper.setProps({ running: true, busy: true }); await nextTick();
