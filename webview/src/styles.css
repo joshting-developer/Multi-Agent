@@ -127,7 +127,8 @@ select { min-width: 0; max-width: 100%; border: 0; border-radius: 5px; padding: 
 .advanced-settings > label { display:grid; gap:7px; margin-top:12px; }
 .advanced-settings > code { display:block; margin-top:10px; user-select:all; }
 .model-fields .advanced-settings { margin-top:0; grid-row:3; }
-.tool-step { margin: 6px 0; font-size: 12px; min-width: 0; }
+.tool-step { margin: 6px 0; font-size: 12px; min-width: 0; color: var(--vscode-foreground); }
+.assistant-message.rejected .markdown, .assistant-message.rejected .tool-step { opacity: .55; }
 .tool-step summary { display: flex; align-items: center; gap: 6px; min-width: 0; cursor: pointer; list-style: none; }
 .tool-step summary::-webkit-details-marker { display: none; }
 .tool-step strong { font-weight: 500; flex: none; }

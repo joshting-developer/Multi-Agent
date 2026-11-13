@@ -37,7 +37,7 @@ const statusLabel = (task: Task) => ({ running: '執行中', completed: '', fail
     <div v-if="tasks.length === 0" class="empty-state" aria-label="開始對話"><ChatIcon name="chat" /></div>
     <article v-for="task in tasks" :key="task.id" class="turn">
       <div v-if="!task.discussionId || task.roundNo === 1" class="message user-message"><p class="prompt">{{ task.prompt }}</p></div>
-      <div class="message assistant-message">
+      <div :class="['message', 'assistant-message', { rejected: task.rejected }]">
         <div class="message-label">
           <strong>{{ speaker(task) }}</strong><span v-if="task.status !== 'completed'" :class="['task-status', task.status]">{{ statusLabel(task) }}<template v-if="task.status === 'running'"> · {{ elapsed(task) }}s</template></span><span v-else-if="task.rejected" class="task-status">已不採用</span>
           <button v-if="task.status === 'completed' && !task.discussionId" type="button" class="text-button" @click="emit('reject', task.id, !task.rejected)">{{ task.rejected ? '恢復採用' : '不採用' }}</button>
