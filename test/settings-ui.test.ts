@@ -79,6 +79,10 @@ describe('Explicit models, accounts and history controls', () => {
     expect((codexAdd.get('input[type="password"]').element as HTMLInputElement).value).toBe('');
     await wrapper.setProps({ accounts: [...accounts, { id: 'key', provider: 'claude' as const, name: 'Claude API', builtIn: false, method: 'api-key' as const, loggedIn: true }] });
     const keyRow = wrapper.findAll('.account-row').find(row => row.text().includes('Claude API'))!;
+    await wrapper.setProps({ accounts: [...accounts, { id: 'twin', provider: 'codex' as const, name: '第二個', builtIn: false, loggedIn: true, account: { type: 'chatgpt', email: 'user@example.test' } }] });
+    const rows = wrapper.findAll('.account-row').map(row => row.text());
+    expect(rows.find(text => text.startsWith('第二個'))).toContain('與「預設帳號」是同一個帳戶'); expect(rows.find(text => text.startsWith('預設帳號') && text.includes('user@'))).toContain('與「第二個」是同一個帳戶');
+    expect(wrapper.findAll('.account-row').find(row => row.text().includes('公司 Claude'))!.text()).not.toContain('同一個帳戶');
     expect(keyRow.text()).toContain('API Key'); expect(keyRow.findAll('button').map(button => button.text())).toEqual(['設為使用中', '重新命名', '移除']);
     await builtIn.findAll('button')[1]!.trigger('click'); await wrapper.get('.account-rename input').setValue('私人'); await wrapper.get('.account-rename').trigger('submit');
     expect(wrapper.emitted('rename')).toEqual([['default-claude', '私人']]);

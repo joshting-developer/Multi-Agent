@@ -14,6 +14,8 @@ function add(provider: AgentId) {
   else emit('add', provider);
   keys.value[provider] = '';
 }
+// 同一來源有兩個帳號登入的是同一個帳戶（同一 email）時標出來，避免以為是兩份額度。
+const sameAs = (account: AccountSummary, list: AccountSummary[]) => account.account?.email ? list.find(item => item.id !== account.id && item.provider === account.provider && item.account?.email === account.account?.email) : undefined;
 const time = (value: number) => new Date(value).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 function rename(id: string) {
   if (title.value.trim()) emit('rename', id, title.value.trim());
@@ -32,7 +34,7 @@ function rename(id: string) {
             <button type="submit" class="text-button">儲存</button><button type="button" class="text-button" @click="editing = ''">取消</button>
           </form>
           <strong v-else>{{ account.name }}<span v-if="selected[provider] === account.id" class="account-current"> · 使用中</span></strong>
-          <small>{{ account.loggedIn === undefined ? '檢查中' : account.loggedIn ? [account.account?.email, account.account?.plan].filter(Boolean).join(' · ') || (account.method === 'api-key' ? 'API Key' : '已登入') : '未登入' }}</small>
+          <small>{{ account.loggedIn === undefined ? '檢查中' : account.loggedIn ? [account.account?.email, account.account?.plan].filter(Boolean).join(' · ') || (account.method === 'api-key' ? 'API Key' : '已登入') : '未登入' }}<template v-if="sameAs(account, accounts)"> · 與「{{ sameAs(account, accounts)!.name }}」是同一個帳戶</template></small>
           <template v-if="account.loggedIn">
             <ul v-if="account.usage" class="usage-list" :aria-label="`${account.name} 的用量`">
               <li v-for="window in account.usage.windows" :key="window.label"><span>{{ window.label }}</span><meter min="0" max="100" :value="window.usedPercent" :aria-label="`${window.label} 已用 ${window.usedPercent}%`"></meter><span>{{ window.usedPercent }}%<template v-if="window.resetsAt"> · {{ time(window.resetsAt) }} 重置</template></span></li>
