@@ -88,6 +88,15 @@ describe('Explicit models, accounts and history controls', () => {
     expect(wrapper.emitted('rename')).toEqual([['me', '私人']]);
     await wrapper.findAll('button').find(button => button.text().includes('重新整理'))!.trigger('click'); expect(wrapper.emitted('refresh')).toHaveLength(1); wrapper.unmount();
   });
+  it('shows how much quota is left so an exhausted window reads as 0%', async () => {
+    const { default: Accounts } = await import('../webview/src/components/AccountSettings.vue');
+    const usage = { source: 'official' as const, updatedAt: 1, blocked: true, windows: [{ label: '5 小時', usedPercent: 100, resetsAt: 2 }, { label: '7 天', usedPercent: 31 }] };
+    const wrapper = mount(Accounts, { props: { checking: false, accounts: [{ id: 'a', provider: 'codex' as const, name: 'a', loggedIn: true, usage }], selected: { codex: 'a' } } });
+    const rows = wrapper.findAll('.usage-list li');
+    expect(rows[0]!.text()).toContain('剩 0%'); expect(rows[1]!.text()).toContain('剩 69%');
+    expect((rows[0]!.get('meter').element as HTMLMeterElement).getAttribute('aria-label')).toBe('5 小時 剩餘 0%');
+    wrapper.unmount();
+  });
   it('searches and opens saved conversations through the history panel', async () => {
     const { default: History } = await import('../webview/src/components/HistoryPanel.vue');
     const wrapper = mount(History, { props: { conversations: [{ id: 'one', title: '注入失敗修復', createdAt: 1, updatedAt: 1 }], busy: false, searching: false } });

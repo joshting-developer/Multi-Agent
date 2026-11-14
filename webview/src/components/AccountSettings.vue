@@ -17,6 +17,8 @@ function add(provider: AgentId) {
 // 同一來源有兩個帳號登入的是同一個帳戶（同一 email）時標出來，避免以為是兩份額度。
 const sameAs = (account: AccountSummary, list: AccountSummary[]) => account.account?.email ? list.find(item => item.id !== account.id && item.provider === account.provider && item.account?.email === account.account?.email) : undefined;
 const time = (value: number) => new Date(value).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+// 官方回報已用比例；介面顯示剩餘，用完時是 0%，避免誤以為還能用。
+const remaining = (used: number) => Math.max(0, Math.min(100, Math.round(100 - used)));
 function rename(id: string) {
   if (title.value.trim()) emit('rename', id, title.value.trim());
   editing.value = '';
@@ -37,7 +39,7 @@ function rename(id: string) {
           <small>{{ account.loggedIn === undefined ? '檢查中' : account.loggedIn ? [account.account?.email, account.account?.plan].filter(Boolean).join(' · ') || (account.method === 'api-key' ? 'API Key' : '已登入') : '未登入' }}<template v-if="sameAs(account, accounts)"> · 與「{{ sameAs(account, accounts)!.name }}」是同一個帳戶</template></small>
           <template v-if="account.loggedIn">
             <ul v-if="account.usage" class="usage-list" :aria-label="`${account.name} 的用量`">
-              <li v-for="window in account.usage.windows" :key="window.label"><span>{{ window.label }}</span><meter min="0" max="100" :value="window.usedPercent" :aria-label="`${window.label} 已用 ${window.usedPercent}%`"></meter><span>{{ window.usedPercent }}%<template v-if="window.resetsAt"> · {{ time(window.resetsAt) }} 重置</template></span></li>
+              <li v-for="window in account.usage.windows" :key="window.label"><span>{{ window.label }}</span><meter min="0" max="100" low="20" high="50" optimum="100" :value="remaining(window.usedPercent)" :aria-label="`${window.label} 剩餘 ${remaining(window.usedPercent)}%`"></meter><span>剩 {{ remaining(window.usedPercent) }}%<template v-if="window.resetsAt"> · {{ time(window.resetsAt) }} 重置</template></span></li>
               <li class="usage-note">{{ account.usage.blocked ? '目前額度已用完 · ' : '' }}{{ account.usage.source === 'last-run' ? '最近一次執行' : '更新' }} {{ time(account.usage.updatedAt) }}</li>
             </ul>
             <small v-else>{{ provider === 'claude' ? '執行一次後顯示用量' : '無法取得用量' }}</small>
