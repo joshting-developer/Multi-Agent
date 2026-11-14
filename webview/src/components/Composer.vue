@@ -49,12 +49,16 @@ const rounds = ref(4);
 const partner = ref<AgentId>(props.provider);
 const partnerChosen = ref(false);
 watch(() => props.provider, value => { if (!partnerChosen.value) partner.value = value; });
-// 只有同一 Provider 有兩個以上帳號時才顯示帳號選擇；審查方的帳號可以和提案方不同。
-const providerAccounts = computed(() => props.accounts.filter(account => account.provider === props.provider));
+// 來源與帳號在同一個選單；審查方的來源與帳號可以和提案方不同。
 const partnerAccounts = computed(() => props.accounts.filter(account => account.provider === partner.value));
 const partnerAccount = ref<string>();
-watch(() => [partner.value, props.selectedAccounts[partner.value]], () => { partnerAccount.value = props.selectedAccounts[partner.value]; }, { immediate: true });
-const accountLabel = (account: AccountSummary) => account.loggedIn === false ? `${account.name}（未登入）` : account.name;
+// 沒有明確選過審查帳號時跟著該來源目前使用中的帳號。
+watch(() => props.selectedAccounts[partner.value], value => { if (!partnerChosen.value) partnerAccount.value = value; }, { immediate: true });
+function choose(provider: AgentId, accountId?: string) {
+  if (provider !== props.provider) emit('select', provider);
+  if (accountId && accountId !== props.selectedAccounts[provider]) emit('account', provider, accountId);
+}
+function choosePartner(provider: AgentId, accountId?: string) { partnerChosen.value = true; partner.value = provider; partnerAccount.value = accountId ?? props.selectedAccounts[provider]; }
 const valid = computed(() => props.canSend && props.supportedApprovalModes.includes(approval.value) && !props.busy && (text.value.trim().length > 0 || (!discussion.value && images.value.length > 0)) && text.value.length <= 32000 && (!discussion.value || text.value.trim().length > 0));
 watch(text, value => emit('draft', value));
 watch(() => props.draftRevision, () => { text.value = ''; clearImages(); });
@@ -89,12 +93,10 @@ function onKey(event: KeyboardEvent) {
     <textarea id="message" ref="input" v-model="text" rows="3" maxlength="32000" placeholder="想做什麼都可以" :disabled="busy" @keydown="onKey" @paste="onPaste"></textarea>
     <div class="composer-footer">
       <div class="composer-options">
-        <ProviderPicker :selected="provider" :busy="busy" @select="$emit('select', $event)" />
+        <ProviderPicker :selected="provider" :account="selectedAccounts[provider]" :accounts="accounts" :busy="busy" @select="choose" />
         <ModelPicker :provider="provider" :value="preferences" :models="models" :busy="busy" :loading="modelsLoading" @change="$emit('preferences', $event)" @settings="$emit('settings')" @refresh="$emit('refreshModels')" />
-        <select v-if="providerAccounts.length > 1" class="permission-picker account-picker" :value="selectedAccounts[provider]" :disabled="busy" aria-label="帳號" @change="$emit('account', provider, ($event.target as HTMLSelectElement).value)"><option v-for="account in providerAccounts" :key="account.id" :value="account.id">{{ accountLabel(account) }}</option></select>
         <button type="button" class="permission-picker discussion-toggle" :aria-pressed="discussion" :disabled="busy" @click="discussion = !discussion">討論</button>
-        <select v-if="discussion" v-model="partner" class="permission-picker partner-picker" :disabled="busy" aria-label="審查 Agent" @change="partnerChosen = true"><option value="codex">審查：Codex</option><option value="claude">審查：Claude</option></select>
-        <select v-if="discussion && partnerAccounts.length > 1" v-model="partnerAccount" class="permission-picker account-picker" :disabled="busy" aria-label="審查帳號"><option v-for="account in partnerAccounts" :key="account.id" :value="account.id">審查帳號：{{ accountLabel(account) }}</option></select>
+        <ProviderPicker v-if="discussion" class="permission-picker partner-picker" label="審查 Agent" prefix="審查：" :selected="partner" :account="partnerAccount" :accounts="accounts" :busy="busy" @select="choosePartner" />
         <select v-if="discussion" v-model.number="rounds" class="permission-picker" :disabled="busy" aria-label="討論回合"><option v-for="count in [2, 3, 4, 5, 6, 7, 8]" :key="count" :value="count">{{ count }} 輪</option></select>
         <template v-else>
           <select v-model="approval" class="permission-picker approval-picker" :disabled="busy || mode === 'read-only'" aria-label="動作核准"><option v-for="item in approvalModes" :key="item" :value="item" :disabled="!supportedApprovalModes.includes(item)">{{ approvalLabels[item] }}</option></select>

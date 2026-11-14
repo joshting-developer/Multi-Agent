@@ -111,14 +111,20 @@ describe('Vue chat', () => {
   it('lets the user pick the account for this provider and a different account for the reviewer', async () => {
     const accounts = [{ id: 'a', provider: 'claude' as const, name: '公司', builtIn: true, loggedIn: true }, { id: 'b', provider: 'claude' as const, name: '個人', builtIn: false, loggedIn: false }];
     const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: '題目', provider: 'claude' as const, accounts, selectedAccounts: { claude: 'a' } } });
-    const picker = wrapper.get('select[aria-label="帳號"]');
-    expect(picker.findAll('option').map(option => option.text())).toEqual(['公司', '個人（未登入）']);
-    await picker.setValue('b'); expect(wrapper.emitted('account')).toEqual([['claude', 'b']]);
+    // 來源與帳號合成一個選單，不再有獨立的帳號選單。
+    expect(wrapper.find('select[aria-label="帳號"]').exists()).toBe(false);
+    const picker = wrapper.get('select[aria-label="執行 Agent"]');
+    expect(picker.findAll('option').map(option => option.text())).toEqual(['Codex', 'Claude Code · 公司', 'Claude Code · 個人（未登入）']);
+    expect((picker.element as HTMLSelectElement).value).toBe('claude:a');
+    await picker.setValue('claude:b'); expect(wrapper.emitted('account')).toEqual([['claude', 'b']]); expect(wrapper.emitted('select')).toBeUndefined();
+    await picker.setValue('codex'); expect(wrapper.emitted('select')).toEqual([['codex']]);
     await wrapper.get('button.discussion-toggle').trigger('click');
-    await wrapper.get('select[aria-label="審查帳號"]').setValue('b'); await wrapper.get('form').trigger('submit');
+    const reviewer = wrapper.get('select[aria-label="審查 Agent"]');
+    expect(reviewer.findAll('option').map(option => option.text())).toContain('審查：Claude Code · 個人（未登入）');
+    await reviewer.setValue('claude:b'); await wrapper.get('form').trigger('submit');
     expect(wrapper.emitted('discuss')?.at(-1)).toEqual(['題目', 4, 'claude', 'b']);
     await wrapper.setProps({ accounts: accounts.slice(0, 1) });
-    expect(wrapper.find('select[aria-label="帳號"]').exists()).toBe(false);
+    expect(wrapper.get('select[aria-label="執行 Agent"]').findAll('option').map(option => option.text())).toEqual(['Codex', 'Claude Code']);
     wrapper.unmount();
   });
   it('opens a search result at the original message, highlights the keyword and reports a deleted source', async () => {
@@ -213,7 +219,7 @@ describe('Vue chat', () => {
   });
   it('allows manual switching even if another provider is unavailable', async () => {
     const wrapper = mount(ProviderPicker, { props: { selected: 'claude', busy: false } });
-    await wrapper.get('select').setValue('codex'); expect(wrapper.emitted('select')).toEqual([['codex']]); wrapper.unmount();
+    await wrapper.get('select').setValue('codex'); expect(wrapper.emitted('select')).toEqual([['codex', undefined]]); wrapper.unmount();
   });
   it('uses Enter to send while Shift+Enter and IME composition remain input', async () => {
     const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: 'hello', canWrite: true } });
