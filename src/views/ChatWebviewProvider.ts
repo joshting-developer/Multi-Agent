@@ -16,6 +16,8 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
   private timer?: ReturnType<typeof setTimeout>;
   private readonly unsubscribe: () => void;
   private readonly disposables: vscode.Disposable[] = [];
+  /** 視窗重開（Extension 重新啟用）後第一次顯示聊天時先回到歷史對話；之後收合再展開仍停在原對話。 */
+  private historyOnStart = true;
   private approvalPending = false;
   private readonly fullAccessGrants = new Set<AgentId>();
   private readonly discussions: DiscussionCoordinator;
@@ -89,6 +91,10 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'ready':
         if (surface === 'chat') this.resolveReady(); else this.resolveSettingsReady();
         this.snapshot(source);
+        if (surface === 'chat' && this.historyOnStart) {
+          this.historyOnStart = false;
+          if (this.orchestrator.state.conversations?.length && !this.orchestrator.state.activeTaskId) this.post({ version: 1, type: 'show-history' }, source);
+        }
         if (!this.orchestrator.state.providers.length) { await this.orchestrator.checkProviders(); void this.accounts?.refresh(); }
         if (!this.settings?.models.codex.length) void this.settings?.refreshModels();
         break;

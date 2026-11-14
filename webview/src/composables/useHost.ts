@@ -14,6 +14,7 @@ export function useHost() {
   const navigating = ref(false);
   let navigationRequestId: string | undefined;
   const draftRevision = ref(0);
+  const historyRequested = ref(0);
   const settingsSaving = ref(false);
   const settingsSaved = ref(0);
   let settingsRequestId: string | undefined;
@@ -33,6 +34,8 @@ export function useHost() {
         if (submitting.value) draftRevision.value++;
         submitting.value = false; pendingRequestId = undefined; pendingDiscussion = false;
       }
+    } else if (message.type === 'show-history') {
+      historyRequested.value++;
     } else if (message.type === 'conversation-results') {
       if (message.requestId === searchRequestId) { searchResults.value = message.conversations; historySearching.value = false; }
     } else if (message.type === 'settings-saved') {
@@ -72,5 +75,5 @@ export function useHost() {
   const draftFor = (id = snapshot.value.conversationId ?? '') => drafts[id] ?? '';
   const saveDraft = (draft: string) => { const id = snapshot.value.conversationId ?? ''; if (draft) drafts[id] = draft; else delete drafts[id]; api.setState({ drafts }); };
   const draft = typeof cached === 'object' && cached !== null && 'draft' in cached && typeof cached.draft === 'string' ? cached.draft : '';
-  return { navigating, navigate, searchConversations, searchResults, historySearching, snapshot, error, running, submitting, draftRevision, post, send, draft, draftFor, saveDraft, saveSettings, settingsSaving, settingsSaved };
+  return { historyRequested, navigating, navigate, searchConversations, searchResults, historySearching, snapshot, error, running, submitting, draftRevision, post, send, draft, draftFor, saveDraft, saveSettings, settingsSaving, settingsSaved };
 }

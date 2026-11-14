@@ -107,6 +107,7 @@ export type HostToWebview =
   | { version: 1; type: 'conversation-results'; requestId: string; conversations: ConversationSummary[] }
   | { version: 1; type: 'snapshot'; snapshot: Snapshot }
   | { version: 1; type: 'request-settled'; requestId: string }
+  | { version: 1; type: 'show-history' }
   | { version: 1; type: 'request-accepted'; requestId: string }
   | { version: 1; type: 'settings-saved'; requestId: string }
   | { version: 1; type: 'error'; requestId?: string; message: string };

@@ -241,6 +241,11 @@ describe('Vue chat', () => {
       expect(wrapper.text()).not.toMatch(/PROVIDERS|CONVERSATION|Manual|Auto|Dual Review|資料分類|Check connection/);
       expect(wrapper.findAll('.chat-toolbar')).toHaveLength(1);
       expect(wrapper.find('button[aria-label="歷史對話"]').exists()).toBe(true);
+      // 視窗重開後 Host 要求先顯示歷史對話；收合後回到原對話。
+      expect(wrapper.find('button[aria-label="歷史對話"]').attributes('aria-pressed')).toBe('false');
+      window.dispatchEvent(new MessageEvent('message', { data: { version: 1, type: 'show-history' } })); await nextTick();
+      expect(wrapper.get('button[aria-label="歷史對話"]').attributes('aria-pressed')).toBe('true');
+      await wrapper.get('button[aria-label="歷史對話"]').trigger('click');
       await wrapper.get('.notice button').trigger('click');
       expect(api.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'authorize-workspace' }));
       window.dispatchEvent(new MessageEvent('message', { data: { version: 1, type: 'snapshot', snapshot: { ...snapshot, policy: { classification: 'personal', allowedProviders: ['codex'] } } } }));
