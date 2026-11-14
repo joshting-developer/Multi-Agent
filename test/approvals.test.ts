@@ -31,6 +31,12 @@ describe.each(['codex', 'claude'] as const)('%s official approval protocol', pro
       : [{ type: 'tool', taskId: 'task', id: 'tu1', tool: 'Read', phase: 'start' }, { type: 'tool', taskId: 'task', id: 'tu1', tool: 'Read', phase: 'start', input: 'notes.txt' }, { type: 'tool', taskId: 'task', id: 'tu1', tool: 'Read', phase: 'end', success: true, output: 'file body' }]);
     await processes.dispose();
   });
+  it('sends pasted images through the official multimodal input', async () => {
+    const { adapter, processes } = setup('images'); await adapter.detect();
+    let text = ''; for await (const event of adapter.execute({ ...request, approvalMode: undefined, prompt: '這是什麼？', images: [{ mime: 'image/png', data: 'aGVsbG8=' }] })) if (event.type === 'text-delta') text += event.text;
+    expect(JSON.parse(text)).toEqual(provider === 'codex' ? ['data:image/png;base64,', 'text'] : ['base64:image/png:8', '這是什麼？']);
+    await processes.dispose();
+  });
   it('reports official usage windows reported during a Claude run', async () => {
     if (provider !== 'claude') return;
     const { adapter, processes } = setup('usage'); await adapter.detect();

@@ -145,6 +145,24 @@ describe('Vue chat', () => {
     expect(timeline.find('.load-earlier').exists()).toBe(false); expect(timeline.text()).not.toContain('其他視窗');
     timeline.unmount();
   });
+  it('accepts pasted images with preview and removal, sends them with or without text, and leaves text paste alone', async () => {
+    URL.createObjectURL = vi.fn(() => `blob:${Math.random()}`); URL.revokeObjectURL = vi.fn();
+    const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: '' } });
+    const paste = async (files: File[]) => { const event = new Event('paste', { cancelable: true }) as ClipboardEvent; Object.defineProperty(event, 'clipboardData', { value: { items: files.map(file => ({ kind: 'file', type: file.type, getAsFile: () => file })) } }); wrapper.get('textarea').element.dispatchEvent(event); await new Promise(resolve => setTimeout(resolve, 20)); await nextTick(); return event; };
+    expect((await paste([])).defaultPrevented).toBe(false);
+    await paste([new File([new Uint8Array([137, 80, 78, 71])], 'a.png', { type: 'image/png' }), new File(['x'], 'b.svg', { type: 'image/svg+xml' })]);
+    expect(wrapper.findAll('.image-chip')).toHaveLength(1); expect(wrapper.get('[role="alert"]').text()).toContain('只支援');
+    await wrapper.get('form').trigger('submit');
+    const sent = wrapper.emitted('send') as Array<[string, string, string, Array<{ mime: string; data: string }>]>;
+    expect(sent[0]![0]).toBe(''); expect(sent[0]![3].map(image => [image.mime, image.data])).toEqual([['image/png', 'iVBORw==']]);
+    await paste([new File(['y'], 'c.png', { type: 'image/png' })]); expect(wrapper.findAll('.image-chip')).toHaveLength(2);
+    await wrapper.get('.image-remove').trigger('click'); expect(wrapper.findAll('.image-chip')).toHaveLength(1);
+    await wrapper.setProps({ draftRevision: 1 }); expect(wrapper.findAll('.image-chip')).toHaveLength(0);
+    wrapper.unmount();
+    const timeline = mount(Conversation, { props: { tasks: [{ id: 't', provider: 'codex' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, prompt: '請看', output: '好', attachments: [{ id: 'a', mime: 'image/png', bytes: 2048 }, { id: 'b', mime: 'image/png', bytes: 3 * 1048576 }] }] } });
+    expect(timeline.findAll('.attachment-chip').map(chip => chip.text())).toEqual(['圖片 1 · 2 KB', '圖片 2 · 3.0 MB']);
+    timeline.unmount();
+  });
   it('moves focus to Stop while running and back to the input when the removed control dropped it', async () => {
     const wrapper = mount(Composer, { attachTo: document.body, props: { busy: false, running: false, canSend: true, initialDraft: '' } });
     await wrapper.setProps({ running: true, busy: true }); await nextTick();

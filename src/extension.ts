@@ -1,3 +1,4 @@
+import { AttachmentStore } from './storage/AttachmentStore';
 import { AccountService } from './accounts/AccountService';
 import * as vscode from 'vscode';
 import { join } from 'node:path';
@@ -46,6 +47,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Extens
     (provider, accountId) => accounts.env(provider, accountId));
   const settings = new SettingsService(new CodexModelCatalog(processes, () => config().get<string>('codexPath', ''), context.extensionPath));
   orchestrator.onUsage = (provider, accountId, usage) => accounts.recordUsage(provider, accountId, usage);
+  orchestrator.attachmentStore = new AttachmentStore(join(context.globalStorageUri.fsPath, 'attachments'));
   const controller = new ChatWebviewProvider(context.extensionUri, orchestrator, settings, accounts);
   let providerCheckPending = false;
   const checkChangedProviders = () => {

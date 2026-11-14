@@ -26,7 +26,8 @@ export const taskSchema = z.object({
   model: modelIdSchema.optional(), effort: z.union([effortSchema, z.literal('default')]).optional().transform(value => value === 'default' ? undefined : value).optional(),
   approvalMode: z.enum(approvalModes).optional(),
   failureKind: z.enum(['quota', 'rate-limit']).optional(), substitute: z.boolean().optional(),
-  rejected: z.boolean().optional(), contextIds: z.array(z.string()).optional(), events: z.array(auditEventSchema).optional(), steps: z.array(stepSchema).optional(),
+  rejected: z.boolean().optional(), contextIds: z.array(z.string()).optional(),
+  attachments: z.array(z.object({ id: z.string(), mime: z.string(), bytes: z.number() })).optional(), events: z.array(auditEventSchema).optional(), steps: z.array(stepSchema).optional(),
   /** native：接續官方原生 Session；rebuilt：由 SQLite 上下文重建。persisted：這次的原生 Session 有保留，可供下次接續。 */
   contextMode: z.enum(['native', 'rebuilt']).optional(), persisted: z.boolean().optional(), accountId: z.string().optional()
 });
@@ -67,7 +68,8 @@ export interface ApprovalRequest { id: string; taskId: string; provider: AgentId
 const base = { version: z.literal(1), requestId: z.string().min(1).max(100) };
 export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('ready') }),
-  z.object({ ...base, type: z.literal('send-message'), provider: agentIdSchema, text: z.string().trim().min(1).max(32000), mode: modeSchema, preferences: providerPreferencesSchema.optional(), approvalMode: z.enum(approvalModes).optional() }),
+  z.object({ ...base, type: z.literal('send-message'), provider: agentIdSchema, text: z.string().trim().max(32000), mode: modeSchema, preferences: providerPreferencesSchema.optional(), approvalMode: z.enum(approvalModes).optional(),
+    attachments: z.array(z.object({ mime: z.string().max(40), data: z.string().max(7_000_000) })).max(4).optional() }),
   z.object({ ...base, type: z.literal('start-discussion'), provider: agentIdSchema, partner: agentIdSchema.optional(), text: z.string().trim().min(1).max(32000), rounds: z.number().int().min(2).max(8), preferences: providerPreferencesSchema.optional(), partnerAccountId: z.string().max(100).optional() }),
   z.object({ ...base, type: z.literal('extend-discussion'), discussionId: z.string().min(1).max(100), rounds: z.number().int().min(1).max(6) }),
   z.object({ ...base, type: z.literal('add-account'), provider: agentIdSchema, name: z.string().trim().min(1).max(60) }),

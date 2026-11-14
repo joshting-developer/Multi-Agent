@@ -13,6 +13,7 @@ import { ConversationDatabase } from '../src/storage/ConversationDatabase';
 import { SessionRepository } from '../src/storage/SessionRepository';
 import type { AgentId } from '../src/bridge/messages';
 import type { AgentAdapter, AgentRequest } from '../src/agents/AgentAdapter';
+import { removeSmokeSessions } from './smoke-cleanup';
 
 // Synthetic topic only. Never send this project's code or conversation during smoke tests.
 const topic = 'Synthetic design question: for a tiny in-memory to-do list library, should items be stored in an array or a Map keyed by id? Answer in at most 80 words. Do not use any tools, read files, or access any project.';
@@ -34,6 +35,7 @@ function recording(adapter: AgentAdapter, log: AgentRequest[]): AgentAdapter {
   return { id: adapter.id, detect: () => adapter.detect(), capabilities: () => adapter.capabilities(), cancel: id => adapter.cancel(id), execute: request => { log.push(request); return adapter.execute(request); } };
 }
 const processes = new ProcessManager();
+const smokeStartedAt = Date.now();
 try {
   const providers = [...new Set([provider, partner])];
   const sent: AgentRequest[] = [];
@@ -78,4 +80,4 @@ try {
   assert.ok(reopened.load(conversationId).some(task => task.id === result.summaryTaskId && task.output.length > 0));
   await reopened.close();
   console.log(`${provider}+${partner}: discussion smoke PASS (marker ${marker} isolated, no CLI memory written, reopen OK)`);
-} finally { await rm(directory, { recursive: true, force: true }); }
+} finally { await removeSmokeSessions(directory, smokeStartedAt); await rm(directory, { recursive: true, force: true }); }

@@ -36,7 +36,8 @@ if (args.includes('--version')) {
     }
     else if (message.method === 'turn/start') {
       emit({ id: message.id, result: { turn: { id: 'turn' } } });
-      if (scenario === 'approval') emit({ id: 99, method: 'item/commandExecution/requestApproval', params: { command: 'echo approval', cwd: requestCwd(), reason: 'Synthetic test' } });
+      if (scenario === 'images') { emit({ method: 'item/agentMessage/delta', params: { itemId: 'answer', delta: JSON.stringify(message.params.input.map(item => item.type === 'image' ? item.url.slice(0, 22) : item.type)) } }); emit({ method: 'turn/completed', params: { turn: { status: 'completed' } } }); }
+      else if (scenario === 'approval') emit({ id: 99, method: 'item/commandExecution/requestApproval', params: { command: 'echo approval', cwd: requestCwd(), reason: 'Synthetic test' } });
       else if (scenario === 'tools') {
         emit({ method: 'item/started', params: { item: { id: 'r', type: 'reasoning' } } });
         emit({ method: 'item/started', params: { item: { id: 'c', type: 'commandExecution', command: 'ls missing' } } });
@@ -83,6 +84,12 @@ if (args.includes('--version')) {
     const message = JSON.parse(line);
     if (message.type === 'user') emit({ type: 'control_request', request_id: 'approval', request: { subtype: 'can_use_tool', tool_name: 'Write', input: { file_path: '/synthetic/file.txt', content: 'hello' } } });
     if (message.type === 'control_response') { emit({ type: 'result', subtype: 'success', result: message.response.response.behavior }); }
+  });
+} else if (provider === 'claude' && scenario === 'images') {
+  const readline = require('node:readline').createInterface({ input: process.stdin });
+  readline.on('line', line => {
+    const message = JSON.parse(line);
+    if (message.type === 'user') emit({ type: 'result', subtype: 'success', result: JSON.stringify(Array.isArray(message.message.content) ? message.message.content.map(block => block.type === 'image' ? `${block.source.type}:${block.source.media_type}:${block.source.data.length}` : block.text) : message.message.content) });
   });
 } else if (provider === 'claude' && scenario === 'usage') {
   emit({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', unifiedWindows: { five_hour: { utilization: 0.25, resetsAt: 1794632400, status: 'allowed' }, seven_day: { utilization: 0.9, resetsAt: 1794916800, status: 'allowed' } } } });

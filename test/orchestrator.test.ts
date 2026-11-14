@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { AgentRegistry } from '../src/agents/AgentRegistry';
 import type { AgentAdapter, AgentEvent, AgentRequest } from '../src/agents/AgentAdapter';
 import { SessionUnavailable } from '../src/agents/CliAdapter';
+import { AttachmentStore } from '../src/storage/AttachmentStore';
+import { readdir } from 'node:fs/promises';
 import { Orchestrator } from '../src/orchestration/Orchestrator';
 import { SessionRepository, type StateStorage } from '../src/storage/SessionRepository';
 import { assertAuthorized } from '../src/execution/ExecutionPolicy';
@@ -184,6 +186,24 @@ describe('Manual orchestration', () => {
       const check = await ConversationDatabase.open(path, '/other', wasm); expect(check.list().map(item => item.id)).toEqual(['elsewhere']); await check.close();
       await orchestrator.setPersistence(true); await orchestrator.send('claude', 'saved again', 'read-only'); await orchestrator.flush();
       expect(db.list().map(item => item.title)).toEqual(['saved again']);
+      await orchestrator.dispose();
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+  it('sends stored images with the task, notes them in later context, and deletes them with the conversation', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'multi-agent-images-'));
+    try {
+      const adapter = new FakeAdapter('claude'); const { orchestrator } = await setup([adapter]);
+      orchestrator.attachmentStore = new AttachmentStore(dir);
+      const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(8)]).toString('base64');
+      const conversation = orchestrator.state.conversationId!;
+      const attachments = await orchestrator.attachmentStore.save(conversation, [{ mime: 'image/png', data: png }]);
+      await orchestrator.send('claude', '這張圖是什麼？', 'read-only', undefined, 'ask', { attachments });
+      expect(adapter.requests[0]!.images).toEqual([{ mime: 'image/png', data: png }]);
+      expect(orchestrator.state.tasks[0]!.attachments).toEqual(attachments); expect(JSON.stringify(orchestrator.state.tasks)).not.toContain(png);
+      await orchestrator.send('claude', '再說一次', 'read-only');
+      expect(adapter.requests[1]!.images).toBeUndefined(); expect(adapter.requests[1]!.prompt).toContain('attached 1 image(s), not re-sent');
+      await orchestrator.deleteConversation(conversation);
+      expect(await readdir(dir)).toEqual([]);
       await orchestrator.dispose();
     } finally { await rm(dir, { recursive: true, force: true }); }
   });

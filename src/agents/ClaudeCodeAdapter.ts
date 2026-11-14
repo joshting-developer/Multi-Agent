@@ -26,7 +26,8 @@ export class ClaudeCodeAdapter extends CliAdapter {
   }
   protected arguments(request: AgentRequest): string[] {
     if (request.effort && !this.help.includes('--effort')) throw new Error('此 Claude Code 版本不支援推理強度，請更新 CLI。');
-    const interactive = !!request.approvalMode;
+    // 圖片要走 stream-json 輸入，才能用官方的 image 區塊。
+    const interactive = !!request.approvalMode || !!request.images?.length;
     const tools = request.mode === 'workspace-write' ? (interactive ? 'Read,Glob,Grep,Edit,Write,Bash' : 'Read,Glob,Grep,Edit,Write') : 'Read,Glob,Grep';
     const permission = request.mode === 'read-only' ? 'plan' : request.approvalMode === 'full-access' ? 'bypassPermissions' : request.approvalMode === 'auto-review' ? 'auto' : interactive ? 'manual' : 'dontAsk';
     if (request.approvalMode === 'auto-review' && !this.detected?.approvalModes?.includes('auto-review')) throw new Error('此 Claude CLI 不支援代我核准，請更新 CLI。');
@@ -44,10 +45,11 @@ export class ClaudeCodeAdapter extends CliAdapter {
       '--settings', JSON.stringify({ disableAllHooks: true, autoMemoryEnabled: false, permissions: { deny } })];
   }
   protected override inputStream(request: AgentRequest) {
-    if (!request.approvalMode) return undefined;
+    if (!request.approvalMode && !request.images?.length) return undefined;
     return (send: (value: string) => void) => {
       send(JSON.stringify({ type: 'control_request', request_id: 'initialize', request: { subtype: 'initialize' } }) + '\n');
-      send(JSON.stringify({ type: 'user', session_id: '', message: { role: 'user', content: request.prompt }, parent_tool_use_id: null }) + '\n');
+      const content = request.images?.length ? [...request.images.map(image => ({ type: 'image', source: { type: 'base64', media_type: image.mime, data: image.data } })), { type: 'text', text: request.prompt }] : request.prompt;
+      send(JSON.stringify({ type: 'user', session_id: '', message: { role: 'user', content }, parent_tool_use_id: null }) + '\n');
     };
   }
   protected override async handleControl(line: Record<string, unknown>, request: AgentRequest, send: (value: string) => void): Promise<boolean> {

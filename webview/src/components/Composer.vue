@@ -9,8 +9,27 @@ const props = withDefaults(defineProps<{
   busy: boolean; running: boolean; canSend: boolean; initialDraft: string; draftRevision?: number; canWrite?: boolean; provider?: AgentId;
   insert?: { text: string; revision: number }; accounts?: AccountSummary[]; selectedAccounts?: Partial<Record<AgentId, string>>; approvalMode?: ApprovalMode; supportedApprovalModes?: ApprovalMode[]; preferences?: ProviderPreferences; models?: ModelOption[]; modelsLoading?: boolean; sendShortcut?: 'enter' | 'modifier-enter'; defaultMode?: ExecutionMode;
 }>(), { insert: undefined, accounts: () => [], selectedAccounts: () => ({}), approvalMode: 'ask', supportedApprovalModes: () => [...approvalModes], provider: 'codex', draftRevision: 0, canWrite: true, preferences: () => ({ model: '', effort: 'medium' }), models: () => [], modelsLoading: false, sendShortcut: 'enter', defaultMode: 'workspace-write' });
-const emit = defineEmits<{ send: [text: string, mode: ExecutionMode, approvalMode: ApprovalMode]; discuss: [text: string, rounds: number, partner: AgentId, partnerAccountId: string | undefined]; account: [provider: AgentId, accountId: string]; cancel: []; draft: [text: string]; select: [id: AgentId]; preferences: [value: ProviderPreferences]; settings: []; refreshModels: [] }>();
+const emit = defineEmits<{ send: [text: string, mode: ExecutionMode, approvalMode: ApprovalMode, images?: PastedImage[]]; discuss: [text: string, rounds: number, partner: AgentId, partnerAccountId: string | undefined]; account: [provider: AgentId, accountId: string]; cancel: []; draft: [text: string]; select: [id: AgentId]; preferences: [value: ProviderPreferences]; settings: []; refreshModels: [] }>();
 const text = ref(props.initialDraft);
+// 貼上的圖片只在送出前留在輸入框；預覽用 blob URL，送出時才轉成 base64。
+export interface PastedImage { mime: string; data: string; url: string; bytes: number }
+const images = ref<PastedImage[]>([]);
+const imageError = ref('');
+const imageLimit = { count: 4, bytes: 5 * 1024 * 1024 };
+async function onPaste(event: ClipboardEvent) {
+  const files = [...(event.clipboardData?.items ?? [])].filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter((file): file is File => !!file);
+  if (!files.length) return;
+  event.preventDefault(); imageError.value = '';
+  for (const file of files) {
+    if (images.value.length >= imageLimit.count) { imageError.value = `最多 ${imageLimit.count} 張圖片`; break; }
+    if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) { imageError.value = '只支援 PNG、JPEG、GIF、WebP'; continue; }
+    if (file.size > imageLimit.bytes) { imageError.value = '單張圖片不能超過 5 MB'; continue; }
+    const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',', 2)[1] ?? ''); reader.onerror = () => reject(reader.error); reader.readAsDataURL(file); });
+    images.value.push({ mime: file.type, data, url: URL.createObjectURL(file), bytes: file.size });
+  }
+}
+function removeImage(index: number) { const [image] = images.value.splice(index, 1); if (image) URL.revokeObjectURL(image.url); }
+function clearImages() { for (const image of images.value) URL.revokeObjectURL(image.url); images.value = []; imageError.value = ''; }
 const input = ref<HTMLTextAreaElement>();
 const stop = ref<HTMLButtonElement>();
 // 按鈕被移除（延長、Stop 消失）時焦點會掉到 body：執行中移到 Stop，結束後回到輸入框。
@@ -36,9 +55,9 @@ const partnerAccounts = computed(() => props.accounts.filter(account => account.
 const partnerAccount = ref<string>();
 watch(() => [partner.value, props.selectedAccounts[partner.value]], () => { partnerAccount.value = props.selectedAccounts[partner.value]; }, { immediate: true });
 const accountLabel = (account: AccountSummary) => account.loggedIn === false ? `${account.name}（未登入）` : account.name;
-const valid = computed(() => props.canSend && props.supportedApprovalModes.includes(approval.value) && !props.busy && text.value.trim().length > 0 && text.value.length <= 32000);
+const valid = computed(() => props.canSend && props.supportedApprovalModes.includes(approval.value) && !props.busy && (text.value.trim().length > 0 || (!discussion.value && images.value.length > 0)) && text.value.length <= 32000 && (!discussion.value || text.value.trim().length > 0));
 watch(text, value => emit('draft', value));
-watch(() => props.draftRevision, () => { text.value = ''; });
+watch(() => props.draftRevision, () => { text.value = ''; clearImages(); });
 // 討論結論只帶入輸入框，由使用者自己選模式後送出，不自動執行。
 watch(() => props.insert?.revision, async () => {
   if (!props.insert) return;
@@ -53,6 +72,7 @@ watch(() => props.defaultMode, value => { if (!modeChosen.value) mode.value = va
 function submit() {
   if (!valid.value) return;
   if (discussion.value) emit('discuss', text.value.trim(), rounds.value, partner.value, partnerAccounts.value.length > 1 ? partnerAccount.value : undefined);
+  else if (images.value.length) emit('send', text.value.trim(), mode.value, approval.value, images.value);
   else emit('send', text.value.trim(), mode.value, approval.value);
 }
 function onKey(event: KeyboardEvent) {
@@ -64,7 +84,9 @@ function onKey(event: KeyboardEvent) {
 <template>
   <form class="composer" @submit.prevent="submit">
     <label for="message" class="sr-only">訊息</label>
-    <textarea id="message" ref="input" v-model="text" rows="3" maxlength="32000" placeholder="想做什麼都可以" :disabled="busy" @keydown="onKey"></textarea>
+    <div v-if="images.length" class="image-strip"><figure v-for="(image, index) in images" :key="image.url" class="image-chip"><img :src="image.url" :alt="`貼上的圖片 ${index + 1}`" /><button type="button" class="image-remove" :aria-label="`移除圖片 ${index + 1}`" :disabled="busy" @click="removeImage(index)">×</button></figure></div>
+    <p v-if="imageError" class="error" role="alert">{{ imageError }}</p>
+    <textarea id="message" ref="input" v-model="text" rows="3" maxlength="32000" placeholder="想做什麼都可以" :disabled="busy" @keydown="onKey" @paste="onPaste"></textarea>
     <div class="composer-footer">
       <div class="composer-options">
         <ProviderPicker :selected="provider" :busy="busy" @select="$emit('select', $event)" />

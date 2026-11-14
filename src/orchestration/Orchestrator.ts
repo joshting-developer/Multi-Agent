@@ -6,12 +6,13 @@ import { ProcessError } from '../execution/ProcessManager';
 import { ProviderFailure, SessionUnavailable } from '../agents/CliAdapter';
 import { buildContext } from './ContextBuilder';
 import { redact } from '../execution/Redact';
+import type { AttachmentStore, StoredAttachment } from '../storage/AttachmentStore';
 import type { AgentEvent } from '../agents/AgentAdapter';
 import { SessionRepository } from '../storage/SessionRepository';
 import type { ApprovalMode, ProviderPreferences } from '../bridge/settings';
 
 export interface ParticipantRef { id: string; role: ParticipantRole; substitute?: boolean }
-export interface SendOptions { participant?: ParticipantRef; discussion?: { id: string; roundNo?: number }; outbound?: string }
+export interface SendOptions { participant?: ParticipantRef; discussion?: { id: string; roundNo?: number }; outbound?: string; attachments?: StoredAttachment[] }
 /** 單次執行最多保留的稽核事件數，避免長任務的工具事件撐大歷史。 */
 const maxEvents = 200;
 /** 單次執行最多保留的工具步驟數，以及 IN／OUT 的保存長度。 */
@@ -29,11 +30,14 @@ export class Orchestrator {
   readonly state: Snapshot;
   /** 執行中官方回報的額度狀態，交給帳號管理記錄（依執行時的帳號）。 */
   onUsage?: (provider: AgentId, accountId: string | undefined, usage: UsageSnapshot) => void;
+  /** 使用者貼上圖片的本機儲存；未設定時不接受附件。 */
+  attachmentStore?: AttachmentStore;
   private active?: { task: Task; controller: AbortController; finished: Promise<void>; conversationId: string };
   /** 有執行中或排隊任務的對話，切走後仍留在記憶體並持續寫回原對話。 */
   private readonly live = new Map<string, Task[]>();
   private executor: Promise<void> = Promise.resolve();
   private listed: ConversationSummary[] = [];
+  private readonly taskConversations = new Map<string, string>();
   private navigating = false;
   private readonly listeners = new Set<() => void>();
   private readonly approvalAnswers = new Map<string, (allow: boolean) => void>();
@@ -105,12 +109,13 @@ export class Orchestrator {
     if (mode === 'workspace-write' && !status.capabilities.workspaceWrite) throw new Error('此 CLI 版本不支援工作區寫入。');
   }
   /** 每次只執行一個 Participant；不會自動接續另一方，下一輪由呼叫端（Coordinator）決定。 */
-  async send(provider: AgentId, text: string, mode: ExecutionMode, preferences?: ProviderPreferences, approvalMode: ApprovalMode = 'ask', { participant, discussion, outbound }: SendOptions = {}): Promise<Task> {
+  async send(provider: AgentId, text: string, mode: ExecutionMode, preferences?: ProviderPreferences, approvalMode: ApprovalMode = 'ask', { participant, discussion, outbound, attachments }: SendOptions = {}): Promise<Task> {
     this.assertCanSend(provider, mode, discussion?.id);
     if (discussion && (mode !== 'read-only' || !participant)) throw new Error('討論輪次必須為唯讀且指定 Participant。');
     if (participant && this.state.tasks.some(item => item.participantId === participant.id && (item.provider !== provider || item.participantRole !== participant.role))) throw new Error('Participant 已綁定其他 Provider 或角色。');
     const task: Task = { id: randomUUID(), provider, mode, prompt: text, output: '', status: 'running', startedAt: Date.now(), activity: '啟動官方 CLI…', approvalMode, ...preferences, ...(participant && { participantId: participant.id, participantRole: participant.role, ...(participant.substitute && { substitute: true }) }), ...(discussion && { discussionId: discussion.id, ...(discussion.roundNo && { roundNo: discussion.roundNo }) }) };
     if (outbound) this.audit(task, 'data-outbound', outbound);
+    if (attachments?.length) task.attachments = attachments;
     // 任務屬於送出當下的對話；之後切換檢視也繼續寫回這個對話。同步排入佇列，順序與送出順序相同。
     const conversationId = this.repository.conversationId; const tasks = this.state.tasks;
     if (this.active || this.pending()) { task.status = 'queued'; task.activity = '排隊中'; }
@@ -123,6 +128,7 @@ export class Orchestrator {
   }
   private pending(): number { return [...this.live.values()].reduce((count, tasks) => count + tasks.filter(task => task.status === 'queued' || task.status === 'running').length, 0); }
   private async start(task: Task, conversationId: string, tasks: Task[]): Promise<void> {
+    this.taskConversations.set(task.id, conversationId);
     if (task.status === 'cancelled') return;
     const controller = new AbortController();
     task.status = 'running'; task.startedAt = Date.now(); task.activity = '啟動官方 CLI…';
@@ -169,7 +175,7 @@ export class Orchestrator {
       for (const step of task.steps ?? []) if (step.kind === 'tool' && step.status === 'running') step.status = task.status === 'completed' ? 'done' : 'stopped';
       task.endedAt = Date.now(); task.activity = undefined;
       for (const resolve of this.approvalAnswers.values()) resolve(false);
-      this.active = undefined; this.state.activeTaskId = undefined; this.state.activeConversationId = undefined;
+      this.active = undefined; this.state.activeTaskId = undefined; this.state.activeConversationId = undefined; this.taskConversations.delete(task.id);
       this.changed(); await this.flush().catch(this.storageError);
     }
   }
@@ -181,7 +187,10 @@ export class Orchestrator {
     if (resumeSessionId) task.contextMode = 'native'; else if (contextIds.length) task.contextMode = 'rebuilt'; else delete task.contextMode;
     const prompt = task.participantRole ? `${roleInstructions[task.participantRole]}\n\n${message}` : message;
     const env = this.accountEnv(task.provider, task.accountId);
-    for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, persist, resumeSessionId, ...(env && { env }), approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
+    const conversationId = this.taskConversations.get(task.id) ?? this.repository.conversationId;
+    if (task.attachments?.length && !this.attachmentStore) throw new Error('目前無法讀取圖片附件。');
+    const images = task.attachments?.length ? await Promise.all(task.attachments.map(async item => ({ mime: item.mime, data: await this.attachmentStore!.read(conversationId, item.id) }))) : undefined;
+    for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, persist, resumeSessionId, ...(env && { env }), ...(images && { images }), approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
       if (event.type === 'text-delta') {
         if (task.output.length + event.text.length > 512 * 1024) throw new Error('回應超過 512 KB 上限，已停止任務。');
         task.output += event.text;
@@ -289,7 +298,7 @@ export class Orchestrator {
     if (this.live.has(id)) throw new Error('此對話仍有執行中或排隊的任務，請先停止。');
     await this.navigate(async () => {
       if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = undefined; }
-      await this.repository.delete(id);
+      await this.repository.delete(id); await this.attachmentStore?.removeConversation(id).catch(() => undefined);
       if (id === this.repository.conversationId) {
         const next = this.repository.list()[0];
         this.state.tasks = next ? this.repository.select(next.id) : [];
@@ -307,7 +316,9 @@ export class Orchestrator {
     if (this.live.size || this.state.discussionId) throw new Error('請先停止目前任務或討論，再清除專案紀錄。');
     await this.navigate(async () => {
       if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = undefined; }
+      const ids = this.repository.list().map(item => item.id);
       await this.repository.clearProject(); this.repository.create();
+      await Promise.all(ids.map(id => this.attachmentStore?.removeConversation(id).catch(() => undefined)));
       this.state.tasks = []; this.state.conversationId = this.repository.conversationId; this.listed = this.repository.list();
     });
   }

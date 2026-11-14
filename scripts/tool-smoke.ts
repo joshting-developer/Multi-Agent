@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { removeSmokeSessions } from './smoke-cleanup';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProcessManager } from '../src/execution/ProcessManager';
@@ -13,7 +14,8 @@ import type { AgentId } from '../src/bridge/messages';
 
 // Synthetic file only. Never send this project's code or conversation during smoke tests.
 const provider = (process.env.TEST_PROVIDER ?? 'codex') as AgentId;
-const directory = await mkdtemp(join(tmpdir(), 'multi-agent-tools-'));
+const directory = await realpath(await mkdtemp(join(tmpdir(), 'multi-agent-tools-')));
+const startedAt = Date.now();
 const processes = new ProcessManager();
 try {
   await writeFile(join(directory, 'notes.txt'), 'synthetic value: 4217\n');
@@ -32,4 +34,4 @@ try {
   assert.ok(task.output.includes('4217'));
   await orchestrator.dispose();
   console.log(`${provider}: tool timeline smoke PASS`);
-} finally { await rm(directory, { recursive: true, force: true }); }
+} finally { await removeSmokeSessions(directory, startedAt); await rm(directory, { recursive: true, force: true }); }

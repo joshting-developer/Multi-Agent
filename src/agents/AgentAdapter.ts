@@ -9,6 +9,8 @@ export interface AgentRequest {
   persist?: boolean; resumeSessionId?: string;
   /** 指定帳號時帶入該帳號的官方 CLI 設定目錄（CLAUDE_CONFIG_DIR／CODEX_HOME），未指定用 CLI 預設帳號。 */
   env?: Record<string, string>;
+  /** 使用者貼上的圖片內容（base64），以各 Provider 官方的多模態輸入格式傳送。 */
+  images?: Array<{ mime: string; data: string }>;
   approve?: (request: Omit<ApprovalRequest, 'id' | 'taskId' | 'provider'>) => Promise<boolean>;
 }
 export type AgentEvent =

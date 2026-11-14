@@ -40,3 +40,4 @@ Git push、部署、破壞性操作要求人工授權的意圖會傳給 Agent；
 - 備份是整個本機 SQLite 檔（所有專案）的複本，只寫到使用者選的本機位置；不提供雲端同步。
 - 還原會先確認檔案是 Multi-Agent 的歷史資料庫且版本不比目前新，原本的資料庫另存為 `conversations.sqlite.before-restore-<時間>` 後才取代；有執行中、排隊中的任務或討論時不能還原。
 - 專案資料：可停止保存目前專案的對話，之後的新訊息只留在本次視窗的記憶體，也不保留官方原生 Session；已保存的紀錄不會自動刪除。「刪除此專案所有紀錄」只刪目前 canonical 專案的對話（連帶執行、訊息、討論與結論）與稽核紀錄，其他專案、工作區授權與帳號不受影響；官方 CLI 自己保存的原生 Session 不在 Extension 管理範圍內。
+- 圖片附件：只接受從輸入框貼上的 PNG／JPEG／GIF／WebP，依檔頭判斷實際格式；單張 5 MB、每則 4 張、合計 10 MB。圖片存在 Extension 儲存區 `attachments/<對話>/<id>`（0600），檔名由 Extension 產生；Agent 收到的是圖片內容（Claude base64 image 區塊、Codex data URL），不是本機路徑。歷史只記錄附件的 ID、格式與大小；續聊重建上下文時不重送舊圖片。刪除對話與清除專案時一併刪除附件。Webview CSP 只放行 `blob:` 圖片供送出前預覽。

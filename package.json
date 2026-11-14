@@ -200,6 +200,7 @@
     "test:discussion": "node --import tsx scripts/discussion-smoke.ts",
     "test:tools": "node --import tsx scripts/tool-smoke.ts",
     "test:resume": "node --import tsx scripts/resume-smoke.ts",
+    "test:images": "node --import tsx scripts/image-smoke.ts",
     "tracker": "node scripts/tasktracker.mjs"
   },
   "dependencies": {

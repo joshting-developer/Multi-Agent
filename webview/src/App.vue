@@ -60,8 +60,8 @@ function renameConversation(id: string, title: string) { post({ version: 1, type
 function deleteConversation(id: string) { post({ version: 1, type: 'delete-conversation', requestId: crypto.randomUUID(), conversationId: id }); }
 function rejectAnswer(taskId: string, rejected: boolean) { post({ version: 1, type: 'reject-answer', requestId: crypto.randomUUID(), taskId, rejected }); }
 function answerApproval(id: string, allow: boolean) { post({ version: 1, type: 'answer-approval', requestId: crypto.randomUUID(), approvalId: id, allow }); }
-function submit(text: string, mode: ExecutionMode, approvalMode: import('../../src/bridge/preferences').ApprovalMode) {
-  send({ version: 1, type: 'send-message', requestId: crypto.randomUUID(), provider: selected.value, text, mode, approvalMode, preferences: { ...preferences.value } });
+function submit(text: string, mode: ExecutionMode, approvalMode: import('../../src/bridge/preferences').ApprovalMode, images: Array<{ mime: string; data: string }> = []) {
+  send({ version: 1, type: 'send-message', requestId: crypto.randomUUID(), provider: selected.value, text, mode, approvalMode, preferences: { ...preferences.value }, ...(images.length && { attachments: images.map(image => ({ mime: image.mime, data: image.data })) }) });
 }
 function discuss(text: string, rounds: number, partner: AgentId, partnerAccountId?: string) {
   send({ version: 1, type: 'start-discussion', requestId: crypto.randomUUID(), provider: selected.value, partner, text, rounds, preferences: { ...preferences.value }, ...(partnerAccountId && { partnerAccountId }) });

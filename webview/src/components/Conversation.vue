@@ -74,7 +74,7 @@ const statusLabel = (task: Task) => ({ queued: '排隊中', running: '執行中'
     <button v-if="hasEarlier" type="button" class="text-button load-earlier" @click="earlier">載入更早的訊息</button>
     <p v-if="missing" class="notice" role="alert">找不到原始訊息，可能已刪除。</p>
     <article v-for="task in tasks" :key="task.id" :class="['turn', { focused: focus?.runId === task.id && !missing }]" :data-run="task.id">
-      <div v-if="!task.discussionId || task.roundNo === 1" class="message user-message"><p class="prompt">{{ task.prompt }}</p></div>
+      <div v-if="!task.discussionId || task.roundNo === 1" class="message user-message"><p class="prompt">{{ task.prompt }}</p><p v-if="task.attachments?.length" class="attachment-list"><span v-for="(item, index) in task.attachments" :key="item.id" class="attachment-chip">圖片 {{ index + 1 }} · {{ item.bytes >= 1048576 ? `${(item.bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(item.bytes / 1024))} KB` }}</span></p></div>
       <div :class="['message', 'assistant-message', { rejected: task.rejected }]">
         <div class="message-label">
           <strong>{{ speaker(task) }}</strong><span v-if="focus?.runId === task.id" class="task-status">{{ date(task.startedAt) }}</span><span v-if="task.status !== 'completed'" :class="['task-status', task.status]">{{ statusLabel(task) }}<template v-if="task.status === 'running'"> · {{ elapsed(task) }}s</template></span><span v-else-if="task.rejected" class="task-status">已不採用</span><span v-if="task.persisted && task.contextMode === 'rebuilt'" class="task-status">上下文已重建</span>

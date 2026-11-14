@@ -208,7 +208,10 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
               await this.orchestrator.auditWorkspace('full-access-granted', message.provider);
             } finally { this.approvalPending = false; }
           }
-          const execution = this.orchestrator.send(message.provider, message.text, message.mode, preferences, approvalMode);
+          if (!message.text && !message.attachments?.length) throw new Error('請輸入訊息或貼上圖片。');
+          if (message.attachments?.length && !this.orchestrator.attachmentStore) throw new Error('目前無法保存圖片。');
+          const attachments = message.attachments?.length ? await this.orchestrator.attachmentStore!.save(this.orchestrator.state.conversationId!, message.attachments) : undefined;
+          const execution = this.orchestrator.send(message.provider, message.text || '請看附加的圖片。', message.mode, preferences, approvalMode, { attachments });
           // 任務已排入原對話；之後切換檢視或背景事件都不再影響這個請求的草稿。
           this.snapshot(); this.post({ version: 1, type: 'request-accepted', requestId: message.requestId }, source);
           await execution;

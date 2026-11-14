@@ -81,7 +81,7 @@ export class CodexAppServerAdapter extends CodexAdapter {
         } else if (message.id === 2 && !message.method) {
           threadId = String(record(record(message.result).thread).id ?? '');
           if (!threadId) throw new Error('Codex 未建立 Session。');
-          rpc.request(3, 'turn/start', { threadId, model: request.model, effort: request.effort, input: [{ type: 'text', text: request.prompt, text_elements: [] }] });
+          rpc.request(3, 'turn/start', { threadId, model: request.model, effort: request.effort, input: [...(request.images ?? []).map(image => ({ type: 'image', url: `data:${image.mime};base64,${image.data}` })), { type: 'text', text: request.prompt, text_elements: [] }] });
         }
         const params = record(message.params);
         if (message.method === 'item/agentMessage/delta' && typeof params.delta === 'string') {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, realpath, rm, stat } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { removeSmokeSessions } from './smoke-cleanup';
 import { join } from 'node:path';
 import { ProcessManager } from '../src/execution/ProcessManager';
 import { AgentRegistry } from '../src/agents/AgentRegistry';
@@ -18,18 +19,6 @@ const directory = await realpath(await mkdtemp(join(tmpdir(), 'multi-agent-resum
 const codeword = `RESUME-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 const processes = new ProcessManager();
 const startedAt = Date.now();
-/** 測試建立的原生 Session 只屬於這個臨時工作區，結束後刪除，不動使用者其他紀錄。 */
-async function cleanup() {
-  await rm(join(homedir(), '.claude', 'projects', directory.replace(/[^A-Za-z0-9]/g, '-')), { recursive: true, force: true });
-  const walk = async (dir: string): Promise<void> => {
-    for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) await walk(path);
-      else if ((await stat(path)).mtimeMs >= startedAt && (await readFile(path, 'utf8')).includes(directory)) await rm(path);
-    }
-  };
-  await walk(join(homedir(), '.codex', 'sessions'));
-}
 try {
   const sent: AgentRequest[] = [];
   const inner = provider === 'claude' ? new ClaudeCodeAdapter(processes, () => '', directory) : new CodexAppServerAdapter(processes, () => '', directory);
@@ -48,4 +37,4 @@ try {
   assert.ok(second.output.includes(codeword), 'The native session should remember the codeword.');
   await orchestrator.dispose();
   console.log(`${provider}: native resume smoke PASS`);
-} finally { await cleanup(); await rm(directory, { recursive: true, force: true }); }
+} finally { await removeSmokeSessions(directory, startedAt); await rm(directory, { recursive: true, force: true }); }
