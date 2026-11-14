@@ -57,13 +57,21 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     terminal.show(); terminal.sendText(command.map(part => /^[\w./:@=-]+$/.test(part) ? part : `'${part.replace(/'/g, `'\\''`)}'`).join(' '));
     this.watchLogin(id, action, terminal);
   }
-  /** 登入／登出在終端機完成後自動重新檢查這個帳號：每 4 秒一次直到狀態改變，最多 5 分鐘；關閉終端機時再查一次。 */
+  /**
+   * 登入／登出在終端機完成後自動重新檢查這個帳號：每 4 秒一次直到狀態改變，最多 5 分鐘；關閉終端機時再查一次。
+   * 狀態變成目標時順便關掉這個終端機；開之前就已是目標狀態、逾時或檢查失敗時保留，讓使用者看得到輸出。
+   */
   private watchLogin(id: string, action: 'login' | 'logout', terminal: vscode.Terminal): void {
     const accounts = this.accounts!; const deadline = Date.now() + 5 * 60_000; let running = false;
+    const target = action === 'login'; const before = accounts.loggedIn(id);
     const stop = () => { clearInterval(timer); closed.dispose(); };
     const check = async () => {
       if (running) return; running = true;
-      try { await accounts.refresh([id]); if (accounts.loggedIn(id) === (action === 'login') || Date.now() > deadline) stop(); }
+      try {
+        await accounts.refresh([id]);
+        if (accounts.loggedIn(id) === target) { stop(); if (before !== target) terminal.dispose(); }
+        else if (Date.now() > deadline) stop();
+      }
       catch { stop(); } finally { running = false; }
     };
     const timer = setInterval(() => void check(), 4000);

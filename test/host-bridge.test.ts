@@ -73,4 +73,28 @@ describe('Webview to native agent execution', () => {
       expect(createdPanels.at(-1)?.webview.html).toContain('data-surface="settings"');
     } finally { controller.dispose(); await orchestrator.dispose(); }
   });
+  it('closes the login terminal once the account becomes logged in, but not one that already was', async () => {
+    const orchestrator = new Orchestrator(new AgentRegistry([]), new SessionRepository({ get: () => undefined, update: async () => undefined }, '/workspace'), '/workspace', () => true, () => 10000);
+    const status = new Map<string, boolean>([['old', true]]);
+    const accounts = {
+      terminal: (id: string) => ({ name: id, command: ['claude', 'auth', 'login'], env: {} }),
+      refresh: async (ids: string[]) => { for (const id of ids) status.set(id, true); },
+      loggedIn: (id: string) => status.get(id),
+      subscribe: () => () => undefined
+    };
+    const controller = new ChatWebviewProvider(vscode.Uri.file('/extension'), orchestrator, undefined, accounts as never);
+    let receive: ((message: unknown) => void) | undefined;
+    controller.resolveWebviewView({
+      webview: { options: {}, cspSource: 'vscode-webview:', html: '', asWebviewUri: (uri: vscode.Uri) => uri, postMessage: vi.fn().mockResolvedValue(true), onDidReceiveMessage: (handler: (message: unknown) => void) => { receive = handler; return { dispose() {} }; } },
+      onDidDispose: () => ({ dispose() {} })
+    } as unknown as vscode.WebviewView);
+    try {
+      receive!({ version: 1, requestId: 'login-new', type: 'account-terminal', accountId: 'new', action: 'login' });
+      receive!({ version: 1, requestId: 'login-old', type: 'account-terminal', accountId: 'old', action: 'login' });
+      await vi.waitFor(() => expect(nativeWindow.createTerminal).toHaveBeenCalledTimes(2));
+      const [fresh, existing] = nativeWindow.createTerminal.mock.results.map(result => result.value as { dispose: ReturnType<typeof vi.fn> });
+      await vi.waitFor(() => expect(fresh!.dispose).toHaveBeenCalled());
+      expect(existing!.dispose).not.toHaveBeenCalled();
+    } finally { controller.dispose(); await orchestrator.dispose(); }
+  });
 });
