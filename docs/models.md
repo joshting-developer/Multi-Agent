@@ -14,7 +14,7 @@ Codex 執行透過 App Server 的 `model` 與 `effort`；Claude 使用 `--model`
 | 來源 | 可以取得什麼 | 與本版的差異 |
 | --- | --- | --- |
 | [OpenAI Models API](https://developers.openai.com/api/reference/resources/models/methods/list) | `/v1/models` 的模型與基本資訊 | 一般回應不是 Codex 的模型／effort 選單完整資料 |
-| [Codex App Server](https://learn.chatgpt.com/docs/app-server#models) | `model/list` 的模型、支援強度、預設等資料 | 本版使用此官方 API，沿用既有 CLI 登入 |
+| [Codex App Server](https://learn.chatgpt.com/docs/app-server#models) | `model/list` 的模型、支援強度、預設等資料 | 本版使用此官方 API，沿用選定 Codex 帳號的登入 |
 | [Sign in with ChatGPT](https://developers.openai.com/cookbook/articles/sign-in-with-chatgpt) | 官方 SDK `listModels()` 可探索已授權連線的模型 | 可做不依賴 CLI 的直接整合，但需本套件自己的官方授權流程，不能挪用 CLI token |
 | [Claude Models API](https://platform.claude.com/docs/en/api/models/list) | `/v1/models`，含 `capabilities.effort` | 需要相應 API 授權，不能把 CLI 訂閱登入直接當作 API Key |
 

@@ -7,7 +7,7 @@ export interface AgentRequest {
   approvalMode?: ApprovalMode;
   /** persist：保留原生 Session 供下次接續；resumeSessionId：接續這個原生 Session。討論一律不保留。 */
   persist?: boolean; resumeSessionId?: string;
-  /** 指定帳號時帶入該帳號的官方 CLI 設定目錄（CLAUDE_CONFIG_DIR／CODEX_HOME），未指定用 CLI 預設帳號。 */
+  /** 帶入帳號自己的官方 CLI 設定目錄（CLAUDE_CONFIG_DIR／CODEX_HOME）；Extension 一律指定帳號，不用 CLI 預設目錄。 */
   env?: Record<string, string>;
   /** 使用者貼上的圖片內容（base64），以各 Provider 官方的多模態輸入格式傳送。 */
   images?: Array<{ mime: string; data: string }>;

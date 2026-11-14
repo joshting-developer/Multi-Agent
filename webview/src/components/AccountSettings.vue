@@ -47,7 +47,7 @@ function rename(id: string) {
           <button v-if="selected[provider] !== account.id" type="button" class="text-button" :disabled="!account.loggedIn" @click="emit('select', provider, account.id)">設為使用中</button>
           <button v-if="!(provider === 'claude' && account.method === 'api-key')" type="button" class="text-button" @click="emit('terminal', account.id, account.loggedIn ? 'logout' : 'login')">{{ account.loggedIn ? '登出' : '登入' }}</button>
           <button type="button" class="text-button" @click="editing = account.id; title = account.name">重新命名</button>
-          <button v-if="!account.builtIn" type="button" class="text-button" @click="emit('remove', account.id)">移除</button>
+          <button type="button" class="text-button" @click="emit('remove', account.id)">移除</button>
         </div>
       </li>
     </ul>

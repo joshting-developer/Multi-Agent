@@ -63,7 +63,7 @@ export interface ConversationSummary { id: string; title: string; createdAt: num
 export interface UsageWindow { label: string; usedPercent: number; resetsAt?: number }
 /** source：official 為即時查詢；last-run 為最近一次實際執行時官方回報的值。 */
 export interface UsageSnapshot { windows: UsageWindow[]; updatedAt: number; source: 'official' | 'last-run'; blocked?: boolean }
-export interface AccountSummary { id: string; provider: AgentId; name: string; builtIn: boolean; method?: 'cli' | 'api-key'; loggedIn?: boolean; account?: ProviderStatus['account']; usage?: UsageSnapshot }
+export interface AccountSummary { id: string; provider: AgentId; name: string; method?: 'cli' | 'api-key'; loggedIn?: boolean; account?: ProviderStatus['account']; usage?: UsageSnapshot }
 export interface ApprovalRequest { id: string; taskId: string; provider: AgentId; title: string; detail: string; conversationId?: string }
 const base = { version: z.literal(1), requestId: z.string().min(1).max(100) };
 export const webviewMessageSchema = z.discriminatedUnion('type', [

@@ -45,7 +45,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Extens
     () => Math.min(3600, Math.max(10, config().get<number>('timeoutSeconds', 300))) * 1000,
     () => { void vscode.window.showErrorMessage('Multi-Agent 無法儲存本機聊天紀錄。請檢查 VS Code storage 的可用空間與權限。'); },
     (provider, accountId) => accounts.env(provider, accountId));
-  const settings = new SettingsService(new CodexModelCatalog(processes, () => config().get<string>('codexPath', ''), context.extensionPath));
+  // 模型清單也用選定的 Codex 帳號讀取，不碰官方 CLI 的預設目錄；換帳號後重新讀取。
+  const settings = new SettingsService(new CodexModelCatalog(processes, () => config().get<string>('codexPath', ''), context.extensionPath, () => accounts.env('codex', accounts.resolve('codex'))));
+  let modelAccount = accounts.selected().codex;
+  context.subscriptions.push({ dispose: accounts.subscribe(() => { if (accounts.selected().codex !== modelAccount) { modelAccount = accounts.selected().codex; void settings.refreshModels(); } }) });
   orchestrator.onUsage = (provider, accountId, usage) => accounts.recordUsage(provider, accountId, usage);
   orchestrator.attachmentStore = new AttachmentStore(join(context.globalStorageUri.fsPath, 'attachments'));
   const controller = new ChatWebviewProvider(context.extensionUri, orchestrator, settings, accounts);

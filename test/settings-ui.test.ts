@@ -52,19 +52,19 @@ describe('Explicit models, accounts and history controls', () => {
   it('lists named accounts per provider with identity, login state and per-account actions', async () => {
     const { default: Accounts } = await import('../webview/src/components/AccountSettings.vue');
     const accounts = [
-      { id: 'default-codex', provider: 'codex' as const, name: '預設帳號', builtIn: true, loggedIn: true, account: { type: 'chatgpt', email: 'user@example.test', plan: 'pro' } },
-      { id: 'work', provider: 'claude' as const, name: '公司 Claude', builtIn: false, loggedIn: false },
-      { id: 'default-claude', provider: 'claude' as const, name: '預設帳號', builtIn: true, loggedIn: true, account: { type: 'claude.ai', email: 'me@example.test' } }
+      { id: 'main-codex', provider: 'codex' as const, name: '主帳號', loggedIn: true, account: { type: 'chatgpt', email: 'user@example.test', plan: 'pro' } },
+      { id: 'work', provider: 'claude' as const, name: '公司 Claude', loggedIn: false },
+      { id: 'me', provider: 'claude' as const, name: '個人', loggedIn: true, account: { type: 'claude.ai', email: 'me@example.test' } }
     ];
-    const wrapper = mount(Accounts, { props: { checking: false, accounts, selected: { codex: 'default-codex', claude: 'default-claude' } } });
+    const wrapper = mount(Accounts, { props: { checking: false, accounts, selected: { codex: 'main-codex', claude: 'me' } } });
     expect(wrapper.text()).toContain('user@example.test · pro'); expect(wrapper.text()).toContain('公司 Claude'); expect(wrapper.text()).toContain('未登入');
     const work = wrapper.findAll('.account-row').find(row => row.text().includes('公司 Claude'))!;
     expect(work.findAll('button').map(button => button.text())).toEqual(['設為使用中', '登入', '重新命名', '移除']);
     expect(work.get('button').attributes('disabled')).toBeDefined();
     await work.findAll('button')[1]!.trigger('click'); await work.findAll('button')[3]!.trigger('click');
     expect(wrapper.emitted('terminal')).toEqual([['work', 'login']]); expect(wrapper.emitted('remove')).toEqual([['work']]);
-    const builtIn = wrapper.findAll('.account-row').find(row => row.text().includes('me@example.test'))!;
-    expect(builtIn.text()).toContain('使用中'); expect(builtIn.findAll('button').map(button => button.text())).toEqual(['登出', '重新命名']);
+    const personal = wrapper.findAll('.account-row').find(row => row.text().includes('me@example.test'))!;
+    expect(personal.text()).toContain('使用中'); expect(personal.findAll('button').map(button => button.text())).toEqual(['登出', '重新命名', '移除']);
     // 不用先取名：直接新增並登入，名稱在登入後由帳戶帶入。
     expect(wrapper.find('.account-add input').exists()).toBe(false);
     await wrapper.findAll('.account-add')[1]!.trigger('submit');
@@ -77,15 +77,15 @@ describe('Explicit models, accounts and history controls', () => {
     await codexAdd.get('input[type="password"]').setValue(' sk-test '); await codexAdd.trigger('submit');
     expect(wrapper.emitted('add')![1]).toEqual(['codex', 'sk-test']);
     expect((codexAdd.get('input[type="password"]').element as HTMLInputElement).value).toBe('');
-    await wrapper.setProps({ accounts: [...accounts, { id: 'key', provider: 'claude' as const, name: 'Claude API', builtIn: false, method: 'api-key' as const, loggedIn: true }] });
+    await wrapper.setProps({ accounts: [...accounts, { id: 'key', provider: 'claude' as const, name: 'Claude API', method: 'api-key' as const, loggedIn: true }] });
     const keyRow = wrapper.findAll('.account-row').find(row => row.text().includes('Claude API'))!;
-    await wrapper.setProps({ accounts: [...accounts, { id: 'twin', provider: 'codex' as const, name: '第二個', builtIn: false, loggedIn: true, account: { type: 'chatgpt', email: 'user@example.test' } }] });
-    const rows = wrapper.findAll('.account-row').map(row => row.text());
-    expect(rows.find(text => text.startsWith('第二個'))).toContain('與「預設帳號」是同一個帳戶'); expect(rows.find(text => text.startsWith('預設帳號') && text.includes('user@'))).toContain('與「第二個」是同一個帳戶');
-    expect(wrapper.findAll('.account-row').find(row => row.text().includes('公司 Claude'))!.text()).not.toContain('同一個帳戶');
     expect(keyRow.text()).toContain('API Key'); expect(keyRow.findAll('button').map(button => button.text())).toEqual(['設為使用中', '重新命名', '移除']);
-    await builtIn.findAll('button')[1]!.trigger('click'); await wrapper.get('.account-rename input').setValue('私人'); await wrapper.get('.account-rename').trigger('submit');
-    expect(wrapper.emitted('rename')).toEqual([['default-claude', '私人']]);
+    await wrapper.setProps({ accounts: [...accounts, { id: 'twin', provider: 'codex' as const, name: '第二個', loggedIn: true, account: { type: 'chatgpt', email: 'user@example.test' } }] });
+    const rows = wrapper.findAll('.account-row').map(row => row.text());
+    expect(rows.find(text => text.startsWith('第二個'))).toContain('與「主帳號」是同一個帳戶'); expect(rows.find(text => text.startsWith('主帳號'))).toContain('與「第二個」是同一個帳戶');
+    expect(wrapper.findAll('.account-row').find(row => row.text().includes('公司 Claude'))!.text()).not.toContain('同一個帳戶');
+    await personal.findAll('button')[1]!.trigger('click'); await wrapper.get('.account-rename input').setValue('私人'); await wrapper.get('.account-rename').trigger('submit');
+    expect(wrapper.emitted('rename')).toEqual([['me', '私人']]);
     await wrapper.findAll('button').find(button => button.text().includes('重新整理'))!.trigger('click'); expect(wrapper.emitted('refresh')).toHaveLength(1); wrapper.unmount();
   });
   it('searches and opens saved conversations through the history panel', async () => {

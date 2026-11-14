@@ -10,17 +10,19 @@ const responseSchema = z.object({
   })), nextCursor: z.string().nullish()
 });
 export class CodexModelCatalog {
-  constructor(private readonly processes: ProcessManager, private readonly path: () => string, private readonly cwd: string) {}
+  /** env：選定帳號的 CODEX_HOME；沒給時用 CLI 預設（只給 smoke 腳本用）。 */
+  constructor(private readonly processes: ProcessManager, private readonly path: () => string, private readonly cwd: string, private readonly env?: () => Promise<Record<string, string>>) {}
   async list(): Promise<ModelOption[]> {
     const command = await resolveExecutable('codex', this.path());
     if (!command) throw new Error('找不到 Codex CLI。可設定執行檔路徑後重新載入模型。');
+    const env = this.env && { ...process.env, ...await this.env() };
     let send: (value: string) => void = () => undefined;
     const models: ModelOption[] = [];
     let id = 2;
     const request = (method: string, params: unknown, requestId?: number) => send(JSON.stringify({ method, params, ...(requestId === undefined ? {} : { id: requestId }) }) + '\n');
     for await (const event of this.processes.run({
       command, args: ['app-server', '--listen', 'stdio://', '-c', 'model_provider="openai"', '-c', 'mcp_servers={}', '-c', 'features.apps=false', '-c', 'features.plugins=false', '-c', 'features.hooks=false'],
-      cwd: this.cwd, timeoutMs: 20000,
+      cwd: this.cwd, timeoutMs: 20000, ...(env && { env }),
       onStdinReady: write => { send = write; request('initialize', { clientInfo: { name: 'multi_agent_workspace', version: '0.1.4' }, capabilities: {} }, 1); }
     })) {
       if (event.type === 'exit') throw new Error('模型清單讀取中斷，請重新整理或手動輸入模型 ID。');

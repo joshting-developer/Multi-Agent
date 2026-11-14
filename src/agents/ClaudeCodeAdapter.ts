@@ -20,10 +20,8 @@ export class ClaudeCodeAdapter extends CliAdapter {
     const compatible = ['--restricted', '--safe-mode', '--tools', '--strict-mcp-config', '--include-partial-messages', '--settings', '--no-session-persistence'].every(flag => this.help.includes(flag));
     const capabilities = { streaming: compatible, readOnly: compatible, workspaceWrite: compatible, resumeSession: compatible && this.help.includes('--resume'), toolApproval: true, structuredOutput: true };
     if (!compatible) return { id: this.id, status: 'installed', version: version.stdout.trim(), reason: '此版本缺少 restricted / safe-mode 或串流能力，請更新 Claude Code。', capabilities };
-    const auth = await this.probe(command, ['auth', 'status']);
-    const { loggedIn, account } = claudeAccount(auth.stdout);
-    return { id: this.id, version: version.stdout.trim(), capabilities, approvalModes: this.help.includes('auto') ? ['ask', 'auto-review', 'full-access'] : ['ask', 'full-access'],
-      account, status: loggedIn && auth.code === 0 ? 'ready' : 'installed', reason: loggedIn ? undefined : '尚未登入。請在終端執行 claude auth login，完成後重新檢查。' };
+    // 登入狀態屬於各帳號自己的目錄（設定 → 帳號），偵測只看 CLI 是否可用，不讀官方預設目錄的登入。
+    return { id: this.id, version: version.stdout.trim(), capabilities, approvalModes: this.help.includes('auto') ? ['ask', 'auto-review', 'full-access'] : ['ask', 'full-access'], status: 'ready' };
   }
   protected arguments(request: AgentRequest): string[] {
     if (request.effort && !this.help.includes('--effort')) throw new Error('此 Claude Code 版本不支援推理強度，請更新 CLI。');

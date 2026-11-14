@@ -23,7 +23,7 @@ export function providerFailure(text: string, code?: number): ProviderFailure {
   return new ProviderFailure(friendlyFailure(text, code), failureKind(text));
 }
 export function friendlyFailure(text: string, code?: number): string {
-  if (loginPattern.test(text)) return '官方 CLI 尚未登入或登入已失效。請在終端完成官方登入，再按 Check connection。';
+  if (loginPattern.test(text)) return '這個帳號尚未登入或登入已失效。請到設定 → 帳號重新登入。';
   const kind = failureKind(text);
   if (kind === 'quota') return 'Provider 額度已用完。請檢查官方帳號額度，或改用其他 Provider。';
   if (kind === 'rate-limit') return 'Provider 請求頻率受限。請稍後重試。';

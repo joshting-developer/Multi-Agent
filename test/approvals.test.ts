@@ -16,7 +16,8 @@ describe.each(['codex', 'claude'] as const)('%s official approval protocol', pro
   const setup = (scenario = 'approval') => { const processes = new Processes(provider, scenario); return { processes, adapter: provider === 'codex' ? new CodexAppServerAdapter(processes, () => process.execPath, process.cwd()) : new ClaudeCodeAdapter(processes, () => process.execPath, process.cwd()) }; };
   it.each([true, false])('round-trips a human decision (%s)', async allow => {
     const { adapter, processes } = setup(); const status = await adapter.detect();
-    expect(status.account?.email).toBe(`${provider}@example.test`); expect(JSON.stringify(status)).not.toContain('secret-must-not-leak');
+    // 偵測不讀官方預設目錄的登入；帳號資訊改由設定 → 帳號依各自目錄查詢。
+    expect(status.account).toBeUndefined(); expect(JSON.stringify(status)).not.toContain('secret-must-not-leak');
     const approve = vi.fn(async () => allow); let text = '';
     for await (const event of adapter.execute({ ...request, approve })) if (event.type === 'text-delta') text += event.text;
     expect(approve).toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringContaining('核准'), detail: expect.any(String) }));

@@ -10,15 +10,16 @@ export interface StoredAccount { id: string; provider: AgentId; name: string; me
 /** VS Code SecretStorage（作業系統鑰匙圈）的最小介面。 */
 export interface SecretStore { get(key: string): PromiseLike<string | undefined>; store(key: string, value: string): PromiseLike<void>; delete(key: string): PromiseLike<void> }
 const secretKey = (id: string) => `multiAgent.apiKey.${id}`;
-export interface AccountView extends StoredAccount { builtIn: boolean; loggedIn?: boolean; account?: ProviderStatus['account']; usage?: UsageSnapshot }
+export interface AccountView extends StoredAccount { loggedIn?: boolean; account?: ProviderStatus['account']; usage?: UsageSnapshot }
 interface StoredState { version: 1; accounts: StoredAccount[]; names: Record<string, string>; selected?: Partial<Record<AgentId, string>> }
 const key = 'multiAgent.accounts.v1';
 const providers: AgentId[] = ['codex', 'claude'];
-export const defaultAccountId = (provider: AgentId) => `default-${provider}`;
+const label = (provider: AgentId) => provider === 'claude' ? 'Claude' : 'Codex';
 
 /**
- * 每個額外帳號對應 Extension 儲存區下自己的官方 CLI 設定目錄，由官方 CLI 自行保管憑證；
- * 這裡只保存名稱與目錄位置，不讀、不複製任何 Token。CLI 原本的帳號是不能移除的預設帳號。
+ * 每個帳號對應 Extension 儲存區下自己的官方 CLI 設定目錄，由官方 CLI 自行保管憑證；
+ * 這裡只保存名稱與目錄位置，不讀、不複製任何 Token。不使用官方 CLI 的預設目錄（~/.codex、~/.claude），
+ * 官方擴充或 CLI 換帳號不會影響這裡（MA-104）。
  */
 export class AccountService {
   private readonly status = new Map<string, { loggedIn: boolean; account?: ProviderStatus['account'] }>();
@@ -34,11 +35,8 @@ export class AccountService {
   private async write(state: StoredState) { await this.storage.update(key, state); this.changed(); }
   list(): AccountView[] {
     const state = this.read();
-    return [
-      ...providers.map(provider => ({ id: defaultAccountId(provider), provider, name: state.names[defaultAccountId(provider)] ?? '預設帳號', builtIn: true })),
-      // 還沒取名的帳號在登入後改用帳戶本身的名稱（見 refresh）。
-      ...state.accounts.map(account => ({ ...account, name: account.name || (account.method === 'api-key' ? 'API Key' : '新帳號'), builtIn: false }))
-    ].map(account => ({ ...account, ...this.status.get(account.id), ...(this.usage.has(account.id) && { usage: this.usage.get(account.id) }) }));
+    // 還沒取名的帳號在登入後改用帳戶本身的名稱（見 refresh）。
+    return state.accounts.map(account => ({ ...account, name: account.name || (account.method === 'api-key' ? 'API Key' : '新帳號') })).map(account => ({ ...account, ...this.status.get(account.id), ...(this.usage.has(account.id) && { usage: this.usage.get(account.id) }) }));
   }
   private find(id: string): AccountView {
     const account = this.list().find(item => item.id === id);
@@ -46,17 +44,29 @@ export class AccountService {
     return account;
   }
   /** 沒有在送出時另外指定時，各 Provider 使用的帳號。 */
-  selected(): Record<AgentId, string> {
-    const state = this.read(); const ids = new Set(this.list().map(item => item.id));
-    return Object.fromEntries(providers.map(provider => [provider, state.selected?.[provider] && ids.has(state.selected[provider]!) ? state.selected[provider]! : defaultAccountId(provider)])) as Record<AgentId, string>;
+  /** 選過且還存在的帳號優先，否則用該來源的第一個帳號；沒有帳號的來源不列出。舊版的預設帳號選擇會落到這裡。 */
+  selected(): Partial<Record<AgentId, string>> {
+    const state = this.read();
+    return Object.fromEntries(providers.flatMap(provider => {
+      const own = state.accounts.filter(account => account.provider === provider);
+      const id = own.find(account => account.id === state.selected?.[provider])?.id ?? own[0]?.id;
+      return id ? [[provider, id]] : [];
+    }));
+  }
+  /** 執行要用的帳號：指定且存在的帳號，否則目前選定的帳號；都沒有時要求先新增。 */
+  resolve(provider: AgentId, id?: string): string {
+    const account = id ? this.read().accounts.find(item => item.id === id && item.provider === provider) : undefined;
+    const resolved = account?.id ?? this.selected()[provider];
+    if (!resolved) throw new Error(`還沒有 ${label(provider)} 帳號，請到設定 → 帳號新增並登入。`);
+    return resolved;
   }
   async select(provider: AgentId, id: string): Promise<void> {
     if (this.find(id).provider !== provider) throw new Error('帳號與 Agent 不相符，請重新選擇。');
     const state = this.read(); state.selected = { ...state.selected, [provider]: id }; await this.write(state);
   }
-  /** 帳號的官方 CLI 設定目錄；預設帳號不覆寫，沿用官方 CLI 自己的設定。 */
-  directory(provider: AgentId, id?: string): Record<string, string> | undefined {
-    if (!id || id === defaultAccountId(provider)) return undefined;
+  /** 帳號自己的官方 CLI 設定目錄；一定要指定帳號，不回退到官方 CLI 的預設目錄。 */
+  directory(provider: AgentId, id?: string): Record<string, string> {
+    if (!id) throw new Error(`還沒有 ${label(provider)} 帳號，請到設定 → 帳號新增並登入。`);
     const account = this.find(id);
     if (account.provider !== provider) throw new Error('帳號與 Agent 不相符，請重新選擇。');
     const envKey = this.registry.get(provider).accountEnvKey;
@@ -64,9 +74,9 @@ export class AccountService {
     return { [envKey]: join(this.root, account.id) };
   }
   /** 執行時帶入的環境變數：設定目錄，加上存在鑰匙圈的 API Key（只有需要以環境變數提供 Key 的 CLI）。 */
-  async env(provider: AgentId, id?: string): Promise<Record<string, string> | undefined> {
+  async env(provider: AgentId, id?: string): Promise<Record<string, string>> {
     const directory = this.directory(provider, id);
-    if (!directory || this.find(id!).method !== 'api-key') return directory;
+    if (this.find(id!).method !== 'api-key') return directory;
     const variable = this.registry.get(provider).apiKeyEnvVar;
     if (!variable) return directory;
     const key = await this.secrets?.get(secretKey(id!));
@@ -92,19 +102,15 @@ export class AccountService {
     const state = this.read(); state.accounts.push(account); await this.write(state);
     return this.find(account.id);
   }
-  /** 只做存在與歸屬檢查，不讀取 Key。 */
-  check(provider: AgentId, id?: string): void { this.directory(provider, id); }
   async rename(id: string, name: string): Promise<void> {
     const value = name.trim(); const state = this.read(); this.find(id);
     if (!value) throw new Error('請輸入帳號名稱。');
-    const stored = state.accounts.find(item => item.id === id);
-    if (stored) stored.name = value; else state.names[id] = value;
+    state.accounts.find(item => item.id === id)!.name = value;
     await this.write(state);
   }
-  /** 移除只刪除這個帳號自己的設定目錄；預設帳號是 CLI 原本的登入，不在這裡刪除。 */
+  /** 移除只刪除這個帳號自己的設定目錄與鑰匙圈裡的 Key。 */
   async remove(id: string): Promise<void> {
     const account = this.find(id);
-    if (account.builtIn) throw new Error('預設帳號是官方 CLI 原本的登入，請在終端機用官方命令登出。');
     const state = this.read(); state.accounts = state.accounts.filter(item => item.id !== id);
     await rm(join(this.root, id), { recursive: true, force: true });
     if (account.method === 'api-key') await this.secrets?.delete(secretKey(id));
@@ -117,7 +123,7 @@ export class AccountService {
     const command = this.registry.get(account.provider).authCommand?.(action);
     if (!command) throw new Error('找不到官方 CLI，請先在設定檢查連線。');
     // 終端機只帶設定目錄，不帶 API Key。
-    return { name: `${account.provider === 'claude' ? 'Claude' : 'Codex'} · ${account.name}`, command, env: this.directory(account.provider, id) };
+    return { name: `${label(account.provider)} · ${account.name}`, command, env: this.directory(account.provider, id) };
   }
   /** 重新檢查登入與用量；給 ids 時只檢查這些帳號（例如剛開登入終端機的帳號）。 */
   async refresh(ids?: string[]): Promise<void> {
@@ -134,6 +140,7 @@ export class AccountService {
   }
   loggedIn(id: string): boolean | undefined { return this.status.get(id)?.loggedIn; }
   recordUsage(provider: AgentId, id: string | undefined, usage: UsageSnapshot): void {
-    this.usage.set(id ?? defaultAccountId(provider), usage); this.changed();
+    if (!id) return;
+    this.usage.set(id, usage); this.changed();
   }
 }

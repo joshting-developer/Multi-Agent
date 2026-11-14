@@ -32,7 +32,7 @@ if (args.includes('--version')) {
     const message = JSON.parse(line);
     if (message.method === 'initialize') emit({ id: message.id, result: { serverInfo: 'fixture' } });
     else if (message.method === 'initialized') initialized = true;
-    else if (message.method === 'account/rateLimits/read') emit({ id: message.id, result: { ordinaryUsageAllowed: !process.env.CODEX_HOME, rateLimits: { primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: 1794632400 }, secondary: { usedPercent: 7, windowDurationMins: 10080, resetsAt: null } }, accessToken: 'secret-must-not-leak' } });
+    else if (message.method === 'account/rateLimits/read') emit({ id: message.id, result: { ordinaryUsageAllowed: !(process.env.CODEX_HOME && require('node:fs').existsSync(require('node:path').join(process.env.CODEX_HOME, 'exhausted'))), rateLimits: { primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: 1794632400 }, secondary: { usedPercent: 7, windowDurationMins: 10080, resetsAt: null } }, accessToken: 'secret-must-not-leak' } });
     else if (message.method === 'account/read') emit({ id: message.id, result: { account: { type: 'chatgpt', email: 'codex@example.test', planType: 'pro', accessToken: 'secret-must-not-leak' } } });
     else if (message.method === 'thread/start') { global.start = message.params; emit({ id: message.id, result: { thread: { id: 'rpc-session' } } }); }
     else if (message.method === 'thread/resume') {
@@ -57,6 +57,9 @@ if (args.includes('--version')) {
       emit({ id: message.id, result: { data: [{ model: message.params.cursor ? 'test-second' : 'test-model', displayName: 'Test Model', isDefault: !message.params.cursor, supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'high' }] }], nextCursor: message.params.cursor ? null : 'page-two' } });
     }
   });
+} else if (scenario === 'unauthenticated') {
+  // 帳號目錄沒有登入：執行時官方 CLI 回報未登入。
+  console.error('Not logged in. Please run login.'); process.exitCode = 1;
 } else if (scenario === 'exit') {
   console.error('quota exceeded: secret-token-should-never-appear'); process.exitCode = 7;
 } else if (scenario === 'timeout' || scenario === 'tree') {

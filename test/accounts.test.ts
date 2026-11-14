@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { AccountService, defaultAccountId } from '../src/accounts/AccountService';
+import { AccountService } from '../src/accounts/AccountService';
 import { AgentRegistry } from '../src/agents/AgentRegistry';
 import { ClaudeCodeAdapter } from '../src/agents/ClaudeCodeAdapter';
 import { CodexAppServerAdapter } from '../src/agents/CodexAppServerAdapter';
@@ -29,22 +29,24 @@ describe('Multiple official CLI accounts', () => {
   it('names extra accounts, gives each its own CLI directory, and resolves the account for each step', async () => {
     const { root, registry, storage } = await setup();
     const accounts = new AccountService(storage, root, registry);
-    expect(accounts.list().map(item => [item.id, item.name, item.builtIn])).toEqual([[defaultAccountId('codex'), '預設帳號', true], [defaultAccountId('claude'), '預設帳號', true]]);
+    // 沒有內建的預設帳號：不使用官方 CLI 的 ~/.codex、~/.claude，沒有帳號時要求先新增。
+    expect(accounts.list()).toEqual([]); expect(accounts.selected()).toEqual({});
+    expect(() => accounts.resolve('claude')).toThrow(/還沒有 Claude 帳號/); await expect(accounts.env('codex')).rejects.toThrow(/還沒有 Codex 帳號/);
     const work = await accounts.add('claude', '公司 Claude'); const personal = await accounts.add('claude', '個人 Claude');
     expect((await stat(join(root, work.id))).mode & 0o777).toBe(0o700);
     expect(await accounts.env('claude', work.id)).toEqual({ CLAUDE_CONFIG_DIR: join(root, work.id) });
-    expect(await accounts.env('claude', defaultAccountId('claude'))).toBeUndefined(); expect(await accounts.env('claude')).toBeUndefined();
-    expect(() => accounts.check('codex', work.id)).toThrow(/不相符/); expect(() => accounts.check('claude', 'missing')).toThrow(/找不到/);
-    await accounts.rename(personal.id, '個人 2'); await accounts.rename(defaultAccountId('codex'), '公司 Codex');
+    await expect(accounts.env('codex', work.id)).rejects.toThrow(/不相符/); await expect(accounts.env('claude', 'missing')).rejects.toThrow(/找不到/);
+    // 沒選過時用第一個帳號；指定的帳號不存在（例如舊版的 default-claude）時改用選定帳號。
+    expect(accounts.selected()).toEqual({ claude: work.id }); expect(accounts.resolve('claude', 'default-claude')).toBe(work.id); expect(accounts.resolve('claude', personal.id)).toBe(personal.id);
+    await accounts.rename(personal.id, '個人 2');
     await accounts.select('claude', personal.id);
     // 重新建立服務（模擬重開 VS Code）後名稱與選擇都還在。
     const reopened = new AccountService(storage, root, registry);
-    expect(reopened.list().map(item => item.name)).toEqual(['公司 Codex', '預設帳號', '公司 Claude', '個人 2']);
-    expect(reopened.selected()).toEqual({ codex: defaultAccountId('codex'), claude: personal.id });
+    expect(reopened.list().map(item => item.name)).toEqual(['公司 Claude', '個人 2']);
+    expect(reopened.selected()).toEqual({ claude: personal.id });
     expect(reopened.terminal(work.id, 'login')).toEqual({ name: 'Claude · 公司 Claude', command: [process.execPath, 'auth', 'login'], env: { CLAUDE_CONFIG_DIR: join(root, work.id) } });
-    await expect(reopened.remove(defaultAccountId('claude'))).rejects.toThrow(/預設帳號/);
     await reopened.remove(personal.id);
-    expect(await readdir(root)).toEqual([work.id]); expect(reopened.selected().claude).toBe(defaultAccountId('claude'));
+    expect(await readdir(root)).toEqual([work.id]); expect(reopened.selected().claude).toBe(work.id);
   });
   it('adds an account without a name and names it after the signed-in identity, checking only that account', async () => {
     const { root, registry, claude, storage } = await setup();
@@ -67,7 +69,8 @@ describe('Multiple official CLI accounts', () => {
     await accounts.refresh();
     const views = accounts.list();
     expect(views.find(item => item.id === signedIn.id)).toMatchObject({ loggedIn: true, account: { email: `${signedIn.id}@example.test` } });
-    expect(views.find(item => item.id === defaultAccountId('claude'))).toMatchObject({ loggedIn: true, account: { email: 'claude@example.test' } });
+    // 每次檢查都帶帳號自己的目錄，不會去讀官方 CLI 的預設目錄。
+        expect(claude.requests.filter(request => request.args.includes('status')).every(request => request.env?.CLAUDE_CONFIG_DIR?.startsWith(root))).toBe(true);
     expect(JSON.stringify(views)).not.toContain('secret-must-not-leak');
     expect(claude.requests.filter(request => request.args.includes('status')).map(request => request.env?.CLAUDE_CONFIG_DIR)).toEqual(expect.arrayContaining([join(root, signedIn.id), join(root, signedOut.id)]));
     void signedOut;
@@ -75,17 +78,19 @@ describe('Multiple official CLI accounts', () => {
   it('reads Codex usage per account without a model run and keeps Claude usage from the last real run', async () => {
     const { root, registry } = await setup();
     const accounts = new AccountService(new Memory(), root, registry);
-    const exhausted = await accounts.add('codex', 'exhausted');
+    const normal = await accounts.add('codex', 'normal'); const exhausted = await accounts.add('codex', 'exhausted');
+    await writeFile(join(root, exhausted.id, 'exhausted'), '');
     await accounts.refresh();
-    const codex = accounts.list().find(item => item.id === defaultAccountId('codex'))!;
+    const codex = accounts.list().find(item => item.id === normal.id)!;
     expect(codex.usage).toMatchObject({ source: 'official', windows: [{ label: '5 小時', usedPercent: 42, resetsAt: 1794632400000 }, { label: '7 天', usedPercent: 7 }] });
     expect(codex.usage?.windows[1]).not.toHaveProperty('resetsAt'); expect(codex.usage?.blocked).toBeUndefined();
     expect(accounts.list().find(item => item.id === exhausted.id)?.usage?.blocked).toBe(true);
     expect(JSON.stringify(accounts.list())).not.toContain('secret-must-not-leak');
     // Claude 沒有不需推論的查詢：沒有執行前不顯示數字，執行回報後依帳號記錄。
-    expect(accounts.list().find(item => item.id === defaultAccountId('claude'))?.usage).toBeUndefined();
-    accounts.recordUsage('claude', undefined, { windows: [{ label: '5 小時', usedPercent: 25 }], updatedAt: 1, source: 'last-run' });
-    expect(accounts.list().find(item => item.id === defaultAccountId('claude'))?.usage?.windows[0]?.usedPercent).toBe(25);
+    const claude = await accounts.add('claude', 'Claude'); await accounts.refresh([claude.id]);
+    expect(accounts.list().find(item => item.id === claude.id)?.usage).toBeUndefined();
+    accounts.recordUsage('claude', claude.id, { windows: [{ label: '5 小時', usedPercent: 25 }], updatedAt: 1, source: 'last-run' });
+    expect(accounts.list().find(item => item.id === claude.id)?.usage?.windows[0]?.usedPercent).toBe(25);
   });
   it('adds API Key accounts without keeping the key in state or the terminal', async () => {
     const { root, registry, codex } = await setup();

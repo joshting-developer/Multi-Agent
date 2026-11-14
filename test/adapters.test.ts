@@ -46,9 +46,10 @@ describe.each(['claude', 'codex'] as const)('%s adapter', id => {
       expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toMatchObject({ autoMemoryEnabled: false });
     }
   });
-  it('never treats a version query as authentication', async () => {
-    const { adapter } = make(id, 'unauthenticated');
-    expect((await adapter.detect()).status).toBe('installed');
+  it('does not read the default login during detection and reports a missing login when it runs', async () => {
+    const { adapter, manager } = make(id, 'unauthenticated');
+    expect((await adapter.detect()).status).toBe('ready');
+    expect(manager.requests.some(request => request.args.includes('status'))).toBe(false);
     await expect(execute(adapter)).rejects.toThrow(/登入/);
   });
   it('reports quota without leaking stderr secrets', async () => {

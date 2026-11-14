@@ -45,10 +45,6 @@ export class CodexAppServerAdapter extends CodexAdapter {
     const help = await this.probe(command, ['--help']);
     status.capabilities.toolApproval = true; status.capabilities.resumeSession = status.capabilities.streaming;
     status.approvalModes = help.stdout.includes('--approve-for-me') ? ['ask', 'auto-review', 'full-access'] : ['ask', 'full-access'];
-    if (status.status === 'ready') {
-      try { status.account = await readCodexAccount(this.processes, command, this.detectionCwd); }
-      catch { status.account = { type: 'unknown', detail: '已登入，但官方帳號資訊暫時無法取得。' }; }
-    }
     return status;
   }
   override async *execute(request: AgentRequest): AsyncGenerator<AgentEvent> {

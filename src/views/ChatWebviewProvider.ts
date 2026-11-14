@@ -76,8 +76,8 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     const preferences = explicit ?? this.settings?.read()[provider];
     if (preferences) this.settings?.validate(provider, preferences);
     if (this.settings && !preferences?.model) throw new Error('請先選擇明確的模型。');
-    const account = accountId ?? explicit?.accountId ?? this.accounts?.selected()[provider];
-    if (account) this.accounts?.check(provider, account);
+    // 每次執行都必須落在 Multi-Agent 自己的帳號；舊版的預設帳號或已移除的帳號改用目前選定的帳號。
+    const account = this.accounts?.resolve(provider, accountId ?? explicit?.accountId);
     return preferences && account ? { ...preferences, accountId: account } : preferences;
   }
   private snapshot(target?: vscode.Webview): void {

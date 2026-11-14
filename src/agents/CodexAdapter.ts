@@ -17,9 +17,8 @@ export class CodexAdapter extends CliAdapter {
     const compatible = modern && ['--json', '--ignore-user-config', '--ephemeral'].every(flag => this.help.includes(flag)) && this.featureNames.has('shell_tool') && this.featureNames.has('multi_agent');
     const capabilities = { streaming: compatible, readOnly: compatible, workspaceWrite: compatible, resumeSession: false, toolApproval: false, structuredOutput: true };
     if (!compatible) return { id: this.id, status: 'installed', version: version.stdout.trim(), reason: '需要支援 permission profiles、ignore-user-config、shell_tool 的新版 Codex（至少 0.138）。', capabilities };
-    const auth = await this.probe(command, ['login', 'status']);
-    const loggedIn = auth.code === 0 && /logged in|authenticated/i.test(auth.stdout + auth.stderr);
-    return { id: this.id, version: version.stdout.trim(), capabilities, status: loggedIn ? 'ready' : 'installed', reason: loggedIn ? undefined : '尚未登入。請在終端執行 codex login，完成後重新檢查。' };
+    // 登入狀態屬於各帳號自己的目錄（設定 → 帳號），偵測只看 CLI 是否可用。
+    return { id: this.id, version: version.stdout.trim(), capabilities, status: 'ready' };
   }
   protected arguments(request: AgentRequest): string[] {
     // Pass the complete table as one TOML value. CLI dotted overrides do not
