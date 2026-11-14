@@ -46,6 +46,20 @@ describe('Multiple official CLI accounts', () => {
     await reopened.remove(personal.id);
     expect(await readdir(root)).toEqual([work.id]); expect(reopened.selected().claude).toBe(defaultAccountId('claude'));
   });
+  it('adds an account without a name and names it after the signed-in identity, checking only that account', async () => {
+    const { root, registry, claude, storage } = await setup();
+    const accounts = new AccountService(storage, root, registry);
+    const added = await accounts.add('claude');
+    expect(added.name).toBe('新帳號'); expect(added.loggedIn).toBeUndefined();
+    const before = claude.requests.length;
+    await accounts.refresh([added.id]);
+    expect(claude.requests.slice(before).map(request => request.env?.CLAUDE_CONFIG_DIR)).toEqual([join(root, added.id)]);
+    expect(accounts.loggedIn(added.id)).toBe(true);
+    expect(new AccountService(storage, root, registry).list().find(item => item.id === added.id)?.name).toBe(`${added.id}@example.test`);
+    // 使用者改過的名稱不會被覆蓋。
+    await accounts.rename(added.id, '公司'); await accounts.refresh([added.id]);
+    expect(accounts.list().find(item => item.id === added.id)?.name).toBe('公司');
+  });
   it('checks each account with its own directory and keeps only public identity fields', async () => {
     const { root, registry, claude } = await setup();
     const accounts = new AccountService(new Memory(), root, registry);

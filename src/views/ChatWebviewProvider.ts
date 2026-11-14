@@ -53,6 +53,21 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     const { name, command, env } = this.accounts.terminal(id, action);
     const terminal = vscode.window.createTerminal({ name, ...(env && { env }) });
     terminal.show(); terminal.sendText(command.map(part => /^[\w./:@=-]+$/.test(part) ? part : `'${part.replace(/'/g, `'\\''`)}'`).join(' '));
+    this.watchLogin(id, action, terminal);
+  }
+  /** 登入／登出在終端機完成後自動重新檢查這個帳號：每 4 秒一次直到狀態改變，最多 5 分鐘；關閉終端機時再查一次。 */
+  private watchLogin(id: string, action: 'login' | 'logout', terminal: vscode.Terminal): void {
+    const accounts = this.accounts!; const deadline = Date.now() + 5 * 60_000; let running = false;
+    const stop = () => { clearInterval(timer); closed.dispose(); };
+    const check = async () => {
+      if (running) return; running = true;
+      try { await accounts.refresh([id]); if (accounts.loggedIn(id) === (action === 'login') || Date.now() > deadline) stop(); }
+      catch { stop(); } finally { running = false; }
+    };
+    const timer = setInterval(() => void check(), 4000);
+    const closed = vscode.window.onDidCloseTerminal(item => { if (item === terminal) { stop(); void accounts.refresh([id]).catch(() => undefined); } });
+    this.disposables.push({ dispose: stop });
+    void check();
   }
   /** 明確選擇的帳號優先，其次是該 Provider 目前選定的帳號；每個環節（A、B、總結、代替）都各自帶入。 */
   private preferencesFor(provider: AgentId, explicit?: ProviderPreferences, accountId?: string): ProviderPreferences | undefined {
@@ -130,8 +145,8 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       }
       case 'add-account': {
         if (!this.accounts) throw new Error('帳號管理尚未就緒。');
-        const account = await this.accounts.add(message.provider, message.name, message.apiKey);
-        if (message.apiKey === undefined) this.openAccountTerminal(account.id, 'login'); else await this.accounts.refresh();
+        const account = await this.accounts.add(message.provider, message.name ?? '', message.apiKey);
+        if (message.apiKey === undefined) this.openAccountTerminal(account.id, 'login'); else await this.accounts.refresh([account.id]);
         break;
       }
       case 'rename-account': await this.accounts?.rename(message.accountId, message.name); break;

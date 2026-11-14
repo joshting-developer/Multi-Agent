@@ -2,19 +2,17 @@
 import { ref } from 'vue';
 import type { AccountSummary, AgentId } from '../../../src/bridge/messages';
 withDefaults(defineProps<{ accounts?: AccountSummary[]; selected?: Partial<Record<AgentId, string>>; checking: boolean }>(), { accounts: () => [], selected: () => ({}) });
-const emit = defineEmits<{ refresh: []; add: [provider: AgentId, name: string, apiKey?: string]; rename: [id: string, name: string]; remove: [id: string]; terminal: [id: string, action: 'login' | 'logout']; select: [provider: AgentId, id: string] }>();
+const emit = defineEmits<{ refresh: []; add: [provider: AgentId, apiKey?: string]; rename: [id: string, name: string]; remove: [id: string]; terminal: [id: string, action: 'login' | 'logout']; select: [provider: AgentId, id: string] }>();
 const providers: AgentId[] = ['codex', 'claude'];
-const names = ref<Record<AgentId, string>>({ codex: '', claude: '' });
 const methods = ref<Record<AgentId, 'cli' | 'api-key'>>({ codex: 'cli', claude: 'cli' });
 const keys = ref<Record<AgentId, string>>({ codex: '', claude: '' });
-const ready = (provider: AgentId) => !!names.value[provider].trim() && (methods.value[provider] === 'cli' || !!keys.value[provider].trim());
+const ready = (provider: AgentId) => methods.value[provider] === 'cli' || !!keys.value[provider].trim();
 const editing = ref(''); const title = ref('');
 function add(provider: AgentId) {
-  const name = names.value[provider].trim();
   if (!ready(provider)) return;
-  if (methods.value[provider] === 'api-key') emit('add', provider, name, keys.value[provider].trim());
-  else emit('add', provider, name);
-  names.value[provider] = ''; keys.value[provider] = '';
+  if (methods.value[provider] === 'api-key') emit('add', provider, keys.value[provider].trim());
+  else emit('add', provider);
+  keys.value[provider] = '';
 }
 const time = (value: number) => new Date(value).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 function rename(id: string) {
@@ -52,10 +50,9 @@ function rename(id: string) {
       </li>
     </ul>
     <form class="account-add" @submit.prevent="add(provider)">
-      <input v-model="names[provider]" maxlength="60" placeholder="新帳號名稱" :aria-label="`新增 ${provider === 'codex' ? 'Codex' : 'Claude Code'} 帳號名稱`" />
       <select v-model="methods[provider]" :aria-label="`${provider === 'codex' ? 'Codex' : 'Claude Code'} 登入方式`"><option value="cli">官方登入</option><option value="api-key">API Key</option></select>
       <input v-if="methods[provider] === 'api-key'" v-model="keys[provider]" type="password" maxlength="400" autocomplete="off" :placeholder="provider === 'claude' ? 'sk-ant-…' : 'sk-…'" :aria-label="`${provider === 'codex' ? 'OpenAI' : 'Anthropic'} API Key`" />
-      <button type="submit" class="secondary-button" :disabled="!ready(provider)">{{ methods[provider] === 'api-key' ? '新增' : '新增並登入' }}</button>
+      <button type="submit" class="secondary-button" :disabled="!ready(provider)">{{ methods[provider] === 'api-key' ? '新增' : '新增帳號並登入' }}</button>
     </form>
   </section>
   <button type="button" class="secondary-button" :disabled="checking" @click="emit('refresh')">{{ checking ? '檢查中…' : '重新整理登入資訊' }}</button>

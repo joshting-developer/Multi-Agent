@@ -36,7 +36,8 @@ export class AccountService {
     const state = this.read();
     return [
       ...providers.map(provider => ({ id: defaultAccountId(provider), provider, name: state.names[defaultAccountId(provider)] ?? '預設帳號', builtIn: true })),
-      ...state.accounts.map(account => ({ ...account, builtIn: false }))
+      // 還沒取名的帳號在登入後改用帳戶本身的名稱（見 refresh）。
+      ...state.accounts.map(account => ({ ...account, name: account.name || (account.method === 'api-key' ? 'API Key' : '新帳號'), builtIn: false }))
     ].map(account => ({ ...account, ...this.status.get(account.id), ...(this.usage.has(account.id) && { usage: this.usage.get(account.id) }) }));
   }
   private find(id: string): AccountView {
@@ -72,9 +73,9 @@ export class AccountService {
     if (!key) throw new Error('找不到這個帳號的 API Key，請移除後重新新增。');
     return { ...directory, [variable]: key };
   }
-  async add(provider: AgentId, name: string, apiKey?: string): Promise<AccountView> {
+  /** 名稱可省略：登入後自動用帳戶的 email，之後可再改名。 */
+  async add(provider: AgentId, name = '', apiKey?: string): Promise<AccountView> {
     const account: StoredAccount = { id: randomUUID(), provider, name: name.trim(), ...(apiKey !== undefined && { method: 'api-key' }) };
-    if (!account.name) throw new Error('請輸入帳號名稱。');
     const adapter = this.registry.get(provider);
     if (apiKey !== undefined) {
       const key = apiKey.trim();
@@ -89,7 +90,7 @@ export class AccountService {
       else if (apiKey) await this.secrets!.store(secretKey(account.id), apiKey);
     } catch (error) { await rm(join(this.root, account.id), { recursive: true, force: true }); throw error; }
     const state = this.read(); state.accounts.push(account); await this.write(state);
-    return { ...account, builtIn: false };
+    return this.find(account.id);
   }
   /** 只做存在與歸屬檢查，不讀取 Key。 */
   check(provider: AgentId, id?: string): void { this.directory(provider, id); }
@@ -118,15 +119,20 @@ export class AccountService {
     // 終端機只帶設定目錄，不帶 API Key。
     return { name: `${account.provider === 'claude' ? 'Claude' : 'Codex'} · ${account.name}`, command, env: this.directory(account.provider, id) };
   }
-  async refresh(): Promise<void> {
-    await Promise.all(this.list().map(async account => {
+  /** 重新檢查登入與用量；給 ids 時只檢查這些帳號（例如剛開登入終端機的帳號）。 */
+  async refresh(ids?: string[]): Promise<void> {
+    await Promise.all(this.list().filter(account => !ids || ids.includes(account.id)).map(async account => {
       const adapter = this.registry.get(account.provider); const env = await this.env(account.provider, account.id).catch(() => undefined);
       if (adapter.account) this.status.set(account.id, await adapter.account(env));
       // 只有官方提供不需推論的查詢時才主動讀；其餘保留最近一次執行回報的值，切換帳號不會沿用其他帳號的資料。
       if (adapter.usage && this.status.get(account.id)?.loggedIn) { const usage = await adapter.usage(env); if (usage) this.usage.set(account.id, usage); else this.usage.delete(account.id); }
     }));
-    this.changed();
+    const state = this.read();
+    const unnamed = state.accounts.filter(account => !account.name && this.status.get(account.id)?.account?.email);
+    for (const account of unnamed) account.name = this.status.get(account.id)!.account!.email!.slice(0, 60);
+    if (unnamed.length) await this.write(state); else this.changed();
   }
+  loggedIn(id: string): boolean | undefined { return this.status.get(id)?.loggedIn; }
   recordUsage(provider: AgentId, id: string | undefined, usage: UsageSnapshot): void {
     this.usage.set(id ?? defaultAccountId(provider), usage); this.changed();
   }

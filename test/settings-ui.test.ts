@@ -65,15 +65,17 @@ describe('Explicit models, accounts and history controls', () => {
     expect(wrapper.emitted('terminal')).toEqual([['work', 'login']]); expect(wrapper.emitted('remove')).toEqual([['work']]);
     const builtIn = wrapper.findAll('.account-row').find(row => row.text().includes('me@example.test'))!;
     expect(builtIn.text()).toContain('使用中'); expect(builtIn.findAll('button').map(button => button.text())).toEqual(['登出', '重新命名']);
-    await wrapper.findAll('.account-add input')[1]!.setValue('個人 Claude'); await wrapper.findAll('.account-add')[1]!.trigger('submit');
-    expect(wrapper.emitted('add')).toEqual([['claude', '個人 Claude']]);
+    // 不用先取名：直接新增並登入，名稱在登入後由帳戶帶入。
+    expect(wrapper.find('.account-add input').exists()).toBe(false);
+    await wrapper.findAll('.account-add')[1]!.trigger('submit');
+    expect(wrapper.emitted('add')).toEqual([['claude']]);
     // API Key：選了方式才出現密碼欄位，沒填 Key 不能送出，送出後清空。
     const codexAdd = wrapper.findAll('.account-add')[0]!;
     expect(codexAdd.find('input[type="password"]').exists()).toBe(false);
-    await codexAdd.get('select').setValue('api-key'); await codexAdd.get('input').setValue('Codex API');
+    await codexAdd.get('select').setValue('api-key');
     expect(codexAdd.get('button').attributes('disabled')).toBeDefined(); expect(codexAdd.get('button').text()).toBe('新增');
     await codexAdd.get('input[type="password"]').setValue(' sk-test '); await codexAdd.trigger('submit');
-    expect(wrapper.emitted('add')![1]).toEqual(['codex', 'Codex API', 'sk-test']);
+    expect(wrapper.emitted('add')![1]).toEqual(['codex', 'sk-test']);
     expect((codexAdd.get('input[type="password"]').element as HTMLInputElement).value).toBe('');
     await wrapper.setProps({ accounts: [...accounts, { id: 'key', provider: 'claude' as const, name: 'Claude API', builtIn: false, method: 'api-key' as const, loggedIn: true }] });
     const keyRow = wrapper.findAll('.account-row').find(row => row.text().includes('Claude API'))!;

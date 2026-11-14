@@ -72,7 +72,7 @@ export const webviewMessageSchema = z.discriminatedUnion('type', [
     attachments: z.array(z.object({ mime: z.string().max(40), data: z.string().max(7_000_000) })).max(4).optional() }),
   z.object({ ...base, type: z.literal('start-discussion'), provider: agentIdSchema, partner: agentIdSchema.optional(), text: z.string().trim().min(1).max(32000), rounds: z.number().int().min(2).max(8), preferences: providerPreferencesSchema.optional(), partnerAccountId: z.string().max(100).optional() }),
   z.object({ ...base, type: z.literal('extend-discussion'), discussionId: z.string().min(1).max(100), rounds: z.number().int().min(1).max(6) }),
-  z.object({ ...base, type: z.literal('add-account'), provider: agentIdSchema, name: z.string().trim().min(1).max(60), apiKey: z.string().max(400).optional() }),
+  z.object({ ...base, type: z.literal('add-account'), provider: agentIdSchema, name: z.string().trim().max(60).optional(), apiKey: z.string().max(400).optional() }),
   z.object({ ...base, type: z.literal('rename-account'), accountId: z.string().min(1).max(100), name: z.string().trim().min(1).max(60) }),
   z.object({ ...base, type: z.literal('remove-account'), accountId: z.string().min(1).max(100) }),
   z.object({ ...base, type: z.literal('account-terminal'), accountId: z.string().min(1).max(100), action: z.enum(['login', 'logout']) }),
