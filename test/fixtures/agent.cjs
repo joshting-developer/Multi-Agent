@@ -7,6 +7,12 @@ if (args.includes('--version')) {
   console.log(scenario === 'old' ? '--print --json' : '--restricted --safe-mode --tools --strict-mcp-config --include-partial-messages --settings --no-session-persistence --json --ignore-user-config --ignore-rules --ephemeral --model --effort --approve-for-me --input-format --permission-prompts auto --resume');
 } else if (args[0] === 'features') {
   console.log('shell_tool stable true\nmulti_agent stable true\nunified_exec stable true\nhooks stable true\napps stable true\nplugins stable true');
+} else if (args[0] === 'login' && args[1] === '--with-api-key') {
+  // 官方 codex login --with-api-key：Key 從 stdin 讀入，寫進 CODEX_HOME；含 rejected 的 Key 視為無效。
+  let input = ''; process.stdin.on('data', chunk => { input += chunk; }).on('end', () => {
+    if (input.includes('rejected')) { console.error('invalid api key'); process.exitCode = 1; return; }
+    require('node:fs').writeFileSync(require('node:path').join(process.env.CODEX_HOME, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: input.trim() }));
+  });
 } else if (args[0] === 'auth' || args[0] === 'login') {
   // 每個帳號目錄各自的登入狀態：目錄名稱含 logged-out 視為未登入，email 帶目錄名稱以便辨識。
   const accountDir = process.env.CLAUDE_CONFIG_DIR;

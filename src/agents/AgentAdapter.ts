@@ -30,6 +30,9 @@ export interface AgentAdapter {
   authCommand?(action: 'login' | 'logout'): string[] | undefined;
   /** 不建立模型推論即可讀取的官方用量；不支援時不實作。 */
   usage?(env?: Record<string, string>): Promise<UsageSnapshot | undefined>;
+  /** 以 API Key 登入：官方 CLI 有對應命令時由它保存（Codex）；否則以這個環境變數在執行時提供（Claude）。 */
+  apiKeyLogin?(key: string, env: Record<string, string>): Promise<void>;
+  readonly apiKeyEnvVar?: string;
   detect(): Promise<ProviderStatus>;
   capabilities(): ProviderStatus['capabilities'];
   execute(request: AgentRequest): AsyncIterable<AgentEvent>;

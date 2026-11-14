@@ -19,7 +19,10 @@ Codex 的要求／代我核准使用原生 filesystem profile，工作區依檔�
 
 Claude 的要求／代我核准使用 restricted + safe-mode，檔案工具限於工作目錄，授權寫入時另提供 Bash。Bash 授權經官方 Manual／auto 流程；**restricted 的檔案工具限制不等於 Bash 的 OS sandbox**。本版不宣稱 Claude Shell 有與 Codex 同等的 OS 級隔離。完整存取移除 restricted 並明確使用 bypassPermissions。常見機密路徑 deny 對檔案工具有效，不能保證攔截任意子程序間接讀取。
 
-兩個 Provider 均不開啟 MCP、自訂 hooks 或內建自動多 Agent 工具。沒有讀取或代管官方憑證。Codex account/read 與 Claude auth status 只挑選身分欄位，原始 payload、Token 與 stderr 不整段顯示或寫入歷史。
+兩個 Provider 均不開啟 MCP、自訂 hooks 或內建自動多 Agent 工具。沒有讀取或代管官方登入憑證。
+
+**API Key 帳號（MA-100）是唯一例外，只限使用者在帳號設定主動輸入的 Key。** Codex 的 Key 由 stdin 交給官方 `codex login --with-api-key`，寫進該帳號自己的 CODEX_HOME，Extension 不保留。Claude CLI 沒有對應命令，Key 存在 VS Code SecretStorage（作業系統鑰匙圈），只在執行該帳號時以 `ANTHROPIC_API_KEY` 環境變數交給 CLI，登入終端機不帶 Key。Key 不寫進 globalState、SQLite、Snapshot、日誌或錯誤訊息，移除帳號時一併刪除。官方 OAuth Token 仍然不讀也不代管。
+Codex account/read 與 Claude auth status 只挑選身分欄位，原始 payload、Token 與 stderr 不整段顯示或寫入歷史。
 
 Git push、部署、破壞性操作要求人工授權的意圖會傳給 Agent；**目前不是完整的命令攔截器**。完整存取尤其不能保證每項高風險操作都停下，使用者應依工作選擇權限。
 

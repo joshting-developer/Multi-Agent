@@ -60,7 +60,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     if (preferences) this.settings?.validate(provider, preferences);
     if (this.settings && !preferences?.model) throw new Error('請先選擇明確的模型。');
     const account = accountId ?? explicit?.accountId ?? this.accounts?.selected()[provider];
-    if (account) this.accounts?.env(provider, account);
+    if (account) this.accounts?.check(provider, account);
     return preferences && account ? { ...preferences, accountId: account } : preferences;
   }
   private snapshot(target?: vscode.Webview): void {
@@ -130,8 +130,9 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       }
       case 'add-account': {
         if (!this.accounts) throw new Error('帳號管理尚未就緒。');
-        const account = await this.accounts.add(message.provider, message.name);
-        this.openAccountTerminal(account.id, 'login'); break;
+        const account = await this.accounts.add(message.provider, message.name, message.apiKey);
+        if (message.apiKey === undefined) this.openAccountTerminal(account.id, 'login'); else await this.accounts.refresh();
+        break;
       }
       case 'rename-account': await this.accounts?.rename(message.accountId, message.name); break;
       case 'remove-account': {

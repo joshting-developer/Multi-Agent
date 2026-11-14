@@ -2,14 +2,19 @@
 import { ref } from 'vue';
 import type { AccountSummary, AgentId } from '../../../src/bridge/messages';
 withDefaults(defineProps<{ accounts?: AccountSummary[]; selected?: Partial<Record<AgentId, string>>; checking: boolean }>(), { accounts: () => [], selected: () => ({}) });
-const emit = defineEmits<{ refresh: []; add: [provider: AgentId, name: string]; rename: [id: string, name: string]; remove: [id: string]; terminal: [id: string, action: 'login' | 'logout']; select: [provider: AgentId, id: string] }>();
+const emit = defineEmits<{ refresh: []; add: [provider: AgentId, name: string, apiKey?: string]; rename: [id: string, name: string]; remove: [id: string]; terminal: [id: string, action: 'login' | 'logout']; select: [provider: AgentId, id: string] }>();
 const providers: AgentId[] = ['codex', 'claude'];
 const names = ref<Record<AgentId, string>>({ codex: '', claude: '' });
+const methods = ref<Record<AgentId, 'cli' | 'api-key'>>({ codex: 'cli', claude: 'cli' });
+const keys = ref<Record<AgentId, string>>({ codex: '', claude: '' });
+const ready = (provider: AgentId) => !!names.value[provider].trim() && (methods.value[provider] === 'cli' || !!keys.value[provider].trim());
 const editing = ref(''); const title = ref('');
 function add(provider: AgentId) {
   const name = names.value[provider].trim();
-  if (!name) return;
-  emit('add', provider, name); names.value[provider] = '';
+  if (!ready(provider)) return;
+  if (methods.value[provider] === 'api-key') emit('add', provider, name, keys.value[provider].trim());
+  else emit('add', provider, name);
+  names.value[provider] = ''; keys.value[provider] = '';
 }
 const time = (value: number) => new Date(value).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 function rename(id: string) {
@@ -29,7 +34,7 @@ function rename(id: string) {
             <button type="submit" class="text-button">儲存</button><button type="button" class="text-button" @click="editing = ''">取消</button>
           </form>
           <strong v-else>{{ account.name }}<span v-if="selected[provider] === account.id" class="account-current"> · 使用中</span></strong>
-          <small>{{ account.loggedIn === undefined ? '檢查中' : account.loggedIn ? [account.account?.email, account.account?.plan].filter(Boolean).join(' · ') || '已登入' : '未登入' }}</small>
+          <small>{{ account.loggedIn === undefined ? '檢查中' : account.loggedIn ? [account.account?.email, account.account?.plan].filter(Boolean).join(' · ') || (account.method === 'api-key' ? 'API Key' : '已登入') : '未登入' }}</small>
           <template v-if="account.loggedIn">
             <ul v-if="account.usage" class="usage-list" :aria-label="`${account.name} 的用量`">
               <li v-for="window in account.usage.windows" :key="window.label"><span>{{ window.label }}</span><meter min="0" max="100" :value="window.usedPercent" :aria-label="`${window.label} 已用 ${window.usedPercent}%`"></meter><span>{{ window.usedPercent }}%<template v-if="window.resetsAt"> · {{ time(window.resetsAt) }} 重置</template></span></li>
@@ -40,7 +45,7 @@ function rename(id: string) {
         </div>
         <div class="account-actions">
           <button v-if="selected[provider] !== account.id" type="button" class="text-button" :disabled="!account.loggedIn" @click="emit('select', provider, account.id)">設為使用中</button>
-          <button type="button" class="text-button" @click="emit('terminal', account.id, account.loggedIn ? 'logout' : 'login')">{{ account.loggedIn ? '登出' : '登入' }}</button>
+          <button v-if="!(provider === 'claude' && account.method === 'api-key')" type="button" class="text-button" @click="emit('terminal', account.id, account.loggedIn ? 'logout' : 'login')">{{ account.loggedIn ? '登出' : '登入' }}</button>
           <button type="button" class="text-button" @click="editing = account.id; title = account.name">重新命名</button>
           <button v-if="!account.builtIn" type="button" class="text-button" @click="emit('remove', account.id)">移除</button>
         </div>
@@ -48,7 +53,9 @@ function rename(id: string) {
     </ul>
     <form class="account-add" @submit.prevent="add(provider)">
       <input v-model="names[provider]" maxlength="60" placeholder="新帳號名稱" :aria-label="`新增 ${provider === 'codex' ? 'Codex' : 'Claude Code'} 帳號名稱`" />
-      <button type="submit" class="secondary-button" :disabled="!names[provider].trim()">新增並登入</button>
+      <select v-model="methods[provider]" :aria-label="`${provider === 'codex' ? 'Codex' : 'Claude Code'} 登入方式`"><option value="cli">官方登入</option><option value="api-key">API Key</option></select>
+      <input v-if="methods[provider] === 'api-key'" v-model="keys[provider]" type="password" maxlength="400" autocomplete="off" :placeholder="provider === 'claude' ? 'sk-ant-…' : 'sk-…'" :aria-label="`${provider === 'codex' ? 'OpenAI' : 'Anthropic'} API Key`" />
+      <button type="submit" class="secondary-button" :disabled="!ready(provider)">{{ methods[provider] === 'api-key' ? '新增' : '新增並登入' }}</button>
     </form>
   </section>
   <button type="button" class="secondary-button" :disabled="checking" @click="emit('refresh')">{{ checking ? '檢查中…' : '重新整理登入資訊' }}</button>

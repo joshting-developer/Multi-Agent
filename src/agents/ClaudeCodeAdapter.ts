@@ -6,6 +6,7 @@ import { CliAdapter, providerFailure, record, toolText, type ParsedEvent, type S
 export class ClaudeCodeAdapter extends CliAdapter {
   readonly id = 'claude' as const;
   readonly accountEnvKey = 'CLAUDE_CONFIG_DIR';
+  readonly apiKeyEnvVar = 'ANTHROPIC_API_KEY';
   async account(env?: Record<string, string>) {
     if (!this.command) await this.detect();
     if (!this.command) return { loggedIn: false };

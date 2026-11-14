@@ -45,7 +45,7 @@ export class Orchestrator {
   constructor(private readonly registry: AgentRegistry, private readonly repository: SessionRepository,
     private readonly cwd: string, private readonly isTrusted: () => boolean, private readonly timeoutMs: () => number,
     private readonly storageError: (error: unknown) => void = () => undefined,
-    private readonly accountEnv: (provider: AgentId, accountId?: string) => Record<string, string> | undefined = () => undefined) {
+    private readonly accountEnv: (provider: AgentId, accountId?: string) => Promise<Record<string, string> | undefined> | Record<string, string> | undefined = () => undefined) {
     const stored = repository.load();
     this.listed = repository.list();
     this.state = { persistent: repository.persistent, hasEarlier: repository.hasEarlier(repository.conversationId, stored.tasks[0]?.startedAt) || undefined, workspace: cwd, tasks: stored.tasks, policy: stored.policy, providers: [], checking: false, trusted: isTrusted(), conversationId: repository.conversationId, conversations: this.listed, approvals: [] };
@@ -186,7 +186,7 @@ export class Orchestrator {
     if (contextIds.length) task.contextIds = contextIds; else delete task.contextIds;
     if (resumeSessionId) task.contextMode = 'native'; else if (contextIds.length) task.contextMode = 'rebuilt'; else delete task.contextMode;
     const prompt = task.participantRole ? `${roleInstructions[task.participantRole]}\n\n${message}` : message;
-    const env = this.accountEnv(task.provider, task.accountId);
+    const env = await this.accountEnv(task.provider, task.accountId);
     const conversationId = this.taskConversations.get(task.id) ?? this.repository.conversationId;
     if (task.attachments?.length && !this.attachmentStore) throw new Error('目前無法讀取圖片附件。');
     const images = task.attachments?.length ? await Promise.all(task.attachments.map(async item => ({ mime: item.mime, data: await this.attachmentStore!.read(conversationId, item.id) }))) : undefined;

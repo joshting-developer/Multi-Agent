@@ -63,7 +63,7 @@ export interface ConversationSummary { id: string; title: string; createdAt: num
 export interface UsageWindow { label: string; usedPercent: number; resetsAt?: number }
 /** source：official 為即時查詢；last-run 為最近一次實際執行時官方回報的值。 */
 export interface UsageSnapshot { windows: UsageWindow[]; updatedAt: number; source: 'official' | 'last-run'; blocked?: boolean }
-export interface AccountSummary { id: string; provider: AgentId; name: string; builtIn: boolean; loggedIn?: boolean; account?: ProviderStatus['account']; usage?: UsageSnapshot }
+export interface AccountSummary { id: string; provider: AgentId; name: string; builtIn: boolean; method?: 'cli' | 'api-key'; loggedIn?: boolean; account?: ProviderStatus['account']; usage?: UsageSnapshot }
 export interface ApprovalRequest { id: string; taskId: string; provider: AgentId; title: string; detail: string; conversationId?: string }
 const base = { version: z.literal(1), requestId: z.string().min(1).max(100) };
 export const webviewMessageSchema = z.discriminatedUnion('type', [
@@ -72,7 +72,7 @@ export const webviewMessageSchema = z.discriminatedUnion('type', [
     attachments: z.array(z.object({ mime: z.string().max(40), data: z.string().max(7_000_000) })).max(4).optional() }),
   z.object({ ...base, type: z.literal('start-discussion'), provider: agentIdSchema, partner: agentIdSchema.optional(), text: z.string().trim().min(1).max(32000), rounds: z.number().int().min(2).max(8), preferences: providerPreferencesSchema.optional(), partnerAccountId: z.string().max(100).optional() }),
   z.object({ ...base, type: z.literal('extend-discussion'), discussionId: z.string().min(1).max(100), rounds: z.number().int().min(1).max(6) }),
-  z.object({ ...base, type: z.literal('add-account'), provider: agentIdSchema, name: z.string().trim().min(1).max(60) }),
+  z.object({ ...base, type: z.literal('add-account'), provider: agentIdSchema, name: z.string().trim().min(1).max(60), apiKey: z.string().max(400).optional() }),
   z.object({ ...base, type: z.literal('rename-account'), accountId: z.string().min(1).max(100), name: z.string().trim().min(1).max(60) }),
   z.object({ ...base, type: z.literal('remove-account'), accountId: z.string().min(1).max(100) }),
   z.object({ ...base, type: z.literal('account-terminal'), accountId: z.string().min(1).max(100), action: z.enum(['login', 'logout']) }),

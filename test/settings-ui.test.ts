@@ -67,6 +67,17 @@ describe('Explicit models, accounts and history controls', () => {
     expect(builtIn.text()).toContain('使用中'); expect(builtIn.findAll('button').map(button => button.text())).toEqual(['登出', '重新命名']);
     await wrapper.findAll('.account-add input')[1]!.setValue('個人 Claude'); await wrapper.findAll('.account-add')[1]!.trigger('submit');
     expect(wrapper.emitted('add')).toEqual([['claude', '個人 Claude']]);
+    // API Key：選了方式才出現密碼欄位，沒填 Key 不能送出，送出後清空。
+    const codexAdd = wrapper.findAll('.account-add')[0]!;
+    expect(codexAdd.find('input[type="password"]').exists()).toBe(false);
+    await codexAdd.get('select').setValue('api-key'); await codexAdd.get('input').setValue('Codex API');
+    expect(codexAdd.get('button').attributes('disabled')).toBeDefined(); expect(codexAdd.get('button').text()).toBe('新增');
+    await codexAdd.get('input[type="password"]').setValue(' sk-test '); await codexAdd.trigger('submit');
+    expect(wrapper.emitted('add')![1]).toEqual(['codex', 'Codex API', 'sk-test']);
+    expect((codexAdd.get('input[type="password"]').element as HTMLInputElement).value).toBe('');
+    await wrapper.setProps({ accounts: [...accounts, { id: 'key', provider: 'claude' as const, name: 'Claude API', builtIn: false, method: 'api-key' as const, loggedIn: true }] });
+    const keyRow = wrapper.findAll('.account-row').find(row => row.text().includes('Claude API'))!;
+    expect(keyRow.text()).toContain('API Key'); expect(keyRow.findAll('button').map(button => button.text())).toEqual(['設為使用中', '重新命名', '移除']);
     await builtIn.findAll('button')[1]!.trigger('click'); await wrapper.get('.account-rename input').setValue('私人'); await wrapper.get('.account-rename').trigger('submit');
     expect(wrapper.emitted('rename')).toEqual([['default-claude', '私人']]);
     await wrapper.findAll('button').find(button => button.text().includes('重新整理'))!.trigger('click'); expect(wrapper.emitted('refresh')).toHaveLength(1); wrapper.unmount();

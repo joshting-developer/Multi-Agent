@@ -15,6 +15,13 @@ export class CodexAppServerAdapter extends CodexAdapter {
     catch { return { loggedIn: false }; }
   }
   authCommand(action: 'login' | 'logout') { return this.command ? [this.command, action] : undefined; }
+  /** 官方 codex login --with-api-key：Key 從 stdin 交給 CLI，寫進該帳號自己的 CODEX_HOME。 */
+  async apiKeyLogin(key: string, env: Record<string, string>): Promise<void> {
+    if (!this.command) await this.detect();
+    if (!this.command) throw new Error('找不到 Codex CLI。');
+    const result = await this.processes.collect({ command: this.command, args: ['login', '--with-api-key'], cwd: this.detectionCwd, timeoutMs: 20000, input: key, env: { ...process.env, ...env } });
+    if (result.code !== 0) throw new Error('Codex 沒有接受這個 API Key，請確認 Key 是否正確。');
+  }
   /** 官方 account/rateLimits/read，不建立 thread 或模型推論。 */
   async usage(env?: Record<string, string>): Promise<UsageSnapshot | undefined> {
     if (!this.command) await this.detect();
