@@ -1,4 +1,4 @@
-import type { AgentId, ExecutionMode, ProviderStatus } from '../bridge/messages';
+import type { AgentId, ExecutionMode, ProviderStatus, UsageSnapshot } from '../bridge/messages';
 import type { ApprovalMode, ReasoningEffort } from '../bridge/settings';
 import type { ApprovalRequest } from '../bridge/messages';
 export interface AgentRequest {
@@ -14,6 +14,7 @@ export interface AgentRequest {
 export type AgentEvent =
   | { type: 'text-delta'; taskId: string; text: string }
   | { type: 'activity'; taskId: string; text: string }
+  | { type: 'usage'; taskId: string; usage: UsageSnapshot }
   | { type: 'tool'; taskId: string; id: string; tool: string; phase: 'start' | 'end'; success?: boolean; input?: string; output?: string }
   | { type: 'complete'; taskId: string; sessionId?: string };
 export interface AccountState { loggedIn: boolean; account?: ProviderStatus['account'] }
@@ -25,6 +26,8 @@ export interface AgentAdapter {
   account?(env?: Record<string, string>): Promise<AccountState>;
   /** 官方登入／登出命令，由使用者在終端機完成。 */
   authCommand?(action: 'login' | 'logout'): string[] | undefined;
+  /** 不建立模型推論即可讀取的官方用量；不支援時不實作。 */
+  usage?(env?: Record<string, string>): Promise<UsageSnapshot | undefined>;
   detect(): Promise<ProviderStatus>;
   capabilities(): ProviderStatus['capabilities'];
   execute(request: AgentRequest): AsyncIterable<AgentEvent>;

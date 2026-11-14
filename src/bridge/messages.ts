@@ -58,7 +58,11 @@ export interface SearchFilters { provider?: AgentId; mode?: 'solo' | 'discussion
 /** 搜尋命中的那一次執行：實際來源與時間，供結果顯示與跳到原始訊息。 */
 export interface SearchMatch { runId: string; messageId?: string; at: number; provider: AgentId; discussion: boolean }
 export interface ConversationSummary { id: string; title: string; createdAt: number; updatedAt: number; provider?: AgentId; preview?: string; activity?: 'running' | 'queued' | 'waiting'; match?: SearchMatch }
-export interface AccountSummary { id: string; provider: AgentId; name: string; builtIn: boolean; loggedIn?: boolean; account?: ProviderStatus['account'] }
+/** 官方提供的額度時間窗；usedPercent 0–100，resetsAt 為毫秒時間戳。沒有來源的欄位不填。 */
+export interface UsageWindow { label: string; usedPercent: number; resetsAt?: number }
+/** source：official 為即時查詢；last-run 為最近一次實際執行時官方回報的值。 */
+export interface UsageSnapshot { windows: UsageWindow[]; updatedAt: number; source: 'official' | 'last-run'; blocked?: boolean }
+export interface AccountSummary { id: string; provider: AgentId; name: string; builtIn: boolean; loggedIn?: boolean; account?: ProviderStatus['account']; usage?: UsageSnapshot }
 export interface ApprovalRequest { id: string; taskId: string; provider: AgentId; title: string; detail: string; conversationId?: string }
 const base = { version: z.literal(1), requestId: z.string().min(1).max(100) };
 export const webviewMessageSchema = z.discriminatedUnion('type', [

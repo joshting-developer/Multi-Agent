@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AgentId, ProviderStatus } from '../bridge/messages';
+import type { AgentId, ProviderStatus, UsageSnapshot } from '../bridge/messages';
 import type { AgentRegistry } from '../agents/AgentRegistry';
 import type { StateStorage } from '../storage/SessionRepository';
 
 export interface StoredAccount { id: string; provider: AgentId; name: string }
-export interface AccountView extends StoredAccount { builtIn: boolean; loggedIn?: boolean; account?: ProviderStatus['account'] }
+export interface AccountView extends StoredAccount { builtIn: boolean; loggedIn?: boolean; account?: ProviderStatus['account']; usage?: UsageSnapshot }
 interface StoredState { version: 1; accounts: StoredAccount[]; names: Record<string, string>; selected?: Partial<Record<AgentId, string>> }
 const key = 'multiAgent.accounts.v1';
 const providers: AgentId[] = ['codex', 'claude'];
@@ -19,6 +19,7 @@ export const defaultAccountId = (provider: AgentId) => `default-${provider}`;
 export class AccountService {
   private readonly status = new Map<string, { loggedIn: boolean; account?: ProviderStatus['account'] }>();
   private readonly listeners = new Set<() => void>();
+  private readonly usage = new Map<string, UsageSnapshot>();
   constructor(private readonly storage: StateStorage, private readonly root: string, private readonly registry: AgentRegistry) {}
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   private changed() { for (const listener of this.listeners) listener(); }
@@ -32,7 +33,7 @@ export class AccountService {
     return [
       ...providers.map(provider => ({ id: defaultAccountId(provider), provider, name: state.names[defaultAccountId(provider)] ?? '預設帳號', builtIn: true })),
       ...state.accounts.map(account => ({ ...account, builtIn: false }))
-    ].map(account => ({ ...account, ...this.status.get(account.id) }));
+    ].map(account => ({ ...account, ...this.status.get(account.id), ...(this.usage.has(account.id) && { usage: this.usage.get(account.id) }) }));
   }
   private find(id: string): AccountView {
     const account = this.list().find(item => item.id === id);
@@ -88,9 +89,14 @@ export class AccountService {
   }
   async refresh(): Promise<void> {
     await Promise.all(this.list().map(async account => {
-      const adapter = this.registry.get(account.provider);
-      if (adapter.account) this.status.set(account.id, await adapter.account(this.env(account.provider, account.id)));
+      const adapter = this.registry.get(account.provider); const env = this.env(account.provider, account.id);
+      if (adapter.account) this.status.set(account.id, await adapter.account(env));
+      // 只有官方提供不需推論的查詢時才主動讀；其餘保留最近一次執行回報的值，切換帳號不會沿用其他帳號的資料。
+      if (adapter.usage && this.status.get(account.id)?.loggedIn) { const usage = await adapter.usage(env); if (usage) this.usage.set(account.id, usage); else this.usage.delete(account.id); }
     }));
     this.changed();
+  }
+  recordUsage(provider: AgentId, id: string | undefined, usage: UsageSnapshot): void {
+    this.usage.set(id ?? defaultAccountId(provider), usage); this.changed();
   }
 }

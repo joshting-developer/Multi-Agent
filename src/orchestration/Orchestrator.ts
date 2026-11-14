@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentId, ApprovalRequest, AuditEvent, ConversationSummary, SearchFilters, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
+import type { AgentId, ApprovalRequest, AuditEvent, ConversationSummary, SearchFilters, UsageSnapshot, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
 import { AgentRegistry } from '../agents/AgentRegistry';
 import { assertAuthorized } from '../execution/ExecutionPolicy';
 import { ProcessError } from '../execution/ProcessManager';
@@ -27,6 +27,8 @@ const roleInstructions: Record<ParticipantRole, string> = {
 /** V0.1 serial manual executor. Planning and routing remain separate future concerns. */
 export class Orchestrator {
   readonly state: Snapshot;
+  /** 執行中官方回報的額度狀態，交給帳號管理記錄（依執行時的帳號）。 */
+  onUsage?: (provider: AgentId, accountId: string | undefined, usage: UsageSnapshot) => void;
   private active?: { task: Task; controller: AbortController; finished: Promise<void>; conversationId: string };
   /** 有執行中或排隊任務的對話，切走後仍留在記憶體並持續寫回原對話。 */
   private readonly live = new Map<string, Task[]>();
@@ -187,6 +189,7 @@ export class Orchestrator {
         if (last?.kind === 'text') last.text += event.text; else task.steps?.push({ kind: 'text', text: event.text });
       } else if (event.type === 'activity') task.activity = event.text;
       else if (event.type === 'tool') this.toolStep(task, event);
+      else if (event.type === 'usage') this.onUsage?.(task.provider, task.accountId, event.usage);
       else task.sessionId = event.sessionId;
       this.changed(true);
     }

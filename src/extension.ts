@@ -45,6 +45,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Extens
     () => { void vscode.window.showErrorMessage('Multi-Agent 無法儲存本機聊天紀錄。請檢查 VS Code storage 的可用空間與權限。'); },
     (provider, accountId) => accounts.env(provider, accountId));
   const settings = new SettingsService(new CodexModelCatalog(processes, () => config().get<string>('codexPath', ''), context.extensionPath));
+  orchestrator.onUsage = (provider, accountId, usage) => accounts.recordUsage(provider, accountId, usage);
   const controller = new ChatWebviewProvider(context.extensionUri, orchestrator, settings, accounts);
   let providerCheckPending = false;
   const checkChangedProviders = () => {

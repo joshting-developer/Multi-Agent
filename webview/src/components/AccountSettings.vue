@@ -11,6 +11,7 @@ function add(provider: AgentId) {
   if (!name) return;
   emit('add', provider, name); names.value[provider] = '';
 }
+const time = (value: number) => new Date(value).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 function rename(id: string) {
   if (title.value.trim()) emit('rename', id, title.value.trim());
   editing.value = '';
@@ -29,6 +30,13 @@ function rename(id: string) {
           </form>
           <strong v-else>{{ account.name }}<span v-if="selected[provider] === account.id" class="account-current"> · 使用中</span></strong>
           <small>{{ account.loggedIn === undefined ? '檢查中' : account.loggedIn ? [account.account?.email, account.account?.plan].filter(Boolean).join(' · ') || '已登入' : '未登入' }}</small>
+          <template v-if="account.loggedIn">
+            <ul v-if="account.usage" class="usage-list" :aria-label="`${account.name} 的用量`">
+              <li v-for="window in account.usage.windows" :key="window.label"><span>{{ window.label }}</span><meter min="0" max="100" :value="window.usedPercent" :aria-label="`${window.label} 已用 ${window.usedPercent}%`"></meter><span>{{ window.usedPercent }}%<template v-if="window.resetsAt"> · {{ time(window.resetsAt) }} 重置</template></span></li>
+              <li class="usage-note">{{ account.usage.blocked ? '目前額度已用完 · ' : '' }}{{ account.usage.source === 'last-run' ? '最近一次執行' : '更新' }} {{ time(account.usage.updatedAt) }}</li>
+            </ul>
+            <small v-else>{{ provider === 'claude' ? '執行一次後顯示用量' : '無法取得用量' }}</small>
+          </template>
         </div>
         <div class="account-actions">
           <button v-if="selected[provider] !== account.id" type="button" class="text-button" :disabled="!account.loggedIn" @click="emit('select', provider, account.id)">設為使用中</button>

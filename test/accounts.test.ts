@@ -57,4 +57,19 @@ describe('Multiple official CLI accounts', () => {
     expect(claude.requests.filter(request => request.args.includes('status')).map(request => request.env?.CLAUDE_CONFIG_DIR)).toEqual(expect.arrayContaining([join(root, signedIn.id), join(root, signedOut.id)]));
     void signedOut;
   });
+  it('reads Codex usage per account without a model run and keeps Claude usage from the last real run', async () => {
+    const { root, registry } = await setup();
+    const accounts = new AccountService(new Memory(), root, registry);
+    const exhausted = await accounts.add('codex', 'exhausted');
+    await accounts.refresh();
+    const codex = accounts.list().find(item => item.id === defaultAccountId('codex'))!;
+    expect(codex.usage).toMatchObject({ source: 'official', windows: [{ label: '5 小時', usedPercent: 42, resetsAt: 1794632400000 }, { label: '7 天', usedPercent: 7 }] });
+    expect(codex.usage?.windows[1]).not.toHaveProperty('resetsAt'); expect(codex.usage?.blocked).toBeUndefined();
+    expect(accounts.list().find(item => item.id === exhausted.id)?.usage?.blocked).toBe(true);
+    expect(JSON.stringify(accounts.list())).not.toContain('secret-must-not-leak');
+    // Claude 沒有不需推論的查詢：沒有執行前不顯示數字，執行回報後依帳號記錄。
+    expect(accounts.list().find(item => item.id === defaultAccountId('claude'))?.usage).toBeUndefined();
+    accounts.recordUsage('claude', undefined, { windows: [{ label: '5 小時', usedPercent: 25 }], updatedAt: 1, source: 'last-run' });
+    expect(accounts.list().find(item => item.id === defaultAccountId('claude'))?.usage?.windows[0]?.usedPercent).toBe(25);
+  });
 });

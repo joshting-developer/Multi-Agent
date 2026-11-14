@@ -152,3 +152,8 @@ select { min-width: 0; max-width: 100%; border: 0; border-radius: 5px; padding: 
 .turn.focused .assistant-message, .turn.focused .user-message { outline: 1px solid var(--vscode-focusBorder); outline-offset: 4px; }
 mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inherit; }
 .load-earlier { display: block; margin: 0 auto 12px; }
+.usage-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font-size: 11px; color: var(--vscode-descriptionForeground); }
+.usage-list li { display: grid; grid-template-columns: 5em minmax(40px, 120px) auto; gap: 6px; align-items: center; }
+.usage-list li.usage-note { display: block; }
+.usage-list meter { width: 100%; height: 6px; }
+

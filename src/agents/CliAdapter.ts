@@ -1,4 +1,4 @@
-import type { AgentId, ProviderStatus } from '../bridge/messages';
+import type { AgentId, ProviderStatus, UsageSnapshot } from '../bridge/messages';
 import { ProcessError, ProcessManager } from '../execution/ProcessManager';
 import type { AgentAdapter, AgentEvent, AgentRequest } from './AgentAdapter';
 import { resolveExecutable } from './ExecutableResolver';
@@ -105,13 +105,18 @@ export abstract class CliAdapter implements AgentAdapter {
 export interface StreamState {
   text: string; itemText: Map<string, string>; completed: boolean; emitted: boolean; sessionId?: string; tools?: Map<string, string>;
 }
-export type ParsedEvent = { type: 'text-delta'; text: string } | { type: 'activity'; text: string } | { type: 'tool'; id: string; tool: string; phase: 'start' | 'end'; success?: boolean; input?: string; output?: string };
+export type ParsedEvent = { type: 'text-delta'; text: string } | { type: 'activity'; text: string } | { type: 'tool'; id: string; tool: string; phase: 'start' | 'end'; success?: boolean; input?: string; output?: string } | { type: 'usage'; usage: UsageSnapshot };
 /** 工具輸入／結果轉成可讀文字；遮罩與截斷由 Orchestrator 統一處理。 */
 export function toolText(value: unknown): string | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   if (typeof value === 'string') return value.slice(0, 20000);
   if (Array.isArray(value)) return value.map(item => typeof item === 'string' ? item : String(record(item).text ?? JSON.stringify(item))).join('\n').slice(0, 20000);
   return JSON.stringify(value, null, 2).slice(0, 20000);
+}
+/** 依時間窗長度給可讀標籤，例如 300 分鐘 → 5 小時。 */
+export function windowLabel(minutes?: number, fallback = '額度'): string {
+  if (!minutes) return fallback;
+  return minutes % 1440 === 0 ? `${minutes / 1440} 天` : minutes % 60 === 0 ? `${minutes / 60} 小時` : `${minutes} 分鐘`;
 }
 export function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};

@@ -1,7 +1,8 @@
 import type { AgentEvent, AgentRequest } from './AgentAdapter';
 import { CodexAdapter } from './CodexAdapter';
 import { CodexRpc, readCodexAccount } from './CodexRpc';
-import { providerFailure, record, SessionUnavailable, toolText } from './CliAdapter';
+import { providerFailure, record, SessionUnavailable, toolText, windowLabel } from './CliAdapter';
+import type { UsageSnapshot } from '../bridge/messages';
 import { protectedPatterns } from '../execution/ExecutionPolicy';
 
 export class CodexAppServerAdapter extends CodexAdapter {
@@ -14,6 +15,24 @@ export class CodexAppServerAdapter extends CodexAdapter {
     catch { return { loggedIn: false }; }
   }
   authCommand(action: 'login' | 'logout') { return this.command ? [this.command, action] : undefined; }
+  /** 官方 account/rateLimits/read，不建立 thread 或模型推論。 */
+  async usage(env?: Record<string, string>): Promise<UsageSnapshot | undefined> {
+    if (!this.command) await this.detect();
+    if (!this.command) return undefined;
+    const rpc = new CodexRpc(this.processes);
+    try {
+      for await (const message of rpc.messages({ command: this.command, cwd: this.detectionCwd, timeoutMs: 15000, ...(env && { env: { ...process.env, ...env } }) })) {
+        if (message.id === 1) rpc.request(2, 'account/rateLimits/read', { excludeResetCreditDetails: true });
+        if (message.id !== 2) continue;
+        if (message.error) return undefined;
+        const result = record(message.result); const limits = record(result.rateLimits);
+        const windows = (['primary', 'secondary'] as const).map(key => record(limits[key])).filter(window => typeof window.usedPercent === 'number')
+          .map(window => ({ label: windowLabel(typeof window.windowDurationMins === 'number' ? window.windowDurationMins : undefined), usedPercent: Number(window.usedPercent), ...(typeof window.resetsAt === 'number' && { resetsAt: window.resetsAt * 1000 }) }));
+        return windows.length ? { windows, updatedAt: Date.now(), source: 'official', ...(result.ordinaryUsageAllowed === false && { blocked: true }) } : undefined;
+      }
+    } catch { return undefined; }
+    return undefined;
+  }
   protected override async inspect(command: string) {
     const status = await super.inspect(command);
     const help = await this.probe(command, ['--help']);

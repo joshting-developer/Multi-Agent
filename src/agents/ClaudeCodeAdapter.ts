@@ -67,6 +67,14 @@ export class ClaudeCodeAdapter extends CliAdapter {
   protected parse(line: Record<string, unknown>, state: StreamState): ParsedEvent[] {
     const events: ParsedEvent[] = [];
     if (typeof line.session_id === 'string') state.sessionId = line.session_id;
+    // 官方每次執行回報的額度狀態；只取使用率、重置時間與是否受限。
+    if (line.type === 'rate_limit_event') {
+      const info = record(line.rate_limit_info); const windows = record(info.unifiedWindows);
+      const labels: Record<string, string> = { five_hour: '5 小時', seven_day: '7 天', seven_day_opus: '7 天（Opus）', seven_day_sonnet: '7 天（Sonnet）' };
+      const usage = Object.entries(windows).map(([key, value]) => ({ key, value: record(value) })).filter(({ value }) => typeof value.utilization === 'number')
+        .map(({ key, value }) => ({ label: labels[key] ?? key, usedPercent: Math.round(Number(value.utilization) * 100), ...(typeof value.resetsAt === 'number' && { resetsAt: value.resetsAt * 1000 }) }));
+      if (usage.length) events.push({ type: 'usage', usage: { windows: usage, updatedAt: Date.now(), source: 'last-run', blocked: info.status === 'rejected' } });
+    }
     if (line.type === 'stream_event') {
       const event = record(line.event);
       if (event.type === 'message_start') state.text = '';

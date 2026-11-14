@@ -26,6 +26,7 @@ if (args.includes('--version')) {
     const message = JSON.parse(line);
     if (message.method === 'initialize') emit({ id: message.id, result: { serverInfo: 'fixture' } });
     else if (message.method === 'initialized') initialized = true;
+    else if (message.method === 'account/rateLimits/read') emit({ id: message.id, result: { ordinaryUsageAllowed: !process.env.CODEX_HOME, rateLimits: { primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: 1794632400 }, secondary: { usedPercent: 7, windowDurationMins: 10080, resetsAt: null } }, accessToken: 'secret-must-not-leak' } });
     else if (message.method === 'account/read') emit({ id: message.id, result: { account: { type: 'chatgpt', email: 'codex@example.test', planType: 'pro', accessToken: 'secret-must-not-leak' } } });
     else if (message.method === 'thread/start') { global.start = message.params; emit({ id: message.id, result: { thread: { id: 'rpc-session' } } }); }
     else if (message.method === 'thread/resume') {
@@ -83,6 +84,9 @@ if (args.includes('--version')) {
     if (message.type === 'user') emit({ type: 'control_request', request_id: 'approval', request: { subtype: 'can_use_tool', tool_name: 'Write', input: { file_path: '/synthetic/file.txt', content: 'hello' } } });
     if (message.type === 'control_response') { emit({ type: 'result', subtype: 'success', result: message.response.response.behavior }); }
   });
+} else if (provider === 'claude' && scenario === 'usage') {
+  emit({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', unifiedWindows: { five_hour: { utilization: 0.25, resetsAt: 1794632400, status: 'allowed' }, seven_day: { utilization: 0.9, resetsAt: 1794916800, status: 'allowed' } } } });
+  emit({ type: 'result', subtype: 'success', result: 'ok' });
 } else if (provider === 'claude' && scenario === 'tools') {
   emit({ type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'tool_use', id: 'tu1', name: 'Read', input: {} } } });
   emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu1', name: 'Read', input: { file_path: 'notes.txt' } }] } });

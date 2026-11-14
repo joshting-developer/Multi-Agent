@@ -31,6 +31,13 @@ describe.each(['codex', 'claude'] as const)('%s official approval protocol', pro
       : [{ type: 'tool', taskId: 'task', id: 'tu1', tool: 'Read', phase: 'start' }, { type: 'tool', taskId: 'task', id: 'tu1', tool: 'Read', phase: 'start', input: 'notes.txt' }, { type: 'tool', taskId: 'task', id: 'tu1', tool: 'Read', phase: 'end', success: true, output: 'file body' }]);
     await processes.dispose();
   });
+  it('reports official usage windows reported during a Claude run', async () => {
+    if (provider !== 'claude') return;
+    const { adapter, processes } = setup('usage'); await adapter.detect();
+    const usage = []; for await (const event of adapter.execute({ ...request, approvalMode: undefined })) if (event.type === 'usage') usage.push(event.usage);
+    expect(usage).toEqual([{ windows: [{ label: '5 小時', usedPercent: 25, resetsAt: 1794632400000 }, { label: '7 天', usedPercent: 90, resetsAt: 1794916800000 }], updatedAt: expect.any(Number), source: 'last-run', blocked: false }]);
+    await processes.dispose();
+  });
   it('does not approve a write in read-only mode even with an allow callback', async () => {
     const { adapter, processes } = setup(); await adapter.detect(); const approve = vi.fn(async () => true);
     for await (const event of adapter.execute({ ...request, mode: 'read-only', approve })) void event;
