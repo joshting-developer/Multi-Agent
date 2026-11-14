@@ -232,9 +232,8 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         if (this.approvalPending) throw new Error('請先完成目前的授權對話框。');
         this.orchestrator.assertCanSend(message.provider, message.mode);
         try {
-          const preferences = message.preferences ?? this.settings?.read()[message.provider];
-          if (preferences) this.settings?.validate(message.provider, preferences);
-          if (this.settings && !preferences?.model) throw new Error('請先選擇明確的模型。');
+          // 和討論一樣經 preferencesFor 帶入帳號；畫面沒指定時用該來源目前選定的帳號。
+          const preferences = this.preferencesFor(message.provider, message.preferences);
           const approvalMode = message.approvalMode ?? this.settings?.read().approvalMode ?? 'ask';
           const provider = this.orchestrator.state.providers.find(item => item.id === message.provider);
           if (provider?.approvalModes && !provider.approvalModes.includes(approvalMode)) throw new Error('目前 CLI 不支援所選核准模式，請更新 CLI 或改選要求核准。');

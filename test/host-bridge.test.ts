@@ -6,6 +6,10 @@ import { AgentRegistry } from '../src/agents/AgentRegistry';
 import type { AgentAdapter, AgentRequest } from '../src/agents/AgentAdapter';
 import { SessionRepository } from '../src/storage/SessionRepository';
 import { createdPanels, window as nativeWindow } from './fixtures/vscode';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { AccountService } from '../src/accounts/AccountService';
 
 describe('Webview to native agent execution', () => {
   it('starts workspace-write directly after workspace authorization without another modal', async () => {
@@ -107,4 +111,36 @@ describe('Webview to native agent execution', () => {
       await vi.waitFor(() => expect(nativeWindow.showInformationMessage).toHaveBeenCalledWith('已使用一張重置券，額度已重置。'));
     } finally { controller.dispose(); await orchestrator.dispose(); }
   });
+  it('runs a chat message on the selected account when the composer does not name one', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'multi-agent-chat-account-'));
+    const envs: (Record<string, string> | undefined)[] = [];
+    const capabilities = { streaming: true, readOnly: true, workspaceWrite: true, resumeSession: false, structuredOutput: true, toolApproval: false };
+    const adapter: AgentAdapter = {
+      id: 'codex', accountEnvKey: 'CODEX_HOME', capabilities: () => capabilities,
+      detect: async () => ({ id: 'codex', status: 'ready', capabilities }),
+      async *execute(request) { envs.push(request.env); yield { type: 'complete', taskId: request.taskId }; },
+      cancel: async () => undefined
+    };
+    const registry = new AgentRegistry([adapter]);
+    let state: unknown;
+    const accounts = new AccountService({ get: <T>() => state as T, update: async (_key: string, value: unknown) => { state = value; } }, root, registry);
+    const orchestrator = new Orchestrator(registry, new SessionRepository({ get: () => undefined, update: async () => undefined }, '/workspace'), '/workspace', () => true, () => 10000, () => undefined, (provider, accountId) => accounts.env(provider, accountId));
+    await orchestrator.setPolicy({ classification: 'personal', allowedProviders: ['codex'] }); await orchestrator.checkProviders();
+    const first = await accounts.add('codex', 'first'); const chosen = await accounts.add('codex', 'chosen'); await accounts.select('codex', chosen.id);
+    const settings = { read: () => ({ codex: { model: 'test-model', effort: 'low' } }), validate: () => undefined, subscribe: () => () => undefined };
+    const controller = new ChatWebviewProvider(vscode.Uri.file('/extension'), orchestrator, settings as never, accounts);
+    let receive: ((message: unknown) => void) | undefined;
+    const postMessage = vi.fn().mockResolvedValue(true);
+    controller.resolveWebviewView({
+      webview: { options: {}, cspSource: 'vscode-webview:', html: '', asWebviewUri: (uri: vscode.Uri) => uri, postMessage, onDidReceiveMessage: (handler: (message: unknown) => void) => { receive = handler; return { dispose() {} }; } },
+      onDidDispose: () => ({ dispose() {} })
+    } as unknown as vscode.WebviewView);
+    try {
+      receive!({ version: 1, requestId: 'chat-1', type: 'send-message', provider: 'codex', mode: 'read-only', text: 'hello', preferences: { model: 'test-model', effort: 'low' } });
+      await vi.waitFor(() => expect(orchestrator.state.tasks[0]?.status).toBe('completed'));
+      expect(orchestrator.state.tasks[0]?.accountId).toBe(chosen.id);
+      expect(envs[0]?.CODEX_HOME).toBe(join(root, chosen.id)); expect(envs[0]?.CODEX_HOME).not.toBe(join(root, first.id));
+    } finally { controller.dispose(); await orchestrator.dispose(); await rm(root, { recursive: true, force: true }); }
+  });
 });
+
