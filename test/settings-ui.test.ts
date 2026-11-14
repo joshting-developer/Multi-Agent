@@ -95,6 +95,11 @@ describe('Explicit models, accounts and history controls', () => {
     const rows = wrapper.findAll('.usage-list li');
     expect(rows[0]!.text()).toContain('剩 0%'); expect(rows[1]!.text()).toContain('剩 69%');
     expect((rows[0]!.get('meter').element as HTMLMeterElement).getAttribute('aria-label')).toBe('5 小時 剩餘 0%');
+    expect(wrapper.find('.usage-note').text()).not.toContain('重置券'); expect(wrapper.findAll('button').some(button => button.text() === '使用重置券')).toBe(false);
+    await wrapper.setProps({ accounts: [{ id: 'a', provider: 'codex' as const, name: 'a', loggedIn: true, usage: { ...usage, resetCredits: 2 } }] });
+    expect(wrapper.find('.usage-note').text()).toContain('重置券 2 張');
+    await wrapper.findAll('button').find(button => button.text() === '使用重置券')!.trigger('click');
+    expect(wrapper.emitted('reset')).toEqual([['a']]);
     wrapper.unmount();
   });
   it('searches and opens saved conversations through the history panel', async () => {

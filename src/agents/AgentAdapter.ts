@@ -1,4 +1,4 @@
-import type { AgentId, ExecutionMode, ProviderStatus, UsageSnapshot } from '../bridge/messages';
+import type { AgentId, ExecutionMode, ProviderStatus, ResetCreditOutcome, UsageSnapshot } from '../bridge/messages';
 import type { ApprovalMode, ReasoningEffort } from '../bridge/settings';
 import type { ApprovalRequest } from '../bridge/messages';
 export interface AgentRequest {
@@ -30,6 +30,8 @@ export interface AgentAdapter {
   authCommand?(action: 'login' | 'logout'): string[] | undefined;
   /** 不建立模型推論即可讀取的官方用量；不支援時不實作。 */
   usage?(env?: Record<string, string>): Promise<UsageSnapshot | undefined>;
+  /** 使用一張官方額度重置券；不支援時不實作。 */
+  consumeResetCredit?(env?: Record<string, string>): Promise<ResetCreditOutcome>;
   /** 以 API Key 登入：官方 CLI 有對應命令時由它保存（Codex）；否則以這個環境變數在執行時提供（Claude）。 */
   apiKeyLogin?(key: string, env: Record<string, string>): Promise<void>;
   readonly apiKeyEnvVar?: string;

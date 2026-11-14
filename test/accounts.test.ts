@@ -86,11 +86,29 @@ describe('Multiple official CLI accounts', () => {
     expect(codex.usage?.windows[1]).not.toHaveProperty('resetsAt'); expect(codex.usage?.blocked).toBeUndefined();
     expect(accounts.list().find(item => item.id === exhausted.id)?.usage?.blocked).toBe(true);
     expect(JSON.stringify(accounts.list())).not.toContain('secret-must-not-leak');
+    expect(codex.usage?.resetCredits).toBe(1);
     // Claude 沒有不需推論的查詢：沒有執行前不顯示數字，執行回報後依帳號記錄。
     const claude = await accounts.add('claude', 'Claude'); await accounts.refresh([claude.id]);
     expect(accounts.list().find(item => item.id === claude.id)?.usage).toBeUndefined();
     accounts.recordUsage('claude', claude.id, { windows: [{ label: '5 小時', usedPercent: 25 }], updatedAt: 1, source: 'last-run' });
     expect(accounts.list().find(item => item.id === claude.id)?.usage?.windows[0]?.usedPercent).toBe(25);
+  });
+  it('uses an official reset credit only when the window is exhausted and refreshes usage afterwards', async () => {
+    const { root, registry } = await setup();
+    const accounts = new AccountService(new Memory(), root, registry);
+    const account = await accounts.add('codex', 'main');
+    await accounts.refresh([account.id]);
+    await expect(accounts.useResetCredit(account.id)).resolves.toBe('nothingToReset');
+    await writeFile(join(root, account.id, 'exhausted'), ''); await accounts.refresh([account.id]);
+    expect(accounts.list()[0]!.usage).toMatchObject({ blocked: true, resetCredits: 1 });
+    await expect(accounts.useResetCredit(account.id)).resolves.toBe('reset');
+    expect(accounts.list()[0]!.usage?.blocked).toBeUndefined(); expect(accounts.list()[0]!.usage?.resetCredits).toBe(0);
+    await expect(accounts.useResetCredit(account.id)).resolves.toBe('noCredit');
+    // 執行回報沒有張數時沿用官方查詢的值。
+    accounts.recordUsage('codex', account.id, { windows: [], updatedAt: 2, source: 'last-run' });
+    expect(accounts.list()[0]!.usage?.resetCredits).toBe(0);
+    const claude = await accounts.add('claude', 'Claude');
+    await expect(accounts.useResetCredit(claude.id)).rejects.toThrow('沒有額度重置券');
   });
   it('adds API Key accounts without keeping the key in state or the terminal', async () => {
     const { root, registry, codex } = await setup();

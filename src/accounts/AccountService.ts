@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AgentId, ProviderStatus, UsageSnapshot } from '../bridge/messages';
+import type { AgentId, ProviderStatus, ResetCreditOutcome, UsageSnapshot } from '../bridge/messages';
 import type { AgentRegistry } from '../agents/AgentRegistry';
 import type { StateStorage } from '../storage/SessionRepository';
 
@@ -139,8 +139,18 @@ export class AccountService {
     if (unnamed.length) await this.write(state); else this.changed();
   }
   loggedIn(id: string): boolean | undefined { return this.status.get(id)?.loggedIn; }
+  /** 用掉這個帳號的一張官方重置券，之後重新讀用量。 */
+  async useResetCredit(id: string): Promise<ResetCreditOutcome> {
+    const account = this.find(id); const adapter = this.registry.get(account.provider);
+    if (!adapter.consumeResetCredit) throw new Error('這個來源沒有額度重置券。');
+    const outcome = await adapter.consumeResetCredit(await this.env(account.provider, id));
+    await this.refresh([id]);
+    return outcome;
+  }
   recordUsage(provider: AgentId, id: string | undefined, usage: UsageSnapshot): void {
     if (!id) return;
-    this.usage.set(id, usage); this.changed();
+    // 執行回報沒有重置券張數，沿用最近一次官方查詢的值。
+    const credits = this.usage.get(id)?.resetCredits;
+    this.usage.set(id, credits === undefined || usage.resetCredits !== undefined ? usage : { ...usage, resetCredits: credits }); this.changed();
   }
 }

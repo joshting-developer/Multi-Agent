@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 import type { AccountSummary, AgentId } from '../../../src/bridge/messages';
 withDefaults(defineProps<{ accounts?: AccountSummary[]; selected?: Partial<Record<AgentId, string>>; checking: boolean }>(), { accounts: () => [], selected: () => ({}) });
-const emit = defineEmits<{ refresh: []; add: [provider: AgentId, apiKey?: string]; rename: [id: string, name: string]; remove: [id: string]; terminal: [id: string, action: 'login' | 'logout']; select: [provider: AgentId, id: string] }>();
+const emit = defineEmits<{ refresh: []; add: [provider: AgentId, apiKey?: string]; rename: [id: string, name: string]; remove: [id: string]; terminal: [id: string, action: 'login' | 'logout']; select: [provider: AgentId, id: string]; reset: [id: string] }>();
 const providers: AgentId[] = ['codex', 'claude'];
 const methods = ref<Record<AgentId, 'cli' | 'api-key'>>({ codex: 'cli', claude: 'cli' });
 const keys = ref<Record<AgentId, string>>({ codex: '', claude: '' });
@@ -40,12 +40,13 @@ function rename(id: string) {
           <template v-if="account.loggedIn">
             <ul v-if="account.usage" class="usage-list" :aria-label="`${account.name} 的用量`">
               <li v-for="window in account.usage.windows" :key="window.label"><span>{{ window.label }}</span><meter min="0" max="100" low="20" high="50" optimum="100" :value="remaining(window.usedPercent)" :aria-label="`${window.label} 剩餘 ${remaining(window.usedPercent)}%`"></meter><span>剩 {{ remaining(window.usedPercent) }}%<template v-if="window.resetsAt"> · {{ time(window.resetsAt) }} 重置</template></span></li>
-              <li class="usage-note">{{ account.usage.blocked ? '目前額度已用完 · ' : '' }}{{ account.usage.source === 'last-run' ? '最近一次執行' : '更新' }} {{ time(account.usage.updatedAt) }}</li>
+              <li class="usage-note">{{ account.usage.blocked ? '目前額度已用完 · ' : '' }}{{ account.usage.source === 'last-run' ? '最近一次執行' : '更新' }} {{ time(account.usage.updatedAt) }}<template v-if="account.usage.resetCredits"> · 重置券 {{ account.usage.resetCredits }} 張</template></li>
             </ul>
             <small v-else>{{ provider === 'claude' ? '執行一次後顯示用量' : '無法取得用量' }}</small>
           </template>
         </div>
         <div class="account-actions">
+          <button v-if="account.loggedIn && account.usage?.resetCredits" type="button" class="text-button" @click="emit('reset', account.id)">使用重置券</button>
           <button v-if="selected[provider] !== account.id" type="button" class="text-button" :disabled="!account.loggedIn" @click="emit('select', provider, account.id)">設為使用中</button>
           <button v-if="!(provider === 'claude' && account.method === 'api-key')" type="button" class="text-button" @click="emit('terminal', account.id, account.loggedIn ? 'logout' : 'login')">{{ account.loggedIn ? '登出' : '登入' }}</button>
           <button type="button" class="text-button" @click="editing = account.id; title = account.name">重新命名</button>

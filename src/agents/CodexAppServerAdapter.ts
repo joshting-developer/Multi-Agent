@@ -2,7 +2,8 @@ import type { AgentEvent, AgentRequest } from './AgentAdapter';
 import { CodexAdapter } from './CodexAdapter';
 import { CodexRpc, readCodexAccount } from './CodexRpc';
 import { providerFailure, record, SessionUnavailable, toolText, windowLabel } from './CliAdapter';
-import type { UsageSnapshot } from '../bridge/messages';
+import { randomUUID } from 'node:crypto';
+import type { ResetCreditOutcome, UsageSnapshot } from '../bridge/messages';
 import { protectedPatterns } from '../execution/ExecutionPolicy';
 
 export class CodexAppServerAdapter extends CodexAdapter {
@@ -35,10 +36,25 @@ export class CodexAppServerAdapter extends CodexAdapter {
         const result = record(message.result); const limits = record(result.rateLimits);
         const windows = (['primary', 'secondary'] as const).map(key => record(limits[key])).filter(window => typeof window.usedPercent === 'number')
           .map(window => ({ label: windowLabel(typeof window.windowDurationMins === 'number' ? window.windowDurationMins : undefined), usedPercent: Number(window.usedPercent), ...(typeof window.resetsAt === 'number' && { resetsAt: window.resetsAt * 1000 }) }));
-        return windows.length ? { windows, updatedAt: Date.now(), source: 'official', ...(result.ordinaryUsageAllowed === false && { blocked: true }) } : undefined;
+        const credits = record(result.rateLimitResetCredits).availableCount;
+        return windows.length ? { windows, updatedAt: Date.now(), source: 'official', ...(result.ordinaryUsageAllowed === false && { blocked: true }), ...(typeof credits === 'number' && { resetCredits: credits }) } : undefined;
       }
     } catch { return undefined; }
     return undefined;
+  }
+  /** 官方 account/rateLimitResetCredit/consume：由官方挑下一張可用的券；每次使用帶新的 idempotencyKey。 */
+  async consumeResetCredit(env?: Record<string, string>): Promise<ResetCreditOutcome> {
+    if (!this.command) await this.detect();
+    if (!this.command) throw new Error('找不到 Codex CLI。');
+    const rpc = new CodexRpc(this.processes); const idempotencyKey = randomUUID();
+    for await (const message of rpc.messages({ command: this.command, cwd: this.detectionCwd, timeoutMs: 30000, ...(env && { env: { ...process.env, ...env } }) })) {
+      if (message.id === 1) rpc.request(2, 'account/rateLimitResetCredit/consume', { idempotencyKey });
+      if (message.id !== 2) continue;
+      const outcome = record(message.result).outcome;
+      if (message.error || !['reset', 'nothingToReset', 'noCredit', 'alreadyRedeemed'].includes(outcome as string)) throw new Error('Codex 沒有完成重置，請稍後再試或更新 Codex CLI。');
+      return outcome as ResetCreditOutcome;
+    }
+    throw new Error('Codex 沒有回應重置結果，請稍後重新整理確認額度。');
   }
   protected override async inspect(command: string) {
     const status = await super.inspect(command);

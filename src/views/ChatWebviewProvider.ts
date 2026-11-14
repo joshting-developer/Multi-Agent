@@ -169,6 +169,15 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         if (answer === '移除') await this.accounts?.remove(message.accountId); break;
       }
       case 'account-terminal': this.openAccountTerminal(message.accountId, message.action); break;
+      case 'use-reset-credit': {
+        if (!this.accounts) throw new Error('帳號管理尚未就緒。');
+        const answer = await vscode.window.showWarningMessage('使用一張額度重置券？會立即重置這個 Codex 帳號目前的額度，用掉後不能退回。', { modal: true }, '使用');
+        if (answer !== '使用') break;
+        const outcome = await this.accounts.useResetCredit(message.accountId);
+        const text = { reset: '已使用一張重置券，額度已重置。', nothingToReset: '目前的額度不需要重置，沒有用掉重置券。', noCredit: '這個帳號沒有可用的重置券。', alreadyRedeemed: '這次重置已經完成過，沒有再用掉重置券。' }[outcome];
+        void (outcome === 'reset' ? vscode.window.showInformationMessage(text) : vscode.window.showWarningMessage(text));
+        break;
+      }
       case 'select-account': await this.accounts?.select(message.provider, message.accountId); break;
       case 'check-accounts': await this.accounts?.refresh(); break;
       case 'export-conversation': {

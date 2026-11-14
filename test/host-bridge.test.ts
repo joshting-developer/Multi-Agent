@@ -79,6 +79,7 @@ describe('Webview to native agent execution', () => {
     const accounts = {
       terminal: (id: string) => ({ name: id, command: ['claude', 'auth', 'login'], env: {} }),
       refresh: async (ids: string[]) => { for (const id of ids) status.set(id, true); },
+      useResetCredit: vi.fn(async () => 'reset'),
       loggedIn: (id: string) => status.get(id),
       subscribe: () => () => undefined
     };
@@ -95,6 +96,15 @@ describe('Webview to native agent execution', () => {
       const [fresh, existing] = nativeWindow.createTerminal.mock.results.map(result => result.value as { dispose: ReturnType<typeof vi.fn> });
       await vi.waitFor(() => expect(fresh!.dispose).toHaveBeenCalled());
       expect(existing!.dispose).not.toHaveBeenCalled();
+      // 重置券要先在原生視窗確認；取消時不呼叫官方 API。
+      nativeWindow.showWarningMessage.mockResolvedValueOnce(undefined);
+      receive!({ version: 1, requestId: 'reset-cancel', type: 'use-reset-credit', accountId: 'new' });
+      await vi.waitFor(() => expect(nativeWindow.showWarningMessage).toHaveBeenCalledWith(expect.stringContaining('重置券'), { modal: true }, '使用'));
+      nativeWindow.showWarningMessage.mockResolvedValueOnce('使用');
+      receive!({ version: 1, requestId: 'reset-ok', type: 'use-reset-credit', accountId: 'new' });
+      await vi.waitFor(() => expect(accounts.useResetCredit).toHaveBeenCalledTimes(1));
+      expect(accounts.useResetCredit).toHaveBeenCalledWith('new');
+      await vi.waitFor(() => expect(nativeWindow.showInformationMessage).toHaveBeenCalledWith('已使用一張重置券，額度已重置。'));
     } finally { controller.dispose(); await orchestrator.dispose(); }
   });
 });
