@@ -138,6 +138,14 @@ export class AccountService {
     for (const account of unnamed) account.name = this.status.get(account.id)!.account!.email!.slice(0, 60);
     if (unnamed.length) await this.write(state); else this.changed();
   }
+  /** 只重讀官方額度（不重新檢查登入），給設定頁定期同步用；官方讀額度不耗 token。 */
+  async refreshUsage(): Promise<void> {
+    await Promise.all(this.list().filter(account => this.status.get(account.id)?.loggedIn && this.registry.get(account.provider).usage).map(async account => {
+      const usage = await this.registry.get(account.provider).usage!(await this.env(account.provider, account.id)).catch(() => undefined);
+      if (usage) this.usage.set(account.id, usage);
+    }));
+    this.changed();
+  }
   loggedIn(id: string): boolean | undefined { return this.status.get(id)?.loggedIn; }
   /** 用掉這個帳號的一張官方重置券（指定 creditId 時用那一張），之後重新讀用量。 */
   async useResetCredit(id: string, creditId?: string): Promise<ResetCreditOutcome> {

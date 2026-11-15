@@ -4,16 +4,18 @@ import { join } from 'node:path';
 export const createdPanels: Array<ReturnType<typeof createPanel>> = [];
 function createPanel() {
   let receiver: ((message: unknown) => void) | undefined;
-  let dispose: (() => void) | undefined;
-  return {
+  let dispose: (() => void) | undefined; let viewState: (() => void) | undefined;
+  const panel = {
     webview: { options: {}, html: '', cspSource: 'vscode-webview:',
       asWebviewUri: (uri: unknown) => uri, postMessage: vi.fn().mockResolvedValue(true),
       onDidReceiveMessage: (handler: (message: unknown) => void) => { receiver = handler; return { dispose() {} }; }
     },
+    visible: true, onDidChangeViewState: (handler: () => void) => { viewState = handler; return { dispose() { viewState = undefined; } }; }, changeViewState: (visible: boolean) => { panel.visible = visible; viewState?.(); },
     receive: (message: unknown) => receiver?.(message), reveal: vi.fn(),
     onDidDispose: (handler: () => void) => { dispose = handler; return { dispose() {} }; },
     dispose: () => dispose?.()
   };
+  return panel;
 }
 export const window = { showInformationMessage: vi.fn(), createTerminal: vi.fn(() => ({ show: vi.fn(), sendText: vi.fn(), dispose: vi.fn() })), onDidCloseTerminal: vi.fn(() => ({ dispose() {} })), showWarningMessage: vi.fn(), showQuickPick: vi.fn(), createWebviewPanel: vi.fn(() => { const panel = createPanel(); createdPanels.push(panel); return panel; }) };
 export const commands = { executeCommand: vi.fn() };

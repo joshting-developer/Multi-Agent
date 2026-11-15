@@ -77,6 +77,20 @@ describe('Webview to native agent execution', () => {
       expect(createdPanels.at(-1)?.webview.html).toContain('data-surface="settings"');
     } finally { controller.dispose(); await orchestrator.dispose(); }
   });
+  it('keeps official quota in sync only while the settings page is visible', async () => {
+    const orchestrator = new Orchestrator(new AgentRegistry([]), new SessionRepository({ get: () => undefined, update: async () => undefined }, '/workspace'), '/workspace', () => true, () => 10000);
+    const accounts = { refreshUsage: vi.fn(async () => undefined), list: () => [], subscribe: () => () => undefined };
+    const controller = new ChatWebviewProvider(vscode.Uri.file('/extension'), orchestrator, undefined, accounts as never); controller.usageSyncMs = 20;
+    try {
+      await controller.showOptions(); const panel = createdPanels.at(-1)!;
+      await vi.waitFor(() => expect(accounts.refreshUsage.mock.calls.length).toBeGreaterThanOrEqual(2));
+      panel.changeViewState(false); const hidden = accounts.refreshUsage.mock.calls.length;
+      await new Promise(done => setTimeout(done, 80)); expect(accounts.refreshUsage).toHaveBeenCalledTimes(hidden);
+      panel.changeViewState(true); expect(accounts.refreshUsage).toHaveBeenCalledTimes(hidden + 1);
+      panel.dispose(); const closed = accounts.refreshUsage.mock.calls.length;
+      await new Promise(done => setTimeout(done, 80)); expect(accounts.refreshUsage).toHaveBeenCalledTimes(closed);
+    } finally { controller.dispose(); await orchestrator.dispose(); }
+  });
   it('closes the login terminal once the account becomes logged in, but not one that already was', async () => {
     const orchestrator = new Orchestrator(new AgentRegistry([]), new SessionRepository({ get: () => undefined, update: async () => undefined }, '/workspace'), '/workspace', () => true, () => 10000);
     const status = new Map<string, boolean>([['old', true]]);

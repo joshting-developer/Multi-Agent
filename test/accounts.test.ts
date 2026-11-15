@@ -93,6 +93,11 @@ describe('Multiple official CLI accounts', () => {
     expect(accounts.list().find(item => item.id === claude.id)?.usage).toBeUndefined();
     accounts.recordUsage('claude', claude.id, { windows: [{ label: '5 小時', usedPercent: 25 }], updatedAt: 1, source: 'last-run' });
     expect(accounts.list().find(item => item.id === claude.id)?.usage?.windows[0]?.usedPercent).toBe(25);
+    // 定期同步只重讀官方額度，不碰 Claude 執行回報的數字。
+    accounts.recordUsage('codex', normal.id, { windows: [], updatedAt: 1, source: 'last-run' });
+    await accounts.refreshUsage();
+    expect(accounts.list().find(item => item.id === normal.id)?.usage).toMatchObject({ source: 'official', windows: [{ usedPercent: 42 }, { usedPercent: 7 }] });
+    expect(accounts.list().find(item => item.id === claude.id)?.usage?.windows[0]?.usedPercent).toBe(25);
   });
   it('uses an official reset credit only when the window is exhausted and refreshes usage afterwards', async () => {
     const { root, registry } = await setup();

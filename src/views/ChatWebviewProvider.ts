@@ -14,6 +14,8 @@ import { blockedFolders } from '../execution/ReadRoots';
 export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly webviews = new Set<vscode.Webview>();
   private settingsPanel?: vscode.WebviewPanel;
+  /** 設定頁開著時同步官方額度的週期。 */
+  usageSyncMs = 5 * 60_000;
   private timer?: ReturnType<typeof setTimeout>;
   private readonly unsubscribe: () => void;
   private readonly disposables: vscode.Disposable[] = [];
@@ -287,7 +289,20 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     const panel = vscode.window.createWebviewPanel('multiAgent.settings', 'Multi-Agent 設定', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true });
     this.settingsPanel = panel;
     this.attach(panel.webview, 'settings');
-    this.disposables.push(panel.onDidDispose(() => { this.webviews.delete(panel.webview); if (this.settingsPanel === panel) this.settingsPanel = undefined; }));
+    const sync = this.syncUsage(panel);
+    this.disposables.push(panel.onDidDispose(() => { sync.dispose(); this.webviews.delete(panel.webview); if (this.settingsPanel === panel) this.settingsPanel = undefined; }));
+  }
+  /** 設定頁顯示中才定期重讀官方額度；切回設定頁時若已過一個週期也立即同步。Claude 沒有免費查詢，維持執行時更新。 */
+  private syncUsage(panel: vscode.WebviewPanel): vscode.Disposable {
+    let last = Date.now(); let running = false;
+    const sync = () => {
+      if (!panel.visible || running || !this.accounts || Date.now() - last < this.usageSyncMs - 1000) return;
+      running = true; last = Date.now();
+      void this.accounts.refreshUsage().catch(() => undefined).finally(() => { running = false; });
+    };
+    const timer = setInterval(sync, this.usageSyncMs);
+    const shown = panel.onDidChangeViewState(sync);
+    return { dispose: () => { clearInterval(timer); shown.dispose(); } };
   }
   private async authorize(): Promise<void> {
     if (this.approvalPending || this.orchestrator.state.activeTaskId) throw new Error('請先完成或停止目前操作。');
