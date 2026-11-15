@@ -115,7 +115,7 @@ if (args.includes('--version')) {
     if (message.type === 'user') emit({ type: 'result', subtype: 'success', result: JSON.stringify(Array.isArray(message.message.content) ? message.message.content.map(block => block.type === 'image' ? `${block.source.type}:${block.source.media_type}:${block.source.data.length}` : block.text) : message.message.content) });
   });
 } else if (provider === 'claude' && scenario === 'usage') {
-  emit({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', unifiedWindows: { five_hour: { utilization: 0.25, resetsAt: 1794632400, status: 'allowed' }, seven_day: { utilization: 0.9, resetsAt: 1794916800, status: 'allowed' } } } });
+  emit({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', unifiedWindows: { five_hour: { utilization: 0.25, resetsAt: 1794632400, status: 'allowed' }, seven_day: { utilization: 0.9, resetsAt: 1794916800, status: 'allowed' }, seven_day_overage_included: { utilization: 0.04, resetsAt: 1794916800, status: 'allowed' } } } });
   emit({ type: 'result', subtype: 'success', result: 'ok' });
 } else if (provider === 'claude' && scenario === 'tools') {
   emit({ type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'tool_use', id: 'tu1', name: 'Read', input: {} } } });

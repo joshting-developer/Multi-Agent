@@ -3,6 +3,17 @@ import { protectedPatterns } from '../execution/ExecutionPolicy';
 import type { AgentRequest } from './AgentAdapter';
 import { CliAdapter, providerFailure, record, toolText, type ParsedEvent, type StreamState } from './CliAdapter';
 
+// 官方額度代碼轉成介面名稱；未知代碼也轉成可讀文字，不直接顯示底線代碼。
+const usageWindows: Record<string, string> = { five_hour: '5 小時', seven_day: '7 天' };
+const usageScopes: Record<string, string> = { opus: 'Opus', sonnet: 'Sonnet', overage_included: '含額外用量' };
+export function usageLabel(key: string): string {
+  if (usageWindows[key]) return usageWindows[key];
+  const base = Object.keys(usageWindows).find(item => key.startsWith(`${item}_`));
+  if (!base) return key.replace(/_/g, ' ');
+  const scope = key.slice(base.length + 1);
+  return `${usageWindows[base]}（${usageScopes[scope] ?? scope.replace(/_/g, ' ')}）`;
+}
+
 export class ClaudeCodeAdapter extends CliAdapter {
   readonly id = 'claude' as const;
   readonly accountEnvKey = 'CLAUDE_CONFIG_DIR';
@@ -74,9 +85,8 @@ export class ClaudeCodeAdapter extends CliAdapter {
     // 官方每次執行回報的額度狀態；只取使用率、重置時間與是否受限。
     if (line.type === 'rate_limit_event') {
       const info = record(line.rate_limit_info); const windows = record(info.unifiedWindows);
-      const labels: Record<string, string> = { five_hour: '5 小時', seven_day: '7 天', seven_day_opus: '7 天（Opus）', seven_day_sonnet: '7 天（Sonnet）' };
       const usage = Object.entries(windows).map(([key, value]) => ({ key, value: record(value) })).filter(({ value }) => typeof value.utilization === 'number')
-        .map(({ key, value }) => ({ label: labels[key] ?? key, usedPercent: Math.round(Number(value.utilization) * 100), ...(typeof value.resetsAt === 'number' && { resetsAt: value.resetsAt * 1000 }) }));
+        .map(({ key, value }) => ({ label: usageLabel(key), usedPercent: Math.round(Number(value.utilization) * 100), ...(typeof value.resetsAt === 'number' && { resetsAt: value.resetsAt * 1000 }) }));
       if (usage.length) events.push({ type: 'usage', usage: { windows: usage, updatedAt: Date.now(), source: 'last-run', blocked: info.status === 'rejected' } });
     }
     if (line.type === 'stream_event') {

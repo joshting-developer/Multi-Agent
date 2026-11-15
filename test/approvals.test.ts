@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { resolve } from 'node:path';
 import { ProcessManager, type ProcessRequest } from '../src/execution/ProcessManager';
 import { CodexAppServerAdapter } from '../src/agents/CodexAppServerAdapter';
-import { ClaudeCodeAdapter } from '../src/agents/ClaudeCodeAdapter';
+import { ClaudeCodeAdapter, usageLabel } from '../src/agents/ClaudeCodeAdapter';
 import { SessionUnavailable } from '../src/agents/CliAdapter';
 import type { AgentRequest } from '../src/agents/AgentAdapter';
 import type { AgentId } from '../src/bridge/messages';
@@ -42,8 +42,11 @@ describe.each(['codex', 'claude'] as const)('%s official approval protocol', pro
     if (provider !== 'claude') return;
     const { adapter, processes } = setup('usage'); await adapter.detect();
     const usage = []; for await (const event of adapter.execute({ ...request, approvalMode: undefined })) if (event.type === 'usage') usage.push(event.usage);
-    expect(usage).toEqual([{ windows: [{ label: '5 小時', usedPercent: 25, resetsAt: 1794632400000 }, { label: '7 天', usedPercent: 90, resetsAt: 1794916800000 }], updatedAt: expect.any(Number), source: 'last-run', blocked: false }]);
+    expect(usage).toEqual([{ windows: [{ label: '5 小時', usedPercent: 25, resetsAt: 1794632400000 }, { label: '7 天', usedPercent: 90, resetsAt: 1794916800000 }, { label: '7 天（含額外用量）', usedPercent: 4, resetsAt: 1794916800000 }], updatedAt: expect.any(Number), source: 'last-run', blocked: false }]);
     await processes.dispose();
+  });
+  it('turns unknown Claude usage codes into readable labels', () => {
+    expect([usageLabel('seven_day_opus'), usageLabel('seven_day_new_scope'), usageLabel('monthly_cap')]).toEqual(['7 天（Opus）', '7 天（new scope）', 'monthly cap']);
   });
   it('does not approve a write in read-only mode even with an allow callback', async () => {
     const { adapter, processes } = setup(); await adapter.detect(); const approve = vi.fn(async () => true);
