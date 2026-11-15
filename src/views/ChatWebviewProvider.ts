@@ -137,6 +137,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'reject-answer': await this.orchestrator.setRejected(message.taskId, message.rejected); break;
       case 'answer-approval': this.orchestrator.answerApproval(message.approvalId, message.allow); break;
       case 'check-providers': await this.orchestrator.checkProviders(); await this.accounts?.refresh(); break;
+      case 'steer-task': await this.orchestrator.steer(message.taskId, message.text); this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); break;
       case 'cancel-task': if (this.orchestrator.state.discussionId) await this.discussions.cancel(); else await this.orchestrator.cancel(message.taskId); break;
       case 'clear-conversation': {
         const answer = await vscode.window.showWarningMessage('刪除目前對話的本機聊天紀錄？其他對話與官方 CLI 紀錄不受影響。', { modal: true }, '清除');

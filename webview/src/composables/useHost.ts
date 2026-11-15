@@ -20,6 +20,8 @@ export function useHost() {
   let settingsRequestId: string | undefined;
   let pendingRequestId: string | undefined;
   let pendingDiscussion = false;
+  let pendingKeepsDraft = false;
+  const steers = new Map<string, (ok: boolean) => void>();
   // 只有目前檢視的對話正在執行才算 running；背景對話執行中仍可在這裡排入新工作。
   const running = computed(() => !!snapshot.value.activeTaskId && snapshot.value.activeConversationId === snapshot.value.conversationId);
   const post = (message: WebviewToHost) => { error.value = ''; api.postMessage(message); };
@@ -41,12 +43,14 @@ export function useHost() {
     } else if (message.type === 'settings-saved') {
       if (message.requestId === settingsRequestId) { settingsSaving.value = false; settingsRequestId = undefined; settingsSaved.value++; }
     } else if (message.type === 'request-accepted') {
-      if (message.requestId === pendingRequestId) { draftRevision.value++; submitting.value = false; pendingRequestId = undefined; }
+      if (message.requestId === pendingRequestId) { if (!pendingKeepsDraft) draftRevision.value++; submitting.value = false; pendingRequestId = undefined; }
     } else if (message.type === 'request-settled') {
       if (message.requestId === navigationRequestId) { navigating.value = false; navigationRequestId = undefined; }
+      steers.get(message.requestId)?.(true); steers.delete(message.requestId);
       if (message.requestId === pendingRequestId) { submitting.value = false; pendingRequestId = undefined; }
     } else if (message.type === 'error') {
       error.value = message.message;
+      if (message.requestId) { steers.get(message.requestId)?.(false); steers.delete(message.requestId); }
       if (!message.requestId || message.requestId === navigationRequestId) { navigating.value = false; navigationRequestId = undefined; }
       if (message.requestId === searchRequestId) historySearching.value = false;
       if (!message.requestId || message.requestId === settingsRequestId) { settingsSaving.value = false; settingsRequestId = undefined; }
@@ -60,8 +64,14 @@ export function useHost() {
     searchRequestId = crypto.randomUUID(); historySearching.value = true;
     post({ version: 1, type: 'search-conversations', requestId: searchRequestId, query, ...(Object.keys(filters).length && { filters }) });
   }
-  function send(message: Extract<WebviewToHost, { type: 'send-message' | 'start-discussion' | 'extend-discussion' }>) {
-    submitting.value = true; pendingRequestId = message.requestId; pendingDiscussion = message.type !== 'send-message'; post(message);
+  // keepDraft：送出待送清單裡的訊息時，不清掉輸入框裡正在打的下一則。
+  function send(message: Extract<WebviewToHost, { type: 'send-message' | 'start-discussion' | 'extend-discussion' }>, keepDraft = false) {
+    submitting.value = true; pendingRequestId = message.requestId; pendingDiscussion = message.type !== 'send-message'; pendingKeepsDraft = keepDraft; post(message);
+  }
+  /** 補充給執行中的任務；回傳是否被接受，失敗原因顯示在錯誤列。 */
+  function steer(taskId: string, text: string): Promise<boolean> {
+    const requestId = crypto.randomUUID();
+    return new Promise(resolve => { steers.set(requestId, resolve); post({ version: 1, type: 'steer-task', requestId, taskId, text }); });
   }
   function saveSettings(settings: WorkspaceSettings) {
     settingsRequestId = crypto.randomUUID(); settingsSaving.value = true;
@@ -75,5 +85,5 @@ export function useHost() {
   const draftFor = (id = snapshot.value.conversationId ?? '') => drafts[id] ?? '';
   const saveDraft = (draft: string) => { const id = snapshot.value.conversationId ?? ''; if (draft) drafts[id] = draft; else delete drafts[id]; api.setState({ drafts }); };
   const draft = typeof cached === 'object' && cached !== null && 'draft' in cached && typeof cached.draft === 'string' ? cached.draft : '';
-  return { historyRequested, navigating, navigate, searchConversations, searchResults, historySearching, snapshot, error, running, submitting, draftRevision, post, send, draft, draftFor, saveDraft, saveSettings, settingsSaving, settingsSaved };
+  return { steer, historyRequested, navigating, navigate, searchConversations, searchResults, historySearching, snapshot, error, running, submitting, draftRevision, post, send, draft, draftFor, saveDraft, saveSettings, settingsSaving, settingsSaved };
 }

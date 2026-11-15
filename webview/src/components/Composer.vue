@@ -59,6 +59,8 @@ function choose(provider: AgentId, accountId?: string) {
   if (accountId && accountId !== props.selectedAccounts[provider]) emit('account', provider, accountId);
 }
 function choosePartner(provider: AgentId, accountId?: string) { partnerChosen.value = true; partner.value = provider; partnerAccount.value = accountId ?? props.selectedAccounts[provider]; }
+// 執行中只能排一般訊息，不能開始討論。
+watch(() => props.running, value => { if (value) discussion.value = false; });
 const valid = computed(() => props.canSend && props.supportedApprovalModes.includes(approval.value) && !props.busy && (text.value.trim().length > 0 || (!discussion.value && images.value.length > 0)) && text.value.length <= 32000 && (!discussion.value || text.value.trim().length > 0));
 watch(text, value => emit('draft', value));
 watch(() => props.draftRevision, () => { text.value = ''; clearImages(); });
@@ -95,7 +97,7 @@ function onKey(event: KeyboardEvent) {
       <div class="composer-options">
         <ProviderPicker :selected="provider" :account="selectedAccounts[provider]" :accounts="accounts" :busy="busy" @select="choose" />
         <ModelPicker :provider="provider" :value="preferences" :models="models" :busy="busy" :loading="modelsLoading" @change="$emit('preferences', $event)" @settings="$emit('settings')" @refresh="$emit('refreshModels')" />
-        <button type="button" class="permission-picker discussion-toggle" :aria-pressed="discussion" :disabled="busy" @click="discussion = !discussion">討論</button>
+        <button type="button" class="permission-picker discussion-toggle" :aria-pressed="discussion" :disabled="busy || running" @click="discussion = !discussion">討論</button>
         <ProviderPicker v-if="discussion" class="permission-picker partner-picker" label="審查 Agent" prefix="審查：" :selected="partner" :account="partnerAccount" :accounts="accounts" :busy="busy" @select="choosePartner" />
         <select v-if="discussion" v-model.number="rounds" class="permission-picker" :disabled="busy" aria-label="討論回合"><option v-for="count in [2, 3, 4, 5, 6, 7, 8]" :key="count" :value="count">{{ count }} 輪</option></select>
         <template v-else>
@@ -105,7 +107,7 @@ function onKey(event: KeyboardEvent) {
       </div>
       <div class="composer-actions">
         <button v-if="running" ref="stop" type="button" class="send-button stop" aria-label="停止任務" title="停止任務" @click="$emit('cancel')"><ChatIcon name="stop" /></button>
-        <button v-else type="submit" class="send-button" :disabled="!valid" aria-label="送出訊息" :title="sendShortcut === 'enter' ? '送出（Enter）；換行（Shift+Enter）' : '送出（⌘ / Ctrl + Enter）'"><ChatIcon name="send" /></button>
+        <button v-if="!running || text.trim() || images.length" type="submit" class="send-button" :disabled="!valid" :aria-label="running ? '加入待送清單' : '送出訊息'" :title="(running ? '加入待送清單' : '送出') + (sendShortcut === 'enter' ? '（Enter）；換行（Shift+Enter）' : '（⌘ / Ctrl + Enter）')"><ChatIcon name="send" /></button>
       </div>
     </div>
   </form>

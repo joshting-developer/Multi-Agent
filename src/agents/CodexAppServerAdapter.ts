@@ -8,6 +8,8 @@ import { protectedPatterns } from '../execution/ExecutionPolicy';
 
 export class CodexAppServerAdapter extends CodexAdapter {
   private readonly running = new Map<string, AbortController>();
+  // 執行中的 turn：補充訊息用官方 turn/steer 送進同一個 turn。
+  private readonly turns = new Map<string, { rpc: CodexRpc; threadId: string; turnId?: string; nextId: number; pending: Map<number, { resolve: () => void; reject: (error: Error) => void }> }>();
   readonly accountEnvKey = 'CODEX_HOME';
   async account(env?: Record<string, string>) {
     if (!this.command) await this.detect();
@@ -63,7 +65,7 @@ export class CodexAppServerAdapter extends CodexAdapter {
   protected override async inspect(command: string) {
     const status = await super.inspect(command);
     const help = await this.probe(command, ['--help']);
-    status.capabilities.toolApproval = true; status.capabilities.resumeSession = status.capabilities.streaming;
+    status.capabilities.toolApproval = true; status.capabilities.resumeSession = status.capabilities.streaming; status.capabilities.steer = status.capabilities.streaming;
     status.approvalModes = help.stdout.includes('--approve-for-me') ? ['ask', 'auto-review', 'full-access'] : ['ask', 'full-access'];
     return status;
   }
@@ -91,6 +93,13 @@ export class CodexAppServerAdapter extends CodexAdapter {
     const changes = new Map<string, unknown>();
     try {
       for await (const message of rpc.messages({ command: this.command, cwd: request.cwd, timeoutMs: request.timeoutMs, signal: controller.signal, config, ...(request.env && { env: { ...process.env, ...request.env } }) })) {
+        // 補充訊息的回應另外處理；被拒絕只讓那次補充失敗，不中斷任務。
+        const turn = this.turns.get(request.taskId);
+        if (turn && typeof message.id === 'number' && !message.method && turn.pending.has(message.id)) {
+          const waiting = turn.pending.get(message.id)!; turn.pending.delete(message.id);
+          if (message.error) waiting.reject(new Error(`Codex 沒有接受補充：${String(record(message.error).message ?? '請等目前步驟完成再試')}`)); else waiting.resolve();
+          continue;
+        }
         if (message.error && message.id === 2 && request.resumeSessionId) throw new SessionUnavailable('原生 Session 已無法接續。');
         if (message.error && typeof message.id === 'number') throw providerFailure(JSON.stringify(message.error));
         if (message.id === 1 && !message.method) {
@@ -106,9 +115,11 @@ export class CodexAppServerAdapter extends CodexAdapter {
         } else if (message.id === 2 && !message.method) {
           threadId = String(record(record(message.result).thread).id ?? '');
           if (!threadId) throw new Error('Codex 未建立 Session。');
+          this.turns.set(request.taskId, { rpc, threadId, nextId: 100, pending: new Map() });
           rpc.request(3, 'turn/start', { threadId, model: request.model, effort: request.effort, input: [...(request.images ?? []).map(image => ({ type: 'image', url: `data:${image.mime};base64,${image.data}` })), { type: 'text', text: request.prompt, text_elements: [] }] });
         }
         const params = record(message.params);
+        if (message.id === 3 && !message.method) { const current = this.turns.get(request.taskId); if (current) current.turnId = String(record(record(message.result).turn).id ?? '') || undefined; }
         if (message.method === 'item/agentMessage/delta' && typeof params.delta === 'string') {
           const id = String(params.itemId); outputs.set(id, (outputs.get(id) ?? '') + params.delta);
           yield { type: 'text-delta', taskId: request.taskId, text: params.delta };
@@ -147,7 +158,21 @@ export class CodexAppServerAdapter extends CodexAdapter {
           yield { type: 'complete', taskId: request.taskId, sessionId: threadId }; return;
         }
       }
-    } finally { request.signal.removeEventListener('abort', abort); this.running.delete(request.taskId); }
+    } finally {
+      request.signal.removeEventListener('abort', abort); this.running.delete(request.taskId);
+      for (const waiting of this.turns.get(request.taskId)?.pending.values() ?? []) waiting.reject(new Error('任務已結束，補充沒有送出。'));
+      this.turns.delete(request.taskId);
+    }
+  }
+  /** 官方 turn/steer：把補充訊息加進執行中的 turn，帶 expectedTurnId 避免送進錯的 turn。 */
+  async steer(taskId: string, text: string): Promise<void> {
+    const turn = this.turns.get(taskId);
+    if (!turn?.turnId) throw new Error('任務還沒開始或已結束，請改為排隊送出。');
+    const id = turn.nextId++;
+    await new Promise<void>((resolve, reject) => {
+      turn.pending.set(id, { resolve, reject });
+      turn.rpc.request(id, 'turn/steer', { threadId: turn.threadId, expectedTurnId: turn.turnId, input: [{ type: 'text', text, text_elements: [] }] });
+    });
   }
   private hasFeature(name: string): boolean { return this.featureNames.has(name); }
   override async cancel(taskId: string): Promise<void> { this.running.get(taskId)?.abort(); await super.cancel(taskId); }

@@ -40,6 +40,23 @@ const setup = async (adapters = [new FakeAdapter('claude'), new FakeAdapter('cod
   return { orchestrator, repository, storage, adapters };
 };
 describe('Manual orchestration', () => {
+  it('adds a steer to the running task only when the provider supports it', async () => {
+    class Steerable extends FakeAdapter { steered: string[] = []; override capabilities() { return { ...capabilities, steer: true }; } async steer(_taskId: string, text: string) { this.steered.push(text); } }
+    const codex = new Steerable('codex', true, true); const claude = new FakeAdapter('claude', true, true);
+    const { orchestrator } = await setup([claude, codex]);
+    const running = orchestrator.send('codex', '修 bug', 'read-only');
+    await vi.waitFor(() => expect(orchestrator.state.activeTaskId).toBeDefined());
+    const id = orchestrator.state.activeTaskId!;
+    await orchestrator.steer(id, '也補測試');
+    expect(codex.steered).toEqual(['也補測試']); expect(orchestrator.state.tasks.find(task => task.id === id)?.prompt).toBe('修 bug\n\n補充：也補測試');
+    await expect(orchestrator.steer('other', 'x')).rejects.toThrow('請改為排隊送出');
+    await orchestrator.cancel(); await running;
+    await expect(orchestrator.steer(id, 'late')).rejects.toThrow('請改為排隊送出');
+    const second = orchestrator.send('claude', 'hi', 'read-only');
+    await vi.waitFor(() => expect(orchestrator.state.activeTaskId).toBeDefined());
+    await expect(orchestrator.steer(orchestrator.state.activeTaskId!, 'x')).rejects.toThrow('不支援補充');
+    await orchestrator.cancel(); await second;
+  });
   it.each(['claude', 'codex'] as const)('works when only %s is available', async provider => {
     const { orchestrator } = await setup([new FakeAdapter('claude', provider === 'claude'), new FakeAdapter('codex', provider === 'codex')]);
     await orchestrator.send(provider, 'hello', 'read-only');

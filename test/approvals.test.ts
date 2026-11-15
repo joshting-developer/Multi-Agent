@@ -45,6 +45,22 @@ describe.each(['codex', 'claude'] as const)('%s official approval protocol', pro
     expect(usage).toEqual([{ windows: [{ label: '5 小時', usedPercent: 25, resetsAt: 1794632400000 }, { label: '7 天', usedPercent: 90, resetsAt: 1794916800000 }, { label: '7 天（含額外用量）', usedPercent: 4, resetsAt: 1794916800000 }], updatedAt: expect.any(Number), source: 'last-run', blocked: false }]);
     await processes.dispose();
   });
+  it('steers a running Codex turn through the official turn/steer and survives a rejected steer', async () => {
+    if (provider !== 'codex') return;
+    const { adapter, processes } = setup('steer'); const status = await adapter.detect();
+    expect(status.capabilities.steer).toBe(true);
+    const codex = adapter as CodexAppServerAdapter; let text = ''; let rejected: unknown;
+    for await (const event of adapter.execute({ ...request, approvalMode: undefined })) {
+      if (event.type !== 'text-delta') continue;
+      text += event.text;
+      // 實際由 Orchestrator 另外呼叫，這裡不等待以免卡住事件迴圈。
+      if (event.text === 'working;') void codex.steer('task', 'reject').catch(error => { rejected = error; }).then(() => codex.steer('task', '也看測試'));
+    }
+    expect(rejected).toBeInstanceOf(Error); expect(String(rejected)).toContain('Codex 沒有接受補充');
+    expect(text).toBe('working;steered:也看測試');
+    await expect(codex.steer('task', 'late')).rejects.toThrow('請改為排隊送出');
+    await processes.dispose();
+  });
   it('turns unknown Claude usage codes into readable labels', () => {
     expect([usageLabel('seven_day_opus'), usageLabel('seven_day_new_scope'), usageLabel('monthly_cap')]).toEqual(['7 天（Opus）', '7 天（new scope）', 'monthly cap']);
   });

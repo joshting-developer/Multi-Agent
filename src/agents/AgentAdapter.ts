@@ -41,4 +41,6 @@ export interface AgentAdapter {
   capabilities(): ProviderStatus['capabilities'];
   execute(request: AgentRequest): AsyncIterable<AgentEvent>;
   cancel(taskId: string): Promise<void>;
+  /** 把補充訊息送進執行中的任務；只有官方支援時才提供。 */
+  steer?(taskId: string, text: string): Promise<void>;
 }

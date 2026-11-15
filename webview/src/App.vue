@@ -8,8 +8,10 @@ import ChatIcon from './components/ChatIcon.vue';
 import HistoryPanel from './components/HistoryPanel.vue';
 import ApprovalCard from './components/ApprovalCard.vue';
 import DiscussionBar from './components/DiscussionBar.vue';
+import QueuedMessages from './components/QueuedMessages.vue';
+import type { QueuedMessage } from './queue';
 import { defaultSettings, type ProviderPreferences } from '../../src/bridge/preferences';
-const { historyRequested, snapshot, error, running, submitting, draftRevision, post, send, draft, draftFor, saveDraft, searchConversations, searchResults, historySearching, navigating, navigate } = useHost();
+const { steer, historyRequested, snapshot, error, running, submitting, draftRevision, post, send, draft, draftFor, saveDraft, searchConversations, searchResults, historySearching, navigating, navigate } = useHost();
 const selected = ref<AgentId>('codex');
 const insert = ref<{ text: string; revision: number }>();
 const userSelected = ref(false);
@@ -28,6 +30,8 @@ const preferences = ref<ProviderPreferences>({ model: '', effort: 'medium' });
 const settings = computed(() => snapshot.value.settings ?? defaultSettings);
 watch(() => `${selected.value}:${JSON.stringify(settings.value[selected.value])}`, () => { preferences.value = { ...settings.value[selected.value] }; }, { immediate: true });
 const busy = computed(() => running.value || submitting.value || navigating.value || !!snapshot.value.discussionId);
+// 一般任務執行中仍可打字，送出會進待送清單；討論進行中才鎖住輸入框。
+const composerBusy = computed(() => submitting.value || navigating.value || !!snapshot.value.discussionId);
 // 一般任務在背景執行時仍可切換、新增對話；只有切換中或討論進行中才鎖住導覽。
 const navigationLocked = computed(() => navigating.value || !!snapshot.value.discussionId);
 const canWrite = computed(() => snapshot.value.providers.find(provider => provider.id === selected.value)?.capabilities.workspaceWrite);
@@ -62,8 +66,36 @@ function deleteConversation(id: string) { post({ version: 1, type: 'delete-conve
 function rejectAnswer(taskId: string, rejected: boolean) { post({ version: 1, type: 'reject-answer', requestId: crypto.randomUUID(), taskId, rejected }); }
 function answerApproval(id: string, allow: boolean) { post({ version: 1, type: 'answer-approval', requestId: crypto.randomUUID(), approvalId: id, allow }); }
 function submit(text: string, mode: ExecutionMode, approvalMode: import('../../src/bridge/preferences').ApprovalMode, images: Array<{ mime: string; data: string }> = []) {
-  send({ version: 1, type: 'send-message', requestId: crypto.randomUUID(), provider: selected.value, text, mode, approvalMode, preferences: { ...preferences.value }, ...(images.length && { attachments: images.map(image => ({ mime: image.mime, data: image.data })) }) });
+  const item: QueuedMessage = { id: crypto.randomUUID(), conversationId: snapshot.value.conversationId ?? '', provider: selected.value, text, mode, approvalMode, preferences: { ...preferences.value }, images: images.map(image => ({ mime: image.mime, data: image.data })) };
+  // 執行中先放進待送清單，等目前任務完成或使用者選擇立即補充。
+  if (running.value) { queue.value.push(item); draftRevision.value++; return; }
+  dispatch(item);
 }
+function dispatch(item: QueuedMessage, keepDraft = false) {
+  send({ version: 1, type: 'send-message', requestId: crypto.randomUUID(), provider: item.provider, text: item.text, mode: item.mode, approvalMode: item.approvalMode, preferences: item.preferences, ...(item.images.length && { attachments: item.images }) }, keepDraft);
+}
+const queue = ref<QueuedMessage[]>([]);
+const queued = computed(() => queue.value.filter(item => item.conversationId === (snapshot.value.conversationId ?? '')));
+const activeTask = computed(() => running.value ? snapshot.value.tasks.find(task => task.id === snapshot.value.activeTaskId) : undefined);
+const canSteer = computed(() => !!activeTask.value && !!snapshot.value.providers.find(provider => provider.id === activeTask.value!.provider)?.capabilities.steer);
+const take = (id: string) => { const item = queue.value.find(entry => entry.id === id); queue.value = queue.value.filter(entry => entry.id !== id); return item; };
+function sendQueued(id: string) { if (submitting.value || running.value) return; const item = take(id); if (item) dispatch(item, true); }
+function editQueued(id: string) { const item = take(id); if (item) insert.value = { text: item.text, revision: (insert.value?.revision ?? 0) + 1 }; }
+async function steerQueued(id: string) {
+  const item = queue.value.find(entry => entry.id === id); const task = activeTask.value;
+  if (!item || !task || item.steering) return;
+  item.steering = true;
+  if (await steer(task.id, item.text)) take(id); else item.steering = false;
+}
+// 目前對話的任務正常完成才自動送下一則；失敗或停止時留在清單讓使用者決定。
+let watchedTask: string | undefined;
+watch(() => [snapshot.value.activeTaskId, snapshot.value.activeConversationId, snapshot.value.conversationId] as const, ([id, conversation, current]) => {
+  const finished = watchedTask; watchedTask = id && conversation === current ? id : undefined;
+  if (!finished || finished === id) return;
+  if (snapshot.value.tasks.find(task => task.id === finished)?.status !== 'completed') return;
+  const next = queued.value.find(item => !item.steering);
+  if (next && canSend.value && !submitting.value) { take(next.id); dispatch(next, true); }
+});
 function discuss(text: string, rounds: number, partner: AgentId, partnerAccountId?: string) {
   send({ version: 1, type: 'start-discussion', requestId: crypto.randomUUID(), provider: selected.value, partner, text, rounds, preferences: { ...preferences.value }, ...(partnerAccountId && { partnerAccountId }) });
 }
@@ -110,7 +142,8 @@ function cancel() {
       <div v-else-if="notice" class="notice" role="status"><span>{{ notice.text }}</span><button v-if="notice.action" type="button" class="text-button" :disabled="busy" @click="action(notice.action)">{{ notice.action === 'authorize-workspace' ? '授權' : '設定' }}</button></div>
       <DiscussionBar v-if="discussion && !error && !notice" :discussion="discussion" :busy="busy" :summary-ready="!!summaryTask" :alternatives="alternatives" @extend="extendDiscussion" @adopt="adoptSummary" @resolve="resolveDiscussion" />
       <ApprovalCard v-for="request in snapshot.approvals ?? []" :key="request.id" :request="request" :background="!!request.conversationId && request.conversationId !== snapshot.conversationId" @answer="answerApproval" />
-      <Composer :insert="insert" :accounts="snapshot.accounts" :selected-accounts="snapshot.selectedAccounts" :approval-mode="settings.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="busy" :running="running || !!snapshot.discussionId" :can-send="canSend" :can-write="canWrite" :provider="selected" :preferences="preferences" :models="snapshot.models?.[selected] ?? []" :models-loading="snapshot.models?.loading ?? false" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="submit" @discuss="discuss" @account="selectAccount" @cancel="cancel" @draft="saveDraft" @select="selected = $event; userSelected = true" @preferences="selectPreferences" @settings="action('show-options')" @refresh-models="action('refresh-models')" />
+      <QueuedMessages v-if="queued.length" :items="queued" :can-steer="canSteer" :can-send="canSend && !busy" :running="running" @steer="steerQueued" @send="sendQueued" @edit="editQueued" @remove="take" />
+      <Composer :insert="insert" :accounts="snapshot.accounts" :selected-accounts="snapshot.selectedAccounts" :approval-mode="settings.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="composerBusy" :running="running || !!snapshot.discussionId" :can-send="canSend" :can-write="canWrite" :provider="selected" :preferences="preferences" :models="snapshot.models?.[selected] ?? []" :models-loading="snapshot.models?.loading ?? false" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="submit" @discuss="discuss" @account="selectAccount" @cancel="cancel" @draft="saveDraft" @select="selected = $event; userSelected = true" @preferences="selectPreferences" @settings="action('show-options')" @refresh-models="action('refresh-models')" />
     </div>
   </main>
 </template>

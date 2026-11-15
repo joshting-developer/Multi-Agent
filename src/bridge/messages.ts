@@ -41,7 +41,7 @@ export interface ProviderStatus {
   version?: string; reason?: string;
   account?: { type: string; email?: string; plan?: string; organization?: string; detail?: string };
   approvalModes?: Array<typeof approvalModes[number]>;
-  capabilities: { streaming: boolean; readOnly: boolean; workspaceWrite: boolean; resumeSession: boolean; toolApproval: boolean; structuredOutput: boolean };
+  capabilities: { streaming: boolean; readOnly: boolean; workspaceWrite: boolean; resumeSession: boolean; toolApproval: boolean; structuredOutput: boolean; steer?: boolean };
 }
 export interface Snapshot {
   workspace: string; policy: WorkspacePolicy; providers: ProviderStatus[]; tasks: Task[];
@@ -102,6 +102,7 @@ export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('rename-conversation'), conversationId: z.string().min(1).max(100), title: z.string().trim().min(1).max(120) }),
   z.object({ ...base, type: z.literal('delete-conversation'), conversationId: z.string().min(1).max(100) }),
   z.object({ ...base, type: z.literal('cancel-task'), taskId: z.string().max(100) }),
+  z.object({ ...base, type: z.literal('steer-task'), taskId: z.string().max(100), text: z.string().trim().min(1).max(32000) }),
   z.object({ ...base, type: z.literal('check-providers') }),
   z.object({ ...base, type: z.literal('authorize-workspace') }),
   z.object({ ...base, type: z.literal('clear-conversation') }),

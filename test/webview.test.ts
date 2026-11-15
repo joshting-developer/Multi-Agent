@@ -265,6 +265,54 @@ describe('Vue chat', () => {
     } finally { wrapper.unmount(); vi.unstubAllGlobals(); }
   });
 });
+describe('Queued messages while a task runs', () => {
+  it('queues the next message, steers it into a running Codex task and sends the rest after completion', async () => {
+    const api = { postMessage: vi.fn(), getState: () => undefined, setState: vi.fn() };
+    // useHost 在模組載入時取得 VS Code API；重新載入才會用到這個測試的 mock。
+    vi.stubGlobal('acquireVsCodeApi', () => api); vi.resetModules();
+    const { default: App } = await import('../webview/src/App.vue');
+    const wrapper = mount(App);
+    const task = { id: 't1', provider: 'codex', mode: 'read-only', prompt: '修 bug', output: '', status: 'running', startedAt: 1 };
+    const base = {
+      workspace: '/test-workspace', trusted: true, checking: false, conversationId: 'c1', tasks: [task],
+      policy: { classification: 'personal', allowedProviders: ['codex'] },
+      providers: [{ id: 'codex', status: 'ready', capabilities: { workspaceWrite: true, steer: true } }],
+      models: { codex: [{ id: 'test-model', label: 'Test Model', efforts: ['low', 'high'] }], claude: [], loading: false }
+    };
+    const deliver = async (data: unknown) => { window.dispatchEvent(new MessageEvent('message', { data })); await nextTick(); };
+    const type = async (text: string) => { await wrapper.get('textarea').setValue(text); await wrapper.get('textarea').trigger('keydown', { key: 'Enter' }); };
+    const sent = () => api.postMessage.mock.calls.map(([message]) => message).filter(message => message.type === 'send-message');
+    try {
+      await deliver({ version: 1, type: 'snapshot', snapshot: { ...base, activeTaskId: 't1', activeConversationId: 'c1' } });
+      await wrapper.get('select[aria-label="模型"]').setValue('test-model');
+      expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined();
+      await type('也補測試'); await type('再整理文件');
+      expect(sent()).toHaveLength(0);
+      expect(wrapper.findAll('.queued-item').map(item => item.get('.queued-text').text())).toEqual(['也補測試', '再整理文件']);
+      expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('');
+      // 立即補充：Host 接受後從清單移除；被拒絕則留著。
+      await wrapper.findAll('.queued-item')[0]!.findAll('button').find(button => button.text() === '立即補充')!.trigger('click');
+      const steer = api.postMessage.mock.calls.map(([message]) => message).find(message => message.type === 'steer-task');
+      expect(steer).toMatchObject({ taskId: 't1', text: '也補測試' });
+      await deliver({ version: 1, type: 'request-settled', requestId: steer.requestId }); await nextTick();
+      expect(wrapper.findAll('.queued-item')).toHaveLength(1);
+      // 輸入框裡正在打的內容不會被自動送出的那則清掉。
+      await wrapper.get('textarea').setValue('還在打');
+      await deliver({ version: 1, type: 'snapshot', snapshot: { ...base, tasks: [{ ...task, status: 'completed' }] } });
+      expect(sent()).toEqual([expect.objectContaining({ provider: 'codex', text: '再整理文件', preferences: expect.objectContaining({ model: 'test-model' }) })]);
+      expect(wrapper.findAll('.queued-item')).toHaveLength(0);
+      await deliver({ version: 1, type: 'request-accepted', requestId: sent()[0].requestId });
+      expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('還在打');
+      // 停止或失敗後不自動送出，改由使用者按送出。
+      await deliver({ version: 1, type: 'snapshot', snapshot: { ...base, tasks: [{ ...task, id: 't2' }], activeTaskId: 't2', activeConversationId: 'c1' } });
+      await type('之後再說');
+      await deliver({ version: 1, type: 'snapshot', snapshot: { ...base, tasks: [{ ...task, id: 't2', status: 'cancelled' }] } });
+      expect(sent()).toHaveLength(1);
+      await wrapper.findAll('.queued-item')[0]!.findAll('button').find(button => button.text() === '送出')!.trigger('click');
+      expect(sent().at(-1)).toMatchObject({ text: '之後再說' });
+    } finally { wrapper.unmount(); vi.unstubAllGlobals(); }
+  });
+});
 describe('IPC boundary', () => {
   it('rejects arbitrary commands, oversized prompts and unsupported protocol versions', () => {
     expect(webviewMessageSchema.safeParse({ version: 1, requestId: '1', type: 'exec', command: 'rm' }).success).toBe(false);

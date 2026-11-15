@@ -63,7 +63,13 @@ if (args.includes('--version')) {
         emit({ method: 'item/started', params: { item: { id: 'c', type: 'commandExecution', command: 'ls missing' } } });
         emit({ method: 'item/completed', params: { item: { id: 'c', type: 'commandExecution', command: 'ls missing', status: 'failed', aggregatedOutput: 'No such file' } } });
         finish();
-      } else finish();
+      } else if (scenario === 'steer') emit({ method: 'item/agentMessage/delta', params: { itemId: 'answer', delta: 'working;' } });
+      else finish();
+    } else if (message.method === 'turn/steer') {
+      // 補充訊息：expectedTurnId 對得上才接受；內容為 reject 時模擬官方拒絕，任務繼續。
+      const text = message.params.input[0].text;
+      if (message.params.expectedTurnId !== 'turn' || text === 'reject') emit({ id: message.id, error: { code: -32600, message: 'no active turn to steer' } });
+      else { emit({ id: message.id, result: { turnId: 'turn' } }); emit({ method: 'item/agentMessage/delta', params: { itemId: 'answer', delta: `steered:${text}` } }); finish(false); }
     } else if (message.id === 99 && message.result) { emit({ method: 'item/agentMessage/delta', params: { itemId: 'answer', delta: message.result.decision } }); finish(false); }
     else if (message.method === 'model/list') {
       if (!initialized) { emit({ id: message.id, error: { message: 'Initialize first' } }); return; }
