@@ -28,16 +28,23 @@ if (args.includes('--version')) {
     emit({ method: 'turn/completed', params: { turn: { status: 'completed' } } });
   };
   let initialized = false;
+  // 兩張可用的券（較晚到期的排前面，驗證畫面依到期時間排序）；用掉的 id 記在帳號目錄的 redeemed。
+  const credits = () => {
+    const fs = require('node:fs'); const file = process.env.CODEX_HOME && require('node:path').join(process.env.CODEX_HOME, 'redeemed');
+    const used = file && fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n') : [];
+    return [{ id: 'late', resetType: 'codexRateLimits', status: 'available', grantedAt: 1794518416, expiresAt: 1797110416, title: 'Full reset (Weekly + 5 hr)' }, { id: 'soon', resetType: 'codexRateLimits', status: 'available', grantedAt: 1793568435, expiresAt: 1796160435, title: 'Full reset (Weekly + 5 hr)' }].filter(item => !used.includes(item.id));
+  };
   readline.on('line', line => {
     const message = JSON.parse(line);
     if (message.method === 'initialize') emit({ id: message.id, result: { serverInfo: 'fixture' } });
     else if (message.method === 'initialized') initialized = true;
-    else if (message.method === 'account/rateLimits/read') emit({ id: message.id, result: { ordinaryUsageAllowed: !(process.env.CODEX_HOME && require('node:fs').existsSync(require('node:path').join(process.env.CODEX_HOME, 'exhausted'))), rateLimitResetCredits: { availableCount: process.env.CODEX_HOME && require('node:fs').existsSync(require('node:path').join(process.env.CODEX_HOME, 'redeemed')) ? 0 : 1, credits: null }, rateLimits: { primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: 1794632400 }, secondary: { usedPercent: 7, windowDurationMins: 10080, resetsAt: null } }, accessToken: 'secret-must-not-leak' } });
+    else if (message.method === 'account/rateLimits/read') emit({ id: message.id, result: { ordinaryUsageAllowed: !(process.env.CODEX_HOME && require('node:fs').existsSync(require('node:path').join(process.env.CODEX_HOME, 'exhausted'))), rateLimitResetCredits: (() => { const left = credits(); return { availableCount: left.length, credits: message.params?.excludeResetCreditDetails ? null : [...left, { id: 'used', resetType: 'codexRateLimits', status: 'redeemed', grantedAt: 1 }] }; })(), rateLimits: { primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: 1794632400 }, secondary: { usedPercent: 7, windowDurationMins: 10080, resetsAt: null } }, accessToken: 'secret-must-not-leak' } });
     else if (message.method === 'account/rateLimitResetCredit/consume') {
       // 額度用完（exhausted）且還有券時重置並用掉券；否則依官方 outcome 回報。
       const fs = require('node:fs'); const path = require('node:path'); const home = process.env.CODEX_HOME;
-      const outcome = !message.params.idempotencyKey ? undefined : fs.existsSync(path.join(home, 'redeemed')) ? 'noCredit' : fs.existsSync(path.join(home, 'exhausted')) ? 'reset' : 'nothingToReset';
-      if (outcome === 'reset') { fs.rmSync(path.join(home, 'exhausted')); fs.writeFileSync(path.join(home, 'redeemed'), message.params.idempotencyKey); }
+      const left = credits(); const credit = message.params.creditId ? left.find(item => item.id === message.params.creditId) : left[0];
+      const outcome = !message.params.idempotencyKey ? undefined : !credit ? 'noCredit' : fs.existsSync(path.join(home, 'exhausted')) ? 'reset' : 'nothingToReset';
+      if (outcome === 'reset') { fs.rmSync(path.join(home, 'exhausted')); fs.appendFileSync(path.join(home, 'redeemed'), credit.id + '\n'); }
       emit(outcome ? { id: message.id, result: { outcome } } : { id: message.id, error: { message: 'idempotencyKey required' } });
     }
     else if (message.method === 'account/read') emit({ id: message.id, result: { account: { type: 'chatgpt', email: 'codex@example.test', planType: 'pro', accessToken: 'secret-must-not-leak' } } });

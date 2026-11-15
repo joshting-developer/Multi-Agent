@@ -168,3 +168,5 @@ mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inh
 .read-roots { list-style: none; margin: 0 0 8px; padding: 0; }
 .read-roots li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
 .read-roots span { overflow-wrap: anywhere; font-family: var(--vscode-editor-font-family); font-size: 12px; }
+.credit-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.credit-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }

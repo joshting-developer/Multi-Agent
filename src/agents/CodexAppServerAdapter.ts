@@ -30,25 +30,29 @@ export class CodexAppServerAdapter extends CodexAdapter {
     const rpc = new CodexRpc(this.processes);
     try {
       for await (const message of rpc.messages({ command: this.command, cwd: this.detectionCwd, timeoutMs: 15000, ...(env && { env: { ...process.env, ...env } }) })) {
-        if (message.id === 1) rpc.request(2, 'account/rateLimits/read', { excludeResetCreditDetails: true });
+        if (message.id === 1) rpc.request(2, 'account/rateLimits/read', { excludeResetCreditDetails: false });
         if (message.id !== 2) continue;
         if (message.error) return undefined;
         const result = record(message.result); const limits = record(result.rateLimits);
         const windows = (['primary', 'secondary'] as const).map(key => record(limits[key])).filter(window => typeof window.usedPercent === 'number')
           .map(window => ({ label: windowLabel(typeof window.windowDurationMins === 'number' ? window.windowDurationMins : undefined), usedPercent: Number(window.usedPercent), ...(typeof window.resetsAt === 'number' && { resetsAt: window.resetsAt * 1000 }) }));
-        const credits = record(result.rateLimitResetCredits).availableCount;
-        return windows.length ? { windows, updatedAt: Date.now(), source: 'official', ...(result.ordinaryUsageAllowed === false && { blocked: true }), ...(typeof credits === 'number' && { resetCredits: credits }) } : undefined;
+        const summary = record(result.rateLimitResetCredits); const credits = summary.availableCount;
+        // 明細為 null 時只知道張數；只列出狀態為 available 的券，依到期時間由近到遠。
+        const list = Array.isArray(summary.credits) ? summary.credits.map(record).filter(credit => credit.status === 'available' && typeof credit.id === 'string')
+          .map(credit => ({ id: String(credit.id), ...(typeof credit.title === 'string' && { title: credit.title.slice(0, 120) }), ...(typeof credit.grantedAt === 'number' && { grantedAt: credit.grantedAt * 1000 }), ...(typeof credit.expiresAt === 'number' && { expiresAt: credit.expiresAt * 1000 }) }))
+          .sort((a, b) => (a.expiresAt ?? Infinity) - (b.expiresAt ?? Infinity)) : undefined;
+        return windows.length ? { windows, updatedAt: Date.now(), source: 'official', ...(result.ordinaryUsageAllowed === false && { blocked: true }), ...(typeof credits === 'number' && { resetCredits: credits }), ...(list && { resetCreditList: list }) } : undefined;
       }
     } catch { return undefined; }
     return undefined;
   }
-  /** 官方 account/rateLimitResetCredit/consume：由官方挑下一張可用的券；每次使用帶新的 idempotencyKey。 */
-  async consumeResetCredit(env?: Record<string, string>): Promise<ResetCreditOutcome> {
+  /** 官方 account/rateLimitResetCredit/consume：指定 creditId 時用那一張，否則由官方挑下一張；每次使用帶新的 idempotencyKey。 */
+  async consumeResetCredit(env?: Record<string, string>, creditId?: string): Promise<ResetCreditOutcome> {
     if (!this.command) await this.detect();
     if (!this.command) throw new Error('找不到 Codex CLI。');
     const rpc = new CodexRpc(this.processes); const idempotencyKey = randomUUID();
     for await (const message of rpc.messages({ command: this.command, cwd: this.detectionCwd, timeoutMs: 30000, ...(env && { env: { ...process.env, ...env } }) })) {
-      if (message.id === 1) rpc.request(2, 'account/rateLimitResetCredit/consume', { idempotencyKey });
+      if (message.id === 1) rpc.request(2, 'account/rateLimitResetCredit/consume', { idempotencyKey, ...(creditId && { creditId }) });
       if (message.id !== 2) continue;
       const outcome = record(message.result).outcome;
       if (message.error || !['reset', 'nothingToReset', 'noCredit', 'alreadyRedeemed'].includes(outcome as string)) throw new Error('Codex 沒有完成重置，請稍後再試或更新 Codex CLI。');

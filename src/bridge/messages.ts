@@ -63,8 +63,10 @@ export interface ConversationSummary { id: string; title: string; createdAt: num
 /** 官方提供的額度時間窗；usedPercent 0–100，resetsAt 為毫秒時間戳。沒有來源的欄位不填。 */
 export interface UsageWindow { label: string; usedPercent: number; resetsAt?: number }
 /** source：official 為即時查詢；last-run 為最近一次實際執行時官方回報的值。 */
-/** resetCredits：官方回報的可用額度重置券張數（目前只有 Codex）。 */
-export interface UsageSnapshot { windows: UsageWindow[]; updatedAt: number; source: 'official' | 'last-run'; blocked?: boolean; resetCredits?: number }
+/** 一張可用的額度重置券；時間為毫秒時間戳，標題由官方提供。 */
+export interface ResetCredit { id: string; title?: string; grantedAt?: number; expiresAt?: number }
+/** resetCredits：官方回報的可用額度重置券張數（目前只有 Codex）；resetCreditList：官方有給明細時的每一張，依到期時間排序。 */
+export interface UsageSnapshot { windows: UsageWindow[]; updatedAt: number; source: 'official' | 'last-run'; blocked?: boolean; resetCredits?: number; resetCreditList?: ResetCredit[] }
 /** 官方 account/rateLimitResetCredit/consume 的結果。 */
 export type ResetCreditOutcome = 'reset' | 'nothingToReset' | 'noCredit' | 'alreadyRedeemed';
 export interface AccountSummary { id: string; provider: AgentId; name: string; method?: 'cli' | 'api-key'; loggedIn?: boolean; account?: ProviderStatus['account']; usage?: UsageSnapshot }
@@ -82,7 +84,7 @@ export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('account-terminal'), accountId: z.string().min(1).max(100), action: z.enum(['login', 'logout']) }),
   z.object({ ...base, type: z.literal('add-read-root') }),
   z.object({ ...base, type: z.literal('remove-read-root'), path: z.string().min(1).max(4096) }),
-  z.object({ ...base, type: z.literal('use-reset-credit'), accountId: z.string().min(1).max(100) }),
+  z.object({ ...base, type: z.literal('use-reset-credit'), accountId: z.string().min(1).max(100), creditId: z.string().min(1).max(200).optional() }),
   z.object({ ...base, type: z.literal('select-account'), provider: agentIdSchema, accountId: z.string().min(1).max(100) }),
   z.object({ ...base, type: z.literal('check-accounts') }),
   z.object({ ...base, type: z.literal('export-conversation'), format: z.enum(['json', 'markdown']) }),

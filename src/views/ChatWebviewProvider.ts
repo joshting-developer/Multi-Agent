@@ -191,9 +191,12 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'remove-read-root': await this.orchestrator.removeReadRoot(message.path); break;
       case 'use-reset-credit': {
         if (!this.accounts) throw new Error('帳號管理尚未就緒。');
-        const answer = await vscode.window.showWarningMessage('使用一張額度重置券？會立即重置這個 Codex 帳號目前的額度，用掉後不能退回。', { modal: true }, '使用');
+        const credit = message.creditId ? this.accounts.list().find(item => item.id === message.accountId)?.usage?.resetCreditList?.find(item => item.id === message.creditId) : undefined;
+        if (message.creditId && !credit) throw new Error('找不到這張重置券，請重新整理後再選。');
+        const which = credit ? `「${credit.title ?? '重置券'}」${credit.expiresAt ? `（${new Date(credit.expiresAt).toLocaleDateString('zh-TW')} 到期）` : ''}` : '一張額度重置券';
+        const answer = await vscode.window.showWarningMessage(`使用${which}？會立即重置這個 Codex 帳號目前的額度，用掉後不能退回。`, { modal: true }, '使用');
         if (answer !== '使用') break;
-        const outcome = await this.accounts.useResetCredit(message.accountId);
+        const outcome = await this.accounts.useResetCredit(message.accountId, message.creditId);
         const text = { reset: '已使用一張重置券，額度已重置。', nothingToReset: '目前的額度不需要重置，沒有用掉重置券。', noCredit: '這個帳號沒有可用的重置券。', alreadyRedeemed: '這次重置已經完成過，沒有再用掉重置券。' }[outcome];
         void (outcome === 'reset' ? vscode.window.showInformationMessage(text) : vscode.window.showWarningMessage(text));
         break;

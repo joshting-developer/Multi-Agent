@@ -84,6 +84,7 @@ describe('Webview to native agent execution', () => {
       terminal: (id: string) => ({ name: id, command: ['claude', 'auth', 'login'], env: {} }),
       refresh: async (ids: string[]) => { for (const id of ids) status.set(id, true); },
       useResetCredit: vi.fn(async () => 'reset'),
+      list: () => [{ id: 'new', usage: { resetCreditList: [{ id: 'soon', title: 'Full reset', expiresAt: new Date(2026, 11, 5).getTime() }] } }],
       loggedIn: (id: string) => status.get(id),
       subscribe: () => () => undefined
     };
@@ -107,7 +108,15 @@ describe('Webview to native agent execution', () => {
       nativeWindow.showWarningMessage.mockResolvedValueOnce('使用');
       receive!({ version: 1, requestId: 'reset-ok', type: 'use-reset-credit', accountId: 'new' });
       await vi.waitFor(() => expect(accounts.useResetCredit).toHaveBeenCalledTimes(1));
-      expect(accounts.useResetCredit).toHaveBeenCalledWith('new');
+      expect(accounts.useResetCredit).toHaveBeenCalledWith('new', undefined);
+      // 指定某張券時，確認視窗寫出是哪一張；不在清單上的券不送出。
+      nativeWindow.showWarningMessage.mockResolvedValueOnce('使用');
+      receive!({ version: 1, requestId: 'reset-one', type: 'use-reset-credit', accountId: 'new', creditId: 'soon' });
+      await vi.waitFor(() => expect(accounts.useResetCredit).toHaveBeenCalledWith('new', 'soon'));
+      expect(nativeWindow.showWarningMessage).toHaveBeenCalledWith(expect.stringContaining('「Full reset」（2026/12/5 到期）'), { modal: true }, '使用');
+      receive!({ version: 1, requestId: 'reset-unknown', type: 'use-reset-credit', accountId: 'new', creditId: 'gone' });
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(accounts.useResetCredit).toHaveBeenCalledTimes(2);
       await vi.waitFor(() => expect(nativeWindow.showInformationMessage).toHaveBeenCalledWith('已使用一張重置券，額度已重置。'));
     } finally { controller.dispose(); await orchestrator.dispose(); }
   });

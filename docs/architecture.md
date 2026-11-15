@@ -22,7 +22,7 @@ Claude 使用官方 stream-json 輸入／輸出與 control_request/control_respo
 
 帳號來自 Codex `account/read` 或 Claude `auth status`，只選取公開的身分欄位。Extension 不讀認證檔、不保存 Token。帳號只送至設定 Webview，不寫入聊天資料庫。
 
-多帳號：每個帳號都有 Extension 儲存區 `accounts/<id>` 下自己的官方 CLI 設定目錄（Claude `CLAUDE_CONFIG_DIR`、Codex `CODEX_HOME`，權限 0700），由官方 CLI 在 VS Code 終端機完成登入／登出並自行保管憑證；Extension 只保存名稱、目錄與各 Provider 目前選定的帳號（globalState）。不使用官方 CLI 的預設目錄（`~/.codex`、`~/.claude`），官方擴充或 CLI 換帳號不影響這裡（MA-104）；Provider 偵測只看 CLI 版本與能力，登入狀態依各帳號目錄檢查，Codex 模型清單也用選定帳號讀取。沒有帳號時執行會要求先到設定新增，不回退到預設目錄。每個環節各自帶入帳號：一般聊天用該 Provider 選定的帳號，討論 A 用畫面選定的帳號、B 可另外指定，總結沿用 A，代替者用該 Provider 選定的帳號。task 記錄 `accountId`；原生 Session 存在各帳號自己的目錄，換帳號時不接續、改以上下文重建。Codex 的用量查詢（`account/rateLimits/read`）同時讀可用的額度重置券張數；使用時經原生確認視窗，由官方 `account/rateLimitResetCredit/consume` 挑券並帶新的 idempotencyKey，依官方 outcome 回報結果後重新讀用量，Extension 不自行推論額度是否恢復（MA-109）。
+多帳號：每個帳號都有 Extension 儲存區 `accounts/<id>` 下自己的官方 CLI 設定目錄（Claude `CLAUDE_CONFIG_DIR`、Codex `CODEX_HOME`，權限 0700），由官方 CLI 在 VS Code 終端機完成登入／登出並自行保管憑證；Extension 只保存名稱、目錄與各 Provider 目前選定的帳號（globalState）。不使用官方 CLI 的預設目錄（`~/.codex`、`~/.claude`），官方擴充或 CLI 換帳號不影響這裡（MA-104）；Provider 偵測只看 CLI 版本與能力，登入狀態依各帳號目錄檢查，Codex 模型清單也用選定帳號讀取。沒有帳號時執行會要求先到設定新增，不回退到預設目錄。每個環節各自帶入帳號：一般聊天用該 Provider 選定的帳號，討論 A 用畫面選定的帳號、B 可另外指定，總結沿用 A，代替者用該 Provider 選定的帳號。task 記錄 `accountId`；原生 Session 存在各帳號自己的目錄，換帳號時不接續、改以上下文重建。Codex 的用量查詢（`account/rateLimits/read`）同時讀可用的額度重置券張數與明細（標題、取得與到期時間，依到期時間排序）；使用者可選定其中一張，經原生確認視窗後以 creditId 交給官方 `account/rateLimitResetCredit/consume`（官方沒給明細時由官方挑券），每次帶新的 idempotencyKey，依官方 outcome 回報結果後重新讀用量，Extension 不自行推論額度是否恢復（MA-109）。
 
 ## SQLite
 

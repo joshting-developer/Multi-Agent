@@ -86,7 +86,8 @@ describe('Multiple official CLI accounts', () => {
     expect(codex.usage?.windows[1]).not.toHaveProperty('resetsAt'); expect(codex.usage?.blocked).toBeUndefined();
     expect(accounts.list().find(item => item.id === exhausted.id)?.usage?.blocked).toBe(true);
     expect(JSON.stringify(accounts.list())).not.toContain('secret-must-not-leak');
-    expect(codex.usage?.resetCredits).toBe(1);
+    expect(codex.usage?.resetCredits).toBe(2);
+    expect(codex.usage?.resetCreditList).toEqual([{ id: 'soon', title: 'Full reset (Weekly + 5 hr)', grantedAt: 1793568435000, expiresAt: 1796160435000 }, { id: 'late', title: 'Full reset (Weekly + 5 hr)', grantedAt: 1794518416000, expiresAt: 1797110416000 }]);
     // Claude 沒有不需推論的查詢：沒有執行前不顯示數字，執行回報後依帳號記錄。
     const claude = await accounts.add('claude', 'Claude'); await accounts.refresh([claude.id]);
     expect(accounts.list().find(item => item.id === claude.id)?.usage).toBeUndefined();
@@ -100,13 +101,18 @@ describe('Multiple official CLI accounts', () => {
     await accounts.refresh([account.id]);
     await expect(accounts.useResetCredit(account.id)).resolves.toBe('nothingToReset');
     await writeFile(join(root, account.id, 'exhausted'), ''); await accounts.refresh([account.id]);
-    expect(accounts.list()[0]!.usage).toMatchObject({ blocked: true, resetCredits: 1 });
+    expect(accounts.list()[0]!.usage).toMatchObject({ blocked: true, resetCredits: 2 });
+    // 指定較晚到期的那張：只用掉它，另一張還在。
+    await expect(accounts.useResetCredit(account.id, 'late')).resolves.toBe('reset');
+    expect(accounts.list()[0]!.usage?.blocked).toBeUndefined();
+    expect(accounts.list()[0]!.usage).toMatchObject({ resetCredits: 1, resetCreditList: [{ id: 'soon' }] });
+    await expect(accounts.useResetCredit(account.id, 'late')).resolves.toBe('noCredit');
+    await writeFile(join(root, account.id, 'exhausted'), '');
     await expect(accounts.useResetCredit(account.id)).resolves.toBe('reset');
-    expect(accounts.list()[0]!.usage?.blocked).toBeUndefined(); expect(accounts.list()[0]!.usage?.resetCredits).toBe(0);
-    await expect(accounts.useResetCredit(account.id)).resolves.toBe('noCredit');
+    expect(accounts.list()[0]!.usage).toMatchObject({ resetCredits: 0, resetCreditList: [] });
     // 執行回報沒有張數時沿用官方查詢的值。
     accounts.recordUsage('codex', account.id, { windows: [], updatedAt: 2, source: 'last-run' });
-    expect(accounts.list()[0]!.usage?.resetCredits).toBe(0);
+    expect(accounts.list()[0]!.usage).toMatchObject({ resetCredits: 0, resetCreditList: [] });
     const claude = await accounts.add('claude', 'Claude');
     await expect(accounts.useResetCredit(claude.id)).rejects.toThrow('沒有額度重置券');
   });

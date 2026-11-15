@@ -100,6 +100,13 @@ describe('Explicit models, accounts and history controls', () => {
     expect(wrapper.find('.usage-note').text()).toContain('重置券 2 張');
     await wrapper.findAll('button').find(button => button.text() === '使用重置券')!.trigger('click');
     expect(wrapper.emitted('reset')).toEqual([['a']]);
+    // 有明細時每張券各自一個「使用」，不再顯示由官方挑券的按鈕。
+    await wrapper.setProps({ accounts: [{ id: 'a', provider: 'codex' as const, name: 'a', loggedIn: true, usage: { ...usage, resetCredits: 2, resetCreditList: [{ id: 'soon', title: 'Full reset', expiresAt: new Date(2026, 11, 5).getTime() }, { id: 'late', expiresAt: new Date(2026, 11, 12).getTime() }] } }] });
+    const credits = wrapper.findAll('.credit-list li');
+    expect(credits.map(item => item.text())).toEqual(['Full reset · 12/5 到期使用', '重置券 · 12/12 到期使用']);
+    expect(wrapper.findAll('button').some(button => button.text() === '使用重置券')).toBe(false);
+    await credits[1]!.get('button').trigger('click');
+    expect(wrapper.emitted('reset')).toEqual([['a'], ['a', 'late']]);
     wrapper.unmount();
   });
   it('searches and opens saved conversations through the history panel', async () => {

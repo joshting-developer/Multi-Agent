@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 import type { AccountSummary, AgentId } from '../../../src/bridge/messages';
 withDefaults(defineProps<{ accounts?: AccountSummary[]; selected?: Partial<Record<AgentId, string>>; checking: boolean }>(), { accounts: () => [], selected: () => ({}) });
-const emit = defineEmits<{ refresh: []; add: [provider: AgentId, apiKey?: string]; rename: [id: string, name: string]; remove: [id: string]; terminal: [id: string, action: 'login' | 'logout']; select: [provider: AgentId, id: string]; reset: [id: string] }>();
+const emit = defineEmits<{ refresh: []; add: [provider: AgentId, apiKey?: string]; rename: [id: string, name: string]; remove: [id: string]; terminal: [id: string, action: 'login' | 'logout']; select: [provider: AgentId, id: string]; reset: [id: string, creditId?: string] }>();
 const providers: AgentId[] = ['codex', 'claude'];
 const methods = ref<Record<AgentId, 'cli' | 'api-key'>>({ codex: 'cli', claude: 'cli' });
 const keys = ref<Record<AgentId, string>>({ codex: '', claude: '' });
@@ -18,6 +18,7 @@ function add(provider: AgentId) {
 const sameAs = (account: AccountSummary, list: AccountSummary[]) => account.account?.email ? list.find(item => item.id !== account.id && item.provider === account.provider && item.account?.email === account.account?.email) : undefined;
 const time = (value: number) => new Date(value).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 // 官方回報已用比例；介面顯示剩餘，用完時是 0%，避免誤以為還能用。
+const day = (value: number) => new Date(value).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' });
 const remaining = (used: number) => Math.max(0, Math.min(100, Math.round(100 - used)));
 function rename(id: string) {
   if (title.value.trim()) emit('rename', id, title.value.trim());
@@ -42,11 +43,14 @@ function rename(id: string) {
               <li v-for="window in account.usage.windows" :key="window.label"><span>{{ window.label }}</span><meter min="0" max="100" low="20" high="50" optimum="100" :value="remaining(window.usedPercent)" :aria-label="`${window.label} 剩餘 ${remaining(window.usedPercent)}%`"></meter><span>剩 {{ remaining(window.usedPercent) }}%<template v-if="window.resetsAt"> · {{ time(window.resetsAt) }} 重置</template></span></li>
               <li class="usage-note">{{ account.usage.blocked ? '目前額度已用完 · ' : '' }}{{ account.usage.source === 'last-run' ? '最近一次執行' : '更新' }} {{ time(account.usage.updatedAt) }}<template v-if="account.usage.resetCredits"> · 重置券 {{ account.usage.resetCredits }} 張</template></li>
             </ul>
-            <small v-else>{{ provider === 'claude' ? '執行一次後顯示用量' : '無法取得用量' }}</small>
+            <ul v-if="account.usage?.resetCreditList?.length" class="credit-list" :aria-label="`${account.name} 的重置券`">
+              <li v-for="credit in account.usage.resetCreditList" :key="credit.id"><span>{{ credit.title ?? '重置券' }}<small v-if="credit.expiresAt"> · {{ day(credit.expiresAt) }} 到期</small></span><button type="button" class="text-button" @click="emit('reset', account.id, credit.id)">使用</button></li>
+            </ul>
+            <small v-if="!account.usage">{{ provider === 'claude' ? '執行一次後顯示用量' : '無法取得用量' }}</small>
           </template>
         </div>
         <div class="account-actions">
-          <button v-if="account.loggedIn && account.usage?.resetCredits" type="button" class="text-button" @click="emit('reset', account.id)">使用重置券</button>
+          <button v-if="account.loggedIn && account.usage?.resetCredits && !account.usage.resetCreditList?.length" type="button" class="text-button" @click="emit('reset', account.id)">使用重置券</button>
           <button v-if="selected[provider] !== account.id" type="button" class="text-button" :disabled="!account.loggedIn" @click="emit('select', provider, account.id)">設為使用中</button>
           <button v-if="!(provider === 'claude' && account.method === 'api-key')" type="button" class="text-button" @click="emit('terminal', account.id, account.loggedIn ? 'logout' : 'login')">{{ account.loggedIn ? '登出' : '登入' }}</button>
           <button type="button" class="text-button" @click="editing = account.id; title = account.name">重新命名</button>
