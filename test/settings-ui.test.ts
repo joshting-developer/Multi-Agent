@@ -31,7 +31,13 @@ describe('Model and settings UI', () => {
     const snapshot = { workspace: '/workspace', trusted: true, checking: false, tasks: [], providers: [], policy: { classification: 'personal', allowedProviders: ['codex'] }, settings: defaultSettings, models: { codex: [{ id: 'test-model', label: 'Test Model', efforts: ['low', 'high'] }], claude: [], loading: false } };
     try {
       window.dispatchEvent(new MessageEvent('message', { data: { version: 1, type: 'snapshot', snapshot } })); await nextTick();
+      // 帳號、工作區分頁沒有可儲存的項目，不顯示儲存列；有未儲存的變更時才留著。
+      expect(wrapper.find('.settings-footer').exists()).toBe(true);
+      await wrapper.findAll('nav button')[3]!.trigger('click'); expect(wrapper.find('.settings-footer').exists()).toBe(false);
+      await wrapper.findAll('nav button')[0]!.trigger('click');
       await wrapper.get('input[aria-label="任務時間上限"]').setValue(600);
+      await wrapper.findAll('nav button')[2]!.trigger('click'); expect(wrapper.find('.settings-footer').exists()).toBe(true);
+      await wrapper.findAll('nav button')[0]!.trigger('click');
       await wrapper.get('select[aria-label="傳送快捷鍵"]').setValue('modifier-enter');
       await wrapper.findAll('nav button')[1]!.trigger('click');
       await wrapper.get('select[aria-label="模型"]').setValue('test-model');

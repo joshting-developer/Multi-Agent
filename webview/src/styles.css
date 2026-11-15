@@ -146,8 +146,8 @@ select { min-width: 0; max-width: 100%; min-height: 24px; border: 0; border-radi
 .tool-io span { font-size: 11px; color: var(--vscode-descriptionForeground); padding-top: 4px; }
 .tool-io pre { margin: 0; padding: 4px 6px; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: 11px; }
 .account-list { list-style: none; margin: 0 0 12px; padding: 0; }
-.account-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--vscode-panel-border); }
-.account-main { display: grid; gap: 2px; min-width: 0; }
+.account-row { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--vscode-panel-border); }
+.account-main { display: grid; gap: 2px; min-width: 0; flex: 1 1 240px; }
 .account-main small { color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
 .account-current { font-weight: 400; color: var(--vscode-descriptionForeground); }
 .account-actions { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -174,7 +174,7 @@ mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inh
 .read-roots { list-style: none; margin: 0 0 8px; padding: 0; }
 .read-roots li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
 .read-roots span { overflow-wrap: anywhere; font-family: var(--vscode-editor-font-family); font-size: 12px; }
-.credit-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.credit-list { list-style: none; margin: 6px 0 0; padding: 0; max-width: 320px; }
 .credit-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
 .account-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
 .queued-list { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 4px; }
