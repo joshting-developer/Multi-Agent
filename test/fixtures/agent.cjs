@@ -4,7 +4,7 @@ const emit = event => process.stdout.write(JSON.stringify(event) + '\n');
 if (args.includes('--version')) {
   console.log(provider === 'claude' ? '2.1.319 (Claude Code)' : 'codex-cli 0.164.0');
 } else if (args.includes('--help')) {
-  console.log(scenario === 'old' ? '--print --json' : '--restricted --safe-mode --tools --strict-mcp-config --include-partial-messages --settings --no-session-persistence --json --ignore-user-config --ignore-rules --ephemeral --model --effort --approve-for-me --input-format --permission-prompts auto --resume');
+  console.log(scenario === 'old' ? '--print --json' : '--restricted --safe-mode --tools --strict-mcp-config --include-partial-messages --settings --no-session-persistence --json --ignore-user-config --ignore-rules --ephemeral --model --effort --approve-for-me --input-format --permission-prompts auto --resume --add-dir');
 } else if (args[0] === 'features') {
   console.log('shell_tool stable true\nmulti_agent stable true\nunified_exec stable true\nhooks stable true\napps stable true\nplugins stable true');
 } else if (args[0] === 'login' && args[1] === '--with-api-key') {

@@ -33,7 +33,8 @@ export const taskSchema = z.object({
 });
 export type Task = z.infer<typeof taskSchema>;
 export type Classification = 'unclassified' | 'personal' | 'company' | 'restricted';
-export interface WorkspacePolicy { classification: Classification; allowedProviders: AgentId[] }
+/** readRoots：使用者允許 Agent 唯讀的工作區外資料夾（realpath）。 */
+export interface WorkspacePolicy { classification: Classification; allowedProviders: AgentId[]; readRoots?: string[] }
 export interface ProviderStatus {
   id: AgentId;
   status: 'not-installed' | 'installed' | 'authenticated' | 'ready' | 'error' | 'unknown';
@@ -79,6 +80,8 @@ export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('rename-account'), accountId: z.string().min(1).max(100), name: z.string().trim().min(1).max(60) }),
   z.object({ ...base, type: z.literal('remove-account'), accountId: z.string().min(1).max(100) }),
   z.object({ ...base, type: z.literal('account-terminal'), accountId: z.string().min(1).max(100), action: z.enum(['login', 'logout']) }),
+  z.object({ ...base, type: z.literal('add-read-root') }),
+  z.object({ ...base, type: z.literal('remove-read-root'), path: z.string().min(1).max(4096) }),
   z.object({ ...base, type: z.literal('use-reset-credit'), accountId: z.string().min(1).max(100) }),
   z.object({ ...base, type: z.literal('select-account'), provider: agentIdSchema, accountId: z.string().min(1).max(100) }),
   z.object({ ...base, type: z.literal('check-accounts') }),

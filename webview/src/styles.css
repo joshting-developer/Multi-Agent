@@ -164,3 +164,7 @@ mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inh
 .attachment-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 0; }
 .attachment-chip { font-size: 11px; padding: 1px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 8px; color: var(--vscode-descriptionForeground); }
 
+
+.read-roots { list-style: none; margin: 0 0 8px; padding: 0; }
+.read-roots li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
+.read-roots span { overflow-wrap: anywhere; font-family: var(--vscode-editor-font-family); font-size: 12px; }

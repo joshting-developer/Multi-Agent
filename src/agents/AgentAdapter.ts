@@ -11,6 +11,8 @@ export interface AgentRequest {
   env?: Record<string, string>;
   /** 使用者貼上的圖片內容（base64），以各 Provider 官方的多模態輸入格式傳送。 */
   images?: Array<{ mime: string; data: string }>;
+  /** 工作區外允許唯讀的資料夾（使用者在工作區授權中加入的 realpath）。 */
+  readRoots?: string[];
   approve?: (request: Omit<ApprovalRequest, 'id' | 'taskId' | 'provider'>) => Promise<boolean>;
 }
 export type AgentEvent =

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { webviewMessageSchema, type AgentId, type HostToWebview, type WebviewToHost } from '../bridge/messages';
+import { webviewMessageSchema, type AgentId, type HostToWebview, type Task, type WebviewToHost } from '../bridge/messages';
 import { Orchestrator } from '../orchestration/Orchestrator';
 import { DiscussionCoordinator } from '../orchestration/DiscussionCoordinator';
 import { randomUUID } from 'node:crypto';
@@ -9,6 +9,7 @@ import { configureWebview } from './WebviewDocument';
 import type { AccountService } from '../accounts/AccountService';
 import { toMarkdown } from '../storage/Export';
 import { writeFile } from 'node:fs/promises';
+import { blockedFolders } from '../execution/ReadRoots';
 
 export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly webviews = new Set<vscode.Webview>();
@@ -79,6 +80,23 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     this.disposables.push({ dispose: stop });
     void check();
   }
+  /** 選一個允許 Agent 唯讀的工作區外資料夾；defaultFolder 是被擋下的位置。 */
+  private async pickReadRoot(defaultFolder?: string): Promise<void> {
+    const [folder] = await vscode.window.showOpenDialog({ title: '允許 Agent 讀取這個資料夾（唯讀，只限這個專案）', canSelectFiles: false, canSelectFolders: true, canSelectMany: false, openLabel: '允許讀取', ...(defaultFolder && { defaultUri: vscode.Uri.file(defaultFolder) }) }) ?? [];
+    if (!folder) return;
+    const root = await this.orchestrator.addReadRoot(folder.fsPath);
+    void vscode.window.showInformationMessage(`已允許讀取 ${root}，重新送出就能讀取。`);
+  }
+  /** 執行中被 sandbox 擋下的工作區外讀取：跳通知讓使用者決定是否授權，同一個資料夾在這個視窗只問一次。 */
+  private async offerReadRoots(task: Task): Promise<void> {
+    const folders = blockedFolders(task, this.orchestrator.state.workspace, this.orchestrator.state.policy.readRoots).filter(folder => !this.offeredFolders.has(folder));
+    if (!folders.length) return;
+    for (const folder of folders) this.offeredFolders.add(folder);
+    const name = task.provider === 'claude' ? 'Claude' : 'Codex';
+    const answer = await vscode.window.showWarningMessage(`${name} 沒有權限讀取工作區外的 ${folders.join('、')}。要允許這個專案讀取嗎？`, '選擇資料夾…');
+    if (answer) await this.pickReadRoot(folders[0]).catch(error => vscode.window.showErrorMessage(error instanceof Error ? error.message : '無法加入資料夾。'));
+  }
+  private readonly offeredFolders = new Set<string>();
   /** 明確選擇的帳號優先，其次是該 Provider 目前選定的帳號；每個環節（A、B、總結、代替）都各自帶入。 */
   private preferencesFor(provider: AgentId, explicit?: ProviderPreferences, accountId?: string): ProviderPreferences | undefined {
     const preferences = explicit ?? this.settings?.read()[provider];
@@ -169,6 +187,8 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         if (answer === '移除') await this.accounts?.remove(message.accountId); break;
       }
       case 'account-terminal': this.openAccountTerminal(message.accountId, message.action); break;
+      case 'add-read-root': await this.pickReadRoot(); break;
+      case 'remove-read-root': await this.orchestrator.removeReadRoot(message.path); break;
       case 'use-reset-credit': {
         if (!this.accounts) throw new Error('帳號管理尚未就緒。');
         const answer = await vscode.window.showWarningMessage('使用一張額度重置券？會立即重置這個 Codex 帳號目前的額度，用掉後不能退回。', { modal: true }, '使用');
@@ -252,7 +272,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
           const execution = this.orchestrator.send(message.provider, message.text || '請看附加的圖片。', message.mode, preferences, approvalMode, { attachments });
           // 任務已排入原對話；之後切換檢視或背景事件都不再影響這個請求的草稿。
           this.snapshot(); this.post({ version: 1, type: 'request-accepted', requestId: message.requestId }, source);
-          await execution;
+          void this.offerReadRoots(await execution);
         }
         finally { this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); }
         break;
@@ -276,7 +296,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         { label: '限制資料', value: 'restricted' as const, description: '停用所有 Provider 資料傳送' }
       ], { title: '目前工作區的資料分類', placeHolder: this.orchestrator.state.workspace });
       if (!classification) return;
-      if (classification.value === 'restricted') { await this.orchestrator.setPolicy({ classification: 'restricted', allowedProviders: [] }); return; }
+      if (classification.value === 'restricted') { await this.orchestrator.setPolicy({ ...this.orchestrator.state.policy, classification: 'restricted', allowedProviders: [] }); return; }
       const choices = await vscode.window.showQuickPick([
         { label: 'Claude Code', id: 'claude' as AgentId, picked: true },
         { label: 'Codex', id: 'codex' as AgentId, picked: classification.value === 'personal' }
@@ -286,7 +306,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         const approval = await vscode.window.showWarningMessage('確認公司政策允許目前 Codex 帳號接收此工作區資料？公司 Claude 授權不代表個人 Codex 已獲准。', { modal: true }, '公司政策允許');
         if (approval !== '公司政策允許') return;
       }
-      await this.orchestrator.setPolicy({ classification: classification.value, allowedProviders: choices.map(choice => choice.id) });
+      await this.orchestrator.setPolicy({ ...this.orchestrator.state.policy, classification: classification.value, allowedProviders: choices.map(choice => choice.id) });
     } finally { this.approvalPending = false; }
   }
   dispose(): void {

@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { realpath, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { isAbsolute, parse } from 'node:path';
+import { insideOf } from '../execution/ReadRoots';
 import type { AgentId, ApprovalRequest, AuditEvent, ConversationSummary, SearchFilters, UsageSnapshot, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
 import { AgentRegistry } from '../agents/AgentRegistry';
 import { assertAuthorized } from '../execution/ExecutionPolicy';
@@ -97,6 +101,28 @@ export class Orchestrator {
     this.state.policy = policy; this.changed(); await this.flush();
     await this.auditWorkspace('policy-changed', `${policy.classification}: ${policy.allowedProviders.join(', ') || '無'}`);
   }
+  /** 允許 Agent 唯讀工作區外的資料夾；只收已存在的絕對路徑資料夾，不收工作區內、根目錄或家目錄本身。 */
+  async addReadRoot(path: string): Promise<string> {
+    if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
+    if (!isAbsolute(path)) throw new Error('請選擇資料夾的完整路徑。');
+    const root = await realpath(path);
+    if (!(await stat(root)).isDirectory()) throw new Error('只能允許讀取資料夾。');
+    if (root === '/' || root === homedir() || root === parse(root).root) throw new Error('不能允許讀取整個磁碟或家目錄，請選擇更明確的資料夾。');
+    if (insideOf(root, this.cwd) || insideOf(this.cwd, root)) throw new Error('這個資料夾和工作區重疊，請選擇工作區外的資料夾。');
+    const roots = this.state.policy.readRoots ?? [];
+    if (roots.includes(root)) return root;
+    if (roots.length >= 20) throw new Error('最多允許 20 個資料夾。');
+    this.state.policy = { ...this.state.policy, readRoots: [...roots, root] }; this.changed(); await this.flush();
+    await this.auditWorkspace('policy-changed', `允許唯讀：${root}`);
+    return root;
+  }
+  async removeReadRoot(path: string): Promise<void> {
+    if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
+    const { readRoots = [], ...policy } = this.state.policy; const roots = readRoots.filter(item => item !== path);
+    this.state.policy = roots.length ? { ...policy, readRoots: roots } : policy;
+    this.changed(); await this.flush();
+    await this.auditWorkspace('policy-changed', `取消唯讀：${path}`);
+  }
   assertCanSend(provider: AgentId, mode: ExecutionMode, discussionId?: string): void {
     if (this.navigating) throw new Error('正在切換對話，請稍候。');
     if (this.state.discussionId !== discussionId) throw new Error(this.state.discussionId ? '討論進行中，請等待完成或停止討論。' : '討論尚未開始。');
@@ -190,7 +216,7 @@ export class Orchestrator {
     const conversationId = this.taskConversations.get(task.id) ?? this.repository.conversationId;
     if (task.attachments?.length && !this.attachmentStore) throw new Error('目前無法讀取圖片附件。');
     const images = task.attachments?.length ? await Promise.all(task.attachments.map(async item => ({ mime: item.mime, data: await this.attachmentStore!.read(conversationId, item.id) }))) : undefined;
-    for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, persist, resumeSessionId, ...(env && { env }), ...(images && { images }), approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
+    for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, persist, resumeSessionId, ...(this.state.policy.readRoots?.length && { readRoots: this.state.policy.readRoots }), ...(env && { env }), ...(images && { images }), approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
       if (event.type === 'text-delta') {
         if (task.output.length + event.text.length > 512 * 1024) throw new Error('回應超過 512 KB 上限，已停止任務。');
         task.output += event.text;

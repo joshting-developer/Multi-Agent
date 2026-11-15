@@ -30,7 +30,9 @@ export class ClaudeCodeAdapter extends CliAdapter {
     const tools = request.mode === 'workspace-write' ? (interactive ? 'Read,Glob,Grep,Edit,Write,Bash' : 'Read,Glob,Grep,Edit,Write') : 'Read,Glob,Grep';
     const permission = request.mode === 'read-only' ? 'plan' : request.approvalMode === 'full-access' ? 'bypassPermissions' : request.approvalMode === 'auto-review' ? 'auto' : interactive ? 'manual' : 'dontAsk';
     if (request.approvalMode === 'auto-review' && !this.detected?.approvalModes?.includes('auto-review')) throw new Error('此 Claude CLI 不支援代我核准，請更新 CLI。');
-    const deny = protectedPatterns.flatMap(pattern => ['Read', 'Edit', 'Write', 'Grep', 'Glob'].map(tool => `${tool}(${pattern})`));
+    // 工作區外的資料夾以 --add-dir 加入，但禁止檔案工具寫入；Claude 規則的絕對路徑以 // 開頭。
+    const roots = this.help.includes('--add-dir') ? request.readRoots ?? [] : [];
+    const deny = [...protectedPatterns.flatMap(pattern => ['Read', 'Edit', 'Write', 'Grep', 'Glob'].map(tool => `${tool}(${pattern})`)), ...roots.flatMap(root => ['Edit', 'Write'].map(tool => `${tool}(/${root}/**)`))];
     return ['--print', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
       ...(request.model ? ['--model', request.model] : []),
       ...(request.effort ? ['--effort', request.effort] : []),
@@ -38,6 +40,7 @@ export class ClaudeCodeAdapter extends CliAdapter {
       '--safe-mode', '--tools', tools, '--allowedTools', interactive ? 'Read,Glob,Grep' : tools,
       ...(interactive ? ['--input-format', 'stream-json', '--permission-prompts', 'host', '--permission-prompt-tool', 'stdio'] : []),
       '--permission-mode', permission,
+      ...roots.flatMap(root => ['--add-dir', root]),
       '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--disable-slash-commands',
       ...(request.resumeSessionId ? ['--resume', request.resumeSessionId] : request.persist ? [] : ['--no-session-persistence']),
       // --safe-mode 實測已不讀 auto-memory；仍明確關掉, 避免 Participant 之間或與使用者自己的 Claude Code 經由專案記憶互相讀寫。
