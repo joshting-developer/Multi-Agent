@@ -5,8 +5,10 @@ import { providerLabel } from '../bridge/labels';
 import type { Orchestrator } from './Orchestrator';
 
 /** 參與混合任務的一個帳號與模型；label 是畫面上顯示的名稱。 */
-export interface HybridMemberInput { provider: AgentId; preferences?: ProviderPreferences; label: string }
+export interface HybridMemberInput { provider: AgentId; preferences?: ProviderPreferences; approvalMode?: ApprovalMode; label: string }
 export const maxHybridMembers = 4;
+/** 完整存取需要逐次原生確認，混合模式不代為開啟，改用要求核准。 */
+const safe = (mode: ApprovalMode): ApprovalMode => mode === 'full-access' ? 'ask' : mode;
 export const maxHybridSteps = 6;
 /** 交給下一個成員或 review 的前面成果，每個環節最多保留的長度。 */
 const resultLimit = 6000;
@@ -70,7 +72,7 @@ export class HybridCoordinator {
     // 使用者的原始要求只附在第一則，畫面據此顯示一次使用者訊息。
     const text = state.shown ? undefined : state.request; state.shown = true;
     let task: Task;
-    try { task = await this.orchestrator.send(member.provider, prompt, mode, member.preferences, mode === 'read-only' ? 'ask' : state.approvalMode, { hybrid: { ...hybrid, id: state.id, member: member.label, ...(text && { text }) }, outbound }); }
+    try { task = await this.orchestrator.send(member.provider, prompt, mode, member.preferences, mode === 'read-only' ? 'ask' : safe(member.approvalMode ?? state.approvalMode), { hybrid: { ...hybrid, id: state.id, member: member.label, ...(text && { text }) }, outbound }); }
     catch (error) {
       if (this.cancelled) { state.status = 'cancelled'; return undefined; }
       member.left = `${where}：${error instanceof Error ? error.message.slice(0, 80) : '無法執行'}`; this.changed(); return undefined;

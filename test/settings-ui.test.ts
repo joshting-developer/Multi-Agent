@@ -2,9 +2,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
-import ModelFields from '../webview/src/components/ModelFields.vue';
 import Composer from '../webview/src/components/Composer.vue';
-import { defaultSettings } from '../src/bridge/settings';
+import { concretePreferences, defaultSettings } from '../src/bridge/settings';
 describe('Model and settings UI', () => {
   it('applies the configured send shortcut and default file permission', async () => {
     const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, canWrite: true, initialDraft: 'analyze', sendShortcut: 'modifier-enter', defaultMode: 'read-only' } });
@@ -14,14 +13,11 @@ describe('Model and settings UI', () => {
     expect(wrapper.emitted('send')?.[0]).toEqual(['analyze', 'read-only', 'ask']);
     wrapper.unmount();
   });
-  it('uses model-specific efforts and resets an incompatible previous selection', async () => {
-    const wrapper = mount(ModelFields, { props: { provider: 'codex', value: { model: 'large', effort: 'ultra' }, models: [
-      { id: 'large', label: 'Large', efforts: ['high', 'ultra'] }, { id: 'small', label: 'Small', efforts: ['low'] }
-    ] } });
-    expect(wrapper.get('select[aria-label="推理強度"]').text()).toContain('Ultra');
-    await wrapper.get('select[aria-label="模型"]').setValue('small');
-    expect(wrapper.emitted('change')?.[0]).toEqual([{ model: 'small', effort: 'low' }]);
-    wrapper.unmount();
+  it('uses model-specific efforts and resets an incompatible previous selection', () => {
+    // 成員面板換模型時用同一個規則：強度不在新模型的清單裡就改用新模型支援的值。
+    const models = [{ id: 'large', label: 'Large', efforts: ['high' as const, 'ultra' as const] }, { id: 'small', label: 'Small', efforts: ['low' as const] }];
+    expect(concretePreferences({ model: 'large', effort: 'ultra' }, models)).toEqual({ model: 'large', effort: 'ultra' });
+    expect(concretePreferences({ model: 'small', effort: 'ultra' }, models)).toEqual({ model: 'small', effort: 'low' });
   });
   it('lets users edit and persist real settings in the dedicated editor page', async () => {
     const api = { postMessage: vi.fn(), getState: () => undefined, setState: vi.fn() };
@@ -33,28 +29,22 @@ describe('Model and settings UI', () => {
       window.dispatchEvent(new MessageEvent('message', { data: { version: 1, type: 'snapshot', snapshot } })); await nextTick();
       // 帳號、工作區分頁沒有可儲存的項目，不顯示儲存列；有未儲存的變更時才留著。
       expect(wrapper.find('.settings-footer').exists()).toBe(true);
-      await wrapper.findAll('nav button')[3]!.trigger('click'); expect(wrapper.find('.settings-footer').exists()).toBe(false);
+      // 沒有「Agent 與模型」分頁；連線與 CLI 路徑在一般頁。
+      expect(wrapper.findAll('nav button').map(button => button.text())).toEqual(['一般', '工作區與資料', '帳號']);
+      expect(wrapper.find('input[aria-label="Codex CLI 路徑"]').exists()).toBe(true);
+      await wrapper.findAll('nav button')[2]!.trigger('click'); expect(wrapper.find('.settings-footer').exists()).toBe(false);
       await wrapper.findAll('nav button')[0]!.trigger('click');
       await wrapper.get('select[aria-label="傳送快捷鍵"]').setValue('modifier-enter');
-      await wrapper.findAll('nav button')[2]!.trigger('click'); expect(wrapper.find('.settings-footer').exists()).toBe(true);
+      await wrapper.findAll('nav button')[1]!.trigger('click'); expect(wrapper.find('.settings-footer').exists()).toBe(true);
       await wrapper.findAll('nav button')[0]!.trigger('click');
-      await wrapper.get('select[aria-label="傳送快捷鍵"]').setValue('modifier-enter');
-      await wrapper.findAll('nav button')[1]!.trigger('click');
-      await wrapper.get('select[aria-label="模型"]').setValue('test-model');
-      await wrapper.get('select[aria-label="推理強度"]').setValue('high');
+      await wrapper.get('input[aria-label="Codex CLI 路徑"]').setValue('/opt/codex');
       await wrapper.get('form').trigger('submit');
-      expect(api.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'save-settings', settings: expect.objectContaining({ sendShortcut: 'modifier-enter', codex: { model: 'test-model', effort: 'high' } }) }));
+      expect(api.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'save-settings', settings: expect.objectContaining({ sendShortcut: 'modifier-enter', codexPath: '/opt/codex' }) }));
     } finally { wrapper.unmount(); vi.unstubAllGlobals(); }
   });
 });
 
 describe('Explicit models, accounts and history controls', () => {
-  it('never offers an ambiguous model or reasoning default', () => {
-    const wrapper = mount(ModelFields, { props: { provider: 'codex', value: { model: 'model-a', effort: 'high' }, models: [{ id: 'model-a', label: 'Model A', efforts: ['high'] }] } });
-    expect(wrapper.text()).not.toContain('預設');
-    expect(wrapper.find('option[value=""]').exists()).toBe(false);
-    expect(wrapper.find('option[value="default"]').exists()).toBe(false); wrapper.unmount();
-  });
   it('lists named accounts per provider with identity, login state and per-account actions', async () => {
     const { default: Accounts } = await import('../webview/src/components/AccountSettings.vue');
     const accounts = [

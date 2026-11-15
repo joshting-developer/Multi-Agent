@@ -7,6 +7,6 @@ export interface QueuedMessage {
   preferences: ProviderPreferences; images: Array<{ mime: string; data: string }>; steering?: boolean;
 }
 /** 混合模式的一個成員：帳號、模型與推理強度都放在 preferences。 */
-export interface HybridMember { provider: AgentId; preferences: ProviderPreferences }
+export interface HybridMember { provider: AgentId; preferences: ProviderPreferences; approvalMode?: ApprovalMode }
 /** 輸入框送出的方式：一般對話、兩方討論或混合分工；在標題列切換。 */
 export type ChatKind = 'solo' | 'discussion' | 'hybrid';

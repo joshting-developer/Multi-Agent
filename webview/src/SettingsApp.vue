@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { classificationLabels, providerLabel } from '../../src/bridge/labels';
+import { classificationLabels, providerLabel, statusLabels } from '../../src/bridge/labels';
 import { computed, ref, watch } from 'vue';
 import { useHost } from './composables/useHost';
-import ProviderSettings from './components/ProviderSettings.vue';
 import AccountSettings from './components/AccountSettings.vue';
 import { approvalModes, approvalLabels, defaultSettings, replyLanguages, replyLanguageLabels, type WorkspaceSettings } from '../../src/bridge/preferences';
 import type { AgentId, WebviewToHost } from '../../src/bridge/messages';
 const { snapshot, error, post, saveSettings, settingsSaving, settingsSaved } = useHost();
-const section = ref<'general' | 'agents' | 'accounts' | 'workspace'>('general');
-const provider = ref<AgentId>('codex');
+const section = ref<'general' | 'accounts' | 'workspace'>('general');
+const agents: AgentId[] = ['codex', 'claude'];
+const pathKey = (id: AgentId) => id === 'codex' ? 'codexPath' as const : 'claudePath' as const;
 const clone = (value: WorkspaceSettings): WorkspaceSettings => JSON.parse(JSON.stringify(value)) as WorkspaceSettings;
 const draft = ref(clone(defaultSettings));
 const baseline = ref(JSON.stringify(defaultSettings));
@@ -30,23 +30,24 @@ function account(message: AccountMessage extends infer M ? M extends AccountMess
   post({ version: 1, requestId: crypto.randomUUID(), ...message } as WebviewToHost);
 }
 const newId = () => crypto.randomUUID();
-const pathKey = computed(() => provider.value === 'codex' ? 'codexPath' : 'claudePath');
 </script>
 
 <template>
   <main class="settings-page">
-    <nav class="settings-navigation" aria-label="設定分類"><div class="settings-brand">Multi-Agent</div><button type="button" :aria-current="section === 'general' ? 'page' : undefined" @click="section = 'general'">一般</button><button type="button" :aria-current="section === 'agents' ? 'page' : undefined" @click="section = 'agents'">Agent 與模型</button><button type="button" :aria-current="section === 'workspace' ? 'page' : undefined" @click="section = 'workspace'">工作區與資料</button><button type="button" :aria-current="section === 'accounts' ? 'page' : undefined" @click="section = 'accounts'">帳號</button></nav>
+    <nav class="settings-navigation" aria-label="設定分類"><div class="settings-brand">Multi-Agent</div><button type="button" :aria-current="section === 'general' ? 'page' : undefined" @click="section = 'general'">一般</button><button type="button" :aria-current="section === 'workspace' ? 'page' : undefined" @click="section = 'workspace'">工作區與資料</button><button type="button" :aria-current="section === 'accounts' ? 'page' : undefined" @click="section = 'accounts'">帳號</button></nav>
     <form class="settings-content" @submit.prevent="saveSettings(clone(draft))">
-      <h1>{{ { general: '一般', agents: 'Agent 與模型', accounts: '帳號', workspace: '工作區與資料' }[section] }}</h1>
+      <h1>{{ { general: '一般', accounts: '帳號', workspace: '工作區與資料' }[section] }}</h1>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <template v-if="section === 'general'">
         <section class="settings-card"><h2>聊天</h2><label class="setting-row"><span>傳送快捷鍵</span><select v-model="draft.sendShortcut" aria-label="傳送快捷鍵"><option value="enter">Enter</option><option value="modifier-enter">⌘ / Ctrl + Enter</option></select></label><label class="setting-row"><span>新對話檔案權限</span><select v-model="draft.defaultMode" aria-label="預設檔案權限"><option value="workspace-write">可編輯</option><option value="read-only">唯讀</option></select></label><label class="setting-row"><span>回覆語言</span><select v-model="draft.replyLanguage" aria-label="回覆語言"><option v-for="item in replyLanguages" :key="item" :value="item">{{ replyLanguageLabels[item] }}</option></select></label></section>
-        <section class="settings-card"><h2>執行</h2><label class="setting-row"><span>動作核准</span><select v-model="draft.approvalMode" aria-label="動作核准"><option v-for="item in approvalModes" :key="item" :value="item">{{ approvalLabels[item] }}</option></select></label></section>
-      </template>
-      <template v-else-if="section === 'agents'">
-        <div class="provider-tabs"><button type="button" :aria-pressed="provider === 'codex'" @click="provider = 'codex'">Codex</button><button type="button" :aria-pressed="provider === 'claude'" @click="provider = 'claude'">Claude Code</button></div>
-        <p v-if="snapshot.models?.error && provider === 'codex'" class="setting-description" role="status">{{ snapshot.models.error }}</p>
-        <ProviderSettings :provider="provider" :value="draft[provider]" :path="draft[pathKey]" :models="snapshot.models?.[provider] ?? []" :status="snapshot.providers.find(item => item.id === provider)" :checking="snapshot.checking" :loading="snapshot.models?.loading ?? false" @change="draft[provider] = $event" @path-change="draft[pathKey] = $event" @check="action('check-providers')" @refresh="action('refresh-models')" />
+        <section class="settings-card"><h2>執行</h2><label class="setting-row"><span>新帳號預設核准</span><select v-model="draft.approvalMode" aria-label="動作核准"><option v-for="item in approvalModes" :key="item" :value="item">{{ approvalLabels[item] }}</option></select></label></section>
+        <!-- 帳號的模型、強度與核准方式在聊天標題列下方的成員面板設定；這裡只留連線與 CLI 路徑。 -->
+        <section class="settings-card">
+          <h2>Agent 連線</h2>
+          <div v-for="id in agents" :key="id" class="setting-row agent-connection"><span>{{ providerLabel(id) }}<small>{{ snapshot.providers.find(item => item.id === id) ? statusLabels[snapshot.providers.find(item => item.id === id)!.status] : '尚未檢查' }}<template v-if="snapshot.providers.find(item => item.id === id)?.version"> · {{ snapshot.providers.find(item => item.id === id)!.version }}</template><template v-if="snapshot.providers.find(item => item.id === id)?.reason"> · {{ snapshot.providers.find(item => item.id === id)!.reason }}</template></small></span><input v-model="draft[pathKey(id)]" :aria-label="`${providerLabel(id)} CLI 路徑`" placeholder="自動偵測 CLI" /></div>
+          <p v-if="snapshot.models?.error" class="setting-description" role="status">{{ snapshot.models.error }}</p>
+          <div class="settings-card-actions"><button type="button" class="secondary-button" :disabled="snapshot.checking" @click="action('check-providers')">{{ snapshot.checking ? '檢查中…' : '檢查連線' }}</button><button type="button" class="secondary-button" :disabled="snapshot.models?.loading" @click="action('refresh-models')">{{ snapshot.models?.loading ? '載入中…' : '重新載入 Codex 模型' }}</button></div>
+        </section>
       </template>
       <AccountSettings v-else-if="section === 'accounts'" :accounts="snapshot.accounts" :selected="snapshot.selectedAccounts" :checking="snapshot.checking" @refresh="action('check-providers')" @add="(provider, apiKey) => account({ type: 'add-account', provider, ...(apiKey !== undefined && { apiKey }) })" @rename="(accountId, name) => account({ type: 'rename-account', accountId, name })" @remove="accountId => account({ type: 'remove-account', accountId })" @terminal="(accountId, action) => account({ type: 'account-terminal', accountId, action })" @select="(provider, accountId) => account({ type: 'select-account', provider, accountId })" @reset="(accountId, creditId) => account({ type: 'use-reset-credit', accountId, ...(creditId && { creditId }) })" />
       <template v-else>
@@ -56,7 +57,7 @@ const pathKey = computed(() => provider.value === 'codex' ? 'codexPath' : 'claud
         <section class="settings-card"><h2>此專案的資料</h2><label class="setting-row"><span>保存這個專案的對話</span><input type="checkbox" :checked="snapshot.persistent !== false" aria-label="保存這個專案的對話" @change="post({ version: 1, type: 'set-persistence', requestId: newId(), enabled: ($event.target as HTMLInputElement).checked })" /></label><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId || !!snapshot.discussionId" @click="post({ version: 1, type: 'clear-project', requestId: newId() })">刪除此專案所有紀錄</button></section>
       </template>
       <!-- 帳號與工作區的操作都是立即生效；只有還有未儲存的變更時才在那兩頁顯示儲存列。 -->
-      <footer v-if="section === 'general' || section === 'agents' || dirty" class="settings-footer"><span role="status">{{ settingsSaving ? '儲存中…' : saved ? '已儲存' : dirty ? '有尚未儲存的變更' : '' }}</span><button type="button" class="secondary-button" :disabled="!dirty || settingsSaving" @click="reset">還原</button><button type="submit" class="primary-button" :disabled="!dirty || settingsSaving">儲存設定</button></footer>
+      <footer v-if="section === 'general' || dirty" class="settings-footer"><span role="status">{{ settingsSaving ? '儲存中…' : saved ? '已儲存' : dirty ? '有尚未儲存的變更' : '' }}</span><button type="button" class="secondary-button" :disabled="!dirty || settingsSaving" @click="reset">還原</button><button type="submit" class="primary-button" :disabled="!dirty || settingsSaving">儲存設定</button></footer>
     </form>
   </main>
 </template>

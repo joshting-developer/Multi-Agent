@@ -79,6 +79,12 @@ describe('Hybrid Coordinator', () => {
     await expect(second.coordinator.run('x', members.slice(0, 1), 0, 'read-only')).rejects.toThrow('2 到 4 個成員');
     await expect(second.coordinator.run('x', members, 5, 'read-only')).rejects.toThrow('請指定主帳號');
   });
+  it('runs each step with that member own approval mode and never full access', async () => {
+    const codex = new Scripted('codex', plan); const claude = new Scripted('claude');
+    const { coordinator } = await setup([codex, claude]);
+    await coordinator.run('加上匯出功能', [{ ...members[0]!, approvalMode: 'auto-review' }, { ...members[1]!, approvalMode: 'full-access' }], 0, 'workspace-write');
+    expect(codex.requests[1]!.approvalMode).toBe('auto-review'); expect(claude.requests[0]!.approvalMode).toBe('ask');
+  });
   it('parses only a valid plan and caps the number of steps', () => {
     expect(parsePlan(plan, 2)?.map(step => [step.title, step.member])).toEqual([['寫程式', 0], ['補測試', 1]]);
     expect(parsePlan('{"steps":[{"title":"a","member":3,"instruction":"x"}]}', 2)).toBeUndefined();

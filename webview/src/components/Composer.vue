@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import type { AccountSummary, AgentId, ExecutionMode } from '../../../src/bridge/messages';
-import ProviderPicker from './ProviderPicker.vue';
+import type { ExecutionMode } from '../../../src/bridge/messages';
 import ChatIcon from './ChatIcon.vue';
-import ModelPicker from './ModelPicker.vue';
 import type { ChatKind } from '../queue';
-import { approvalLabels, approvalModes, type ApprovalMode, type ModelOption, type ProviderPreferences } from '../../../src/bridge/preferences';
+import { approvalModes, type ApprovalMode } from '../../../src/bridge/preferences';
 const props = withDefaults(defineProps<{
-  busy: boolean; running: boolean; canSend: boolean; initialDraft: string; draftRevision?: number; canWrite?: boolean; provider?: AgentId;
-  insert?: { text: string; revision: number }; accounts?: AccountSummary[]; selectedAccounts?: Partial<Record<AgentId, string>>; approvalMode?: ApprovalMode; supportedApprovalModes?: ApprovalMode[]; preferences?: ProviderPreferences; models?: ModelOption[]; kind?: ChatKind; kindReady?: boolean; modelsLoading?: boolean; sendShortcut?: 'enter' | 'modifier-enter'; defaultMode?: ExecutionMode;
-}>(), { insert: undefined, accounts: () => [], selectedAccounts: () => ({}), approvalMode: 'ask', supportedApprovalModes: () => [...approvalModes], provider: 'codex', draftRevision: 0, canWrite: true, preferences: () => ({ model: '', effort: 'medium' }), models: () => [], kind: 'solo', kindReady: true, modelsLoading: false, sendShortcut: 'enter', defaultMode: 'workspace-write' });
-const emit = defineEmits<{ send: [text: string, mode: ExecutionMode, approvalMode: ApprovalMode, images?: PastedImage[]]; account: [provider: AgentId, accountId: string]; cancel: []; draft: [text: string]; select: [id: AgentId]; preferences: [value: ProviderPreferences]; settings: []; refreshModels: [] }>();
+  busy: boolean; running: boolean; canSend: boolean; initialDraft: string; draftRevision?: number; canWrite?: boolean;
+  /** 帳號、模型、強度與核准方式都在標題列下方的成員面板選；這裡只帶入目前帳號的核准方式。 */
+  insert?: { text: string; revision: number }; approvalMode?: ApprovalMode; supportedApprovalModes?: ApprovalMode[]; kind?: ChatKind; kindReady?: boolean; sendShortcut?: 'enter' | 'modifier-enter'; defaultMode?: ExecutionMode;
+}>(), { insert: undefined, approvalMode: 'ask', supportedApprovalModes: () => [...approvalModes], draftRevision: 0, canWrite: true, kind: 'solo', kindReady: true, sendShortcut: 'enter', defaultMode: 'workspace-write' });
+const emit = defineEmits<{ send: [text: string, mode: ExecutionMode, approvalMode: ApprovalMode, images?: PastedImage[]]; cancel: []; draft: [text: string] }>();
 const text = ref(props.initialDraft);
 // 貼上的圖片只在送出前留在輸入框；預覽用 blob URL，送出時才轉成 base64。
 export interface PastedImage { mime: string; data: string; url: string; bytes: number }
@@ -39,15 +38,9 @@ watch(() => props.running, async running => {
   if (document.activeElement && document.activeElement !== document.body) return;
   (running ? stop.value : input.value)?.focus();
 });
-const approval = ref<ApprovalMode>(props.approvalMode);
-watch(() => props.approvalMode, value => { approval.value = value; });
-watch(() => props.provider, () => { approval.value = props.approvalMode; });
+const approval = computed(() => props.approvalMode);
 const mode = ref<ExecutionMode>(props.canWrite === false ? 'read-only' : props.defaultMode);
 const modeChosen = ref(false);
-function choose(provider: AgentId, accountId?: string) {
-  if (provider !== props.provider) emit('select', provider);
-  if (accountId && accountId !== props.selectedAccounts[provider]) emit('account', provider, accountId);
-}
 // 討論與混合需要文字、不能帶圖片；執行中只能排一般訊息。混合另外需要成員設定完成。
 const valid = computed(() => props.canSend && props.supportedApprovalModes.includes(approval.value) && !props.busy && text.value.length <= 32000
   && (props.kind === 'solo' ? text.value.trim().length > 0 || images.value.length > 0 : text.value.trim().length > 0 && !images.value.length && !props.running && props.kindReady));
@@ -83,11 +76,7 @@ function onKey(event: KeyboardEvent) {
     <textarea id="message" ref="input" v-model="text" rows="3" maxlength="32000" placeholder="想做什麼都可以" :disabled="busy" @keydown="onKey" @paste="onPaste"></textarea>
     <div class="composer-footer">
       <div class="composer-options">
-        <!-- 混合模式由成員決定 Agent 與模型，這裡不顯示。 -->
-        <ProviderPicker v-if="kind !== 'hybrid'" :selected="provider" :account="selectedAccounts[provider]" :accounts="accounts" :busy="busy" @select="choose" />
-        <ModelPicker v-if="kind !== 'hybrid'" :provider="provider" :value="preferences" :models="models" :busy="busy" :loading="modelsLoading" @change="$emit('preferences', $event)" @settings="$emit('settings')" @refresh="$emit('refreshModels')" />
         <template v-if="kind !== 'discussion'">
-          <select v-model="approval" class="permission-picker approval-picker" :disabled="busy || mode === 'read-only'" aria-label="動作核准"><option v-for="item in approvalModes" :key="item" :value="item" :disabled="!supportedApprovalModes.includes(item)">{{ approvalLabels[item] }}</option></select>
           <select v-model="mode" class="permission-picker" :disabled="busy" aria-label="任務權限" @change="modeChosen = true"><option value="read-only">唯讀</option><option value="workspace-write" :disabled="canWrite === false">可編輯</option></select>
         </template>
       </div>

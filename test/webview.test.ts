@@ -4,10 +4,23 @@ import { nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
 import Composer from '../webview/src/components/Composer.vue';
 import MessageBody from '../webview/src/components/MessageBody.vue';
-import ProviderPicker from '../webview/src/components/ProviderPicker.vue';
+import AgentPanel from '../webview/src/components/AgentPanel.vue';
 import Conversation from '../webview/src/components/Conversation.vue';
 import DiscussionBar from '../webview/src/components/DiscussionBar.vue';
-import { webviewMessageSchema } from '../src/bridge/messages';
+import { webviewMessageSchema, type AccountSummary } from '../src/bridge/messages';
+import type { AccountPreferences } from '../src/bridge/preferences';
+
+const panelAccounts = [
+  { id: 'c1', provider: 'codex' as const, name: '工作', loggedIn: true },
+  { id: 'c2', provider: 'codex' as const, name: '備用', loggedIn: true },
+  { id: 'c3', provider: 'codex' as const, name: '登出', loggedIn: false },
+  { id: 'a1', provider: 'claude' as const, name: '個人', loggedIn: true, preferences: { model: 'sonnet', effort: 'medium' as const, approvalMode: 'auto-review' as const } }
+];
+const panelModels = { codex: [{ id: 'gpt', label: 'GPT', efforts: ['low' as const, 'high' as const] }, { id: 'mini', label: 'Mini', efforts: ['medium' as const] }], claude: [{ id: 'sonnet', label: 'Sonnet', efforts: ['medium' as const] }] };
+const panelProviders = [{ id: 'codex' as const, status: 'ready' as const, approvalModes: ['ask' as const, 'auto-review' as const, 'full-access' as const], capabilities: { streaming: true, readOnly: true, workspaceWrite: true, resumeSession: true, toolApproval: true, structuredOutput: true } }, { id: 'claude' as const, status: 'ready' as const, approvalModes: ['ask' as const, 'auto-review' as const], capabilities: { streaming: true, readOnly: true, workspaceWrite: true, resumeSession: true, toolApproval: true, structuredOutput: true } }];
+const panelPreferences = (account: AccountSummary): AccountPreferences => account.preferences ?? { model: account.provider === 'codex' ? 'gpt' : 'sonnet', effort: account.provider === 'codex' ? 'high' : 'medium', approvalMode: 'ask' };
+const panelProps = { accounts: panelAccounts as AccountSummary[], selectedAccounts: { codex: 'c1', claude: 'a1' }, provider: 'codex' as const, models: panelModels, providers: panelProviders, preferencesOf: panelPreferences, busy: false };
+const member = (provider: 'codex' | 'claude', accountId: string, model: string, effort: string, approvalMode: string) => ({ provider, preferences: { model, effort, accountId }, approvalMode });
 
 describe('Vue chat', () => {
   it('submits typed messages with the selected permission and keyboard shortcut', async () => {
@@ -19,15 +32,15 @@ describe('Vue chat', () => {
     wrapper.unmount();
   });
   it('starts a read-only discussion with the chosen round count and labels each speaker', async () => {
-    // 討論的設定在標題列下方的設定列；輸入框在討論模式只留送出，不顯示權限。
-    const { default: ModeBar } = await import('../webview/src/components/ModeBar.vue');
-    const models = { codex: [], claude: [] }; const defaults = { codex: { model: 'gpt', effort: 'high' as const }, claude: { model: 'sonnet', effort: 'medium' as const } };
-    const bar = mount(ModeBar, { props: { kind: 'discussion', accounts: [], selectedAccounts: {}, provider: 'codex', models, defaults, busy: false } });
+    // 討論的帳號與回合在標題列下方的成員面板選；輸入框在討論模式只留送出，不顯示權限。
+    const bar = mount(AgentPanel, { props: { ...panelProps, kind: 'discussion' } });
     await bar.get('select[aria-label="討論回合"]').setValue('2');
-    expect(bar.emitted('discussion')?.at(-1)).toEqual(['codex', undefined, 2]);
-    await bar.get('select[aria-label="審查 Agent"]').setValue('claude');
-    expect(bar.emitted('discussion')?.at(-1)).toEqual(['claude', undefined, 2]);
-    await bar.setProps({ kind: 'solo' }); expect(bar.find('.mode-bar').exists()).toBe(false);
+    expect(bar.emitted('rounds')?.at(-1)).toEqual([2]);
+    expect(bar.emitted('team')?.at(-1)).toEqual([[member('codex', 'c1', 'gpt', 'high', 'ask'), member('claude', 'a1', 'sonnet', 'medium', 'auto-review')], 0]);
+    expect(bar.get('summary').text()).toBe('提案 Codex · 工作 · 審查 Claude Code · 個人');
+    // 討論需要剛好兩個帳號。
+    await bar.findAll('.agent-name input')[1]!.setValue(true);
+    expect(bar.text()).toContain('討論需要剛好兩個帳號');
     bar.unmount();
     const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: 'Repository Pattern？', kind: 'discussion' } });
     expect(wrapper.find('select[aria-label="任務權限"]').exists()).toBe(false); expect(wrapper.find('.discussion-toggle').exists()).toBe(false);
@@ -118,27 +131,22 @@ describe('Vue chat', () => {
     expect(tools[2]!.find('.tool-io').exists()).toBe(false);
     timeline.unmount();
   });
-  it('lets the user pick the account for this provider and a different account for the reviewer', async () => {
-    const accounts = [{ id: 'a', provider: 'claude' as const, name: '公司', builtIn: true, loggedIn: true }, { id: 'b', provider: 'claude' as const, name: '個人', builtIn: false, loggedIn: false }];
-    const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: '題目', provider: 'claude' as const, accounts, selectedAccounts: { claude: 'a' } } });
-    // 來源與帳號合成一個選單，不再有獨立的帳號選單。
-    expect(wrapper.find('select[aria-label="帳號"]').exists()).toBe(false);
-    const picker = wrapper.get('select[aria-label="執行 Agent"]');
-    expect(picker.findAll('option').map(option => option.text())).toEqual(['Codex', 'Claude Code · 公司', 'Claude Code · 個人（未登入）']);
-    expect((picker.element as HTMLSelectElement).value).toBe('claude:a');
-    await picker.setValue('claude:b'); expect(wrapper.emitted('account')).toEqual([['claude', 'b']]); expect(wrapper.emitted('select')).toBeUndefined();
-    await picker.setValue('codex'); expect(wrapper.emitted('select')).toEqual([['codex']]);
-    // 審查方的帳號在標題列下方的設定列選。
-    const { default: ModeBar } = await import('../webview/src/components/ModeBar.vue');
-    const bar = mount(ModeBar, { props: { kind: 'discussion', accounts, selectedAccounts: { claude: 'a' }, provider: 'claude', models: { codex: [], claude: [] }, defaults: { codex: { model: '', effort: 'medium' }, claude: { model: '', effort: 'medium' } }, busy: false } });
-    const reviewer = bar.get('select[aria-label="審查 Agent"]');
-    expect(reviewer.findAll('option').map(option => option.text())).toContain('審查：Claude Code · 個人（未登入）');
-    await reviewer.setValue('claude:b');
-    expect(bar.emitted('discussion')?.at(-1)).toEqual(['claude', 'b', 4]);
-    bar.unmount();
-    await wrapper.setProps({ accounts: accounts.slice(0, 1) });
-    expect(wrapper.get('select[aria-label="執行 Agent"]').findAll('option').map(option => option.text())).toEqual(['Codex', 'Claude Code']);
+  it('picks one account in normal mode and saves each account own model, effort and approval', async () => {
+    const wrapper = mount(AgentPanel, { props: { ...panelProps, kind: 'solo' } });
+    // 只列已登入的帳號；摘要寫出目前帳號的模型、強度與核准方式。
+    expect(wrapper.findAll('.agent-rows li')).toHaveLength(3);
+    expect(wrapper.get('summary').text()).toBe('Codex · 工作 · GPT · 高 · 要求核准');
+    await wrapper.findAll('.agent-name input')[2]!.setValue(true);
+    expect(wrapper.emitted('solo')).toEqual([['claude', 'a1']]);
+    await wrapper.get('select[aria-label="工作 的推理強度"]').setValue('low');
+    expect(wrapper.emitted('preferences')?.at(-1)).toEqual(['c1', { model: 'gpt', effort: 'low', approvalMode: 'ask' }]);
+    // 換模型時強度改成新模型支援的值；不支援的核准方式不能選。
+    await wrapper.get('select[aria-label="工作 的模型"]').setValue('mini');
+    expect(wrapper.emitted('preferences')?.at(-1)).toEqual(['c1', { model: 'mini', effort: 'medium', approvalMode: 'ask' }]);
+    expect(wrapper.get('select[aria-label="個人 的動作核准"]').findAll('option').map(option => option.attributes('disabled') === undefined)).toEqual([true, true, false]);
     wrapper.unmount();
+    const empty = mount(AgentPanel, { props: { ...panelProps, kind: 'solo', accounts: [] as AccountSummary[] } });
+    expect(empty.text()).toContain('沒有已登入的帳號'); empty.unmount();
   });
   it('opens a search result at the original message, highlights the keyword and reports a deleted source', async () => {
     Element.prototype.scrollIntoView = vi.fn();
@@ -230,10 +238,6 @@ describe('Vue chat', () => {
     expect(wrapper.get('code').text()).toContain('const x = 1');
     expect(wrapper.text()).toContain('<img'); wrapper.unmount();
   });
-  it('allows manual switching even if another provider is unavailable', async () => {
-    const wrapper = mount(ProviderPicker, { props: { selected: 'claude', busy: false } });
-    await wrapper.get('select').setValue('codex'); expect(wrapper.emitted('select')).toEqual([['codex', undefined]]); wrapper.unmount();
-  });
   it('uses Enter to send while Shift+Enter and IME composition remain input', async () => {
     const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: 'hello', canWrite: true } });
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: true });
@@ -252,6 +256,7 @@ describe('Vue chat', () => {
       workspace: '/test-workspace', trusted: true, checking: false, tasks: [],
       policy: { classification: 'unclassified', allowedProviders: [] },
       providers: [{ id: 'codex', status: 'ready', capabilities: { workspaceWrite: true } }],
+      accounts: [{ id: 'c1', provider: 'codex', name: '工作', loggedIn: true, preferences: { model: 'test-model', effort: 'high', approvalMode: 'ask' } }], selectedAccounts: { codex: 'c1' },
       models: { codex: [{ id: 'test-model', label: 'Test Model', efforts: ['low', 'high'] }], claude: [], loading: false }
     };
     try {
@@ -270,32 +275,26 @@ describe('Vue chat', () => {
       window.dispatchEvent(new MessageEvent('message', { data: { version: 1, type: 'snapshot', snapshot: { ...snapshot, policy: { classification: 'personal', allowedProviders: ['codex'] } } } }));
       await nextTick();
       expect(wrapper.find('.notice').exists()).toBe(false);
-      await wrapper.get('select[aria-label="模型"]').setValue('test-model');
-      await wrapper.get('select[aria-label="推理強度"]').setValue('high');
+      // 模型與強度來自帳號自己記住的設定，摘要列在標題列下方。
+      expect(wrapper.get('.agent-menu summary').text()).toBe('Codex · 工作 · Test Model · 高 · 要求核准');
       await wrapper.get('textarea').setValue('讀取 README');
       await wrapper.get('textarea').trigger('keydown', { key: 'Enter' });
-      expect(api.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'send-message', provider: 'codex', text: '讀取 README', mode: 'workspace-write', preferences: { model: 'test-model', effort: 'high' } }));
+      expect(api.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'send-message', provider: 'codex', text: '讀取 README', mode: 'workspace-write', preferences: { model: 'test-model', effort: 'high', accountId: 'c1' }, approvalMode: 'ask' }));
     } finally { wrapper.unmount(); vi.unstubAllGlobals(); }
   });
 });
 describe('Hybrid mode', () => {
   it('picks members with a lead and shows per-stage speakers and who left', async () => {
-    const { default: Composer } = await import('../webview/src/components/Composer.vue');
     const { default: HybridBar } = await import('../webview/src/components/HybridBar.vue');
     const { default: Conversation } = await import('../webview/src/components/Conversation.vue');
-    const accounts = [{ id: 'c1', provider: 'codex' as const, name: '工作', loggedIn: true }, { id: 'c2', provider: 'codex' as const, name: '備用', loggedIn: false }, { id: 'a1', provider: 'claude' as const, name: '個人', loggedIn: true }];
-    const models = { codex: [{ id: 'gpt', label: 'GPT', efforts: ['high' as const] }], claude: [{ id: 'sonnet', label: 'Sonnet', efforts: ['medium' as const] }] };
-    const { default: ModeBar } = await import('../webview/src/components/ModeBar.vue');
-    const wrapper = mount(ModeBar, { props: { kind: 'hybrid', busy: false, provider: 'codex', accounts, selectedAccounts: { codex: 'c1', claude: 'a1' }, models, defaults: { codex: { model: 'gpt', effort: 'high' }, claude: { model: 'sonnet', effort: 'medium' } } } });
-    // 只列已登入的帳號；預設勾選各 Agent 使用中的帳號，主帳號是輸入框選定的 Agent。
-    expect(wrapper.findAll('.hybrid-members li')).toHaveLength(2);
-    expect(wrapper.emitted('hybrid')?.at(-1)).toEqual([[{ provider: 'codex', preferences: { model: 'gpt', effort: 'high', accountId: 'c1' } }, { provider: 'claude', preferences: { model: 'sonnet', effort: 'medium', accountId: 'a1' } }], 0]);
+    const wrapper = mount(AgentPanel, { props: { ...panelProps, kind: 'hybrid' } });
+    // 預設勾選各 Agent 使用中的帳號，主帳號是目前選定的 Agent；每個成員帶自己的核准方式。
+    expect(wrapper.emitted('team')?.at(-1)).toEqual([[member('codex', 'c1', 'gpt', 'high', 'ask'), member('claude', 'a1', 'sonnet', 'medium', 'auto-review')], 0]);
     expect(wrapper.get('summary').text()).toBe('成員 2 · 主帳號 Codex · 工作');
-    await wrapper.findAll('.hybrid-lead input')[1]!.setValue(true);
-    expect(wrapper.emitted('hybrid')?.at(-1)?.[1]).toBe(1);
-    // 少於兩個成員時提示，輸入框也不讓送出。
-    await wrapper.findAll('.hybrid-member input')[1]!.setValue(false);
-    expect(wrapper.emitted('hybrid')?.at(-1)?.[0]).toHaveLength(1); expect(wrapper.text()).toContain('至少選兩個成員');
+    await wrapper.findAll('.agent-lead input')[2]!.setValue(true);
+    expect(wrapper.emitted('team')?.at(-1)?.[1]).toBe(1);
+    await wrapper.findAll('.agent-name input')[2]!.setValue(false);
+    expect(wrapper.emitted('team')?.at(-1)?.[0]).toHaveLength(1); expect(wrapper.text()).toContain('至少選兩個成員');
     wrapper.unmount();
     const composer = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: '加上匯出', kind: 'hybrid', kindReady: false } });
     // 混合模式由成員決定 Agent 與模型，輸入框不顯示這兩個。
@@ -328,6 +327,7 @@ describe('Queued messages while a task runs', () => {
       workspace: '/test-workspace', trusted: true, checking: false, conversationId: 'c1', tasks: [task],
       policy: { classification: 'personal', allowedProviders: ['codex'] },
       providers: [{ id: 'codex', status: 'ready', capabilities: { workspaceWrite: true, steer: true } }],
+      accounts: [{ id: 'c1', provider: 'codex', name: '工作', loggedIn: true, preferences: { model: 'test-model', effort: 'high', approvalMode: 'ask' } }], selectedAccounts: { codex: 'c1' },
       models: { codex: [{ id: 'test-model', label: 'Test Model', efforts: ['low', 'high'] }], claude: [], loading: false }
     };
     const deliver = async (data: unknown) => { window.dispatchEvent(new MessageEvent('message', { data })); await nextTick(); };
@@ -335,7 +335,6 @@ describe('Queued messages while a task runs', () => {
     const sent = () => api.postMessage.mock.calls.map(([message]) => message).filter(message => message.type === 'send-message');
     try {
       await deliver({ version: 1, type: 'snapshot', snapshot: { ...base, activeTaskId: 't1', activeConversationId: 'c1' } });
-      await wrapper.get('select[aria-label="模型"]').setValue('test-model');
       expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined();
       await type('也補測試'); await type('再整理文件');
       expect(sent()).toHaveLength(0);

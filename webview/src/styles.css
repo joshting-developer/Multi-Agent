@@ -181,16 +181,6 @@ mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inh
 .queued-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; border: 1px solid var(--vscode-panel-border); border-radius: var(--radius-m); font-size: 12px; }
 .queued-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queued-actions { display: flex; flex-shrink: 0; gap: 2px; }
-.hybrid-menu { flex: none; min-width: 0; max-width: 76px; }
-.hybrid-popover { right: auto; left: 0; width: 280px; max-width: calc(100vw - 48px); }
-.hybrid-members { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-/* 每個成員兩行：名稱一整行，下面是模型與主帳號，窄側邊欄也看得到完整名稱。 */
-.hybrid-members li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 8px; font-size: 12px; }
-.hybrid-member { grid-column: 1 / -1; }
-.hybrid-members select { margin-left: 20px; border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, transparent)); padding: 4px 6px; }
-.hybrid-member, .hybrid-lead { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 24px; }
-.hybrid-member span { overflow-wrap: anywhere; }
-.hybrid-lead { color: var(--vscode-descriptionForeground); white-space: nowrap; }
 .hybrid-bar { flex-wrap: wrap; row-gap: 2px; }
 .hybrid-left { flex-basis: 100%; list-style: none; margin: 0; padding: 0; }
 /* 標題列的送出方式切換；討論與混合的設定列在標題列下方，選單往下展開。 */
@@ -198,6 +188,15 @@ mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inh
 .mode-tabs button { min-height: 24px; padding: 2px 8px; font-size: 12px; color: var(--vscode-descriptionForeground); border-radius: var(--radius-s); }
 .mode-tabs button[aria-pressed="true"] { color: var(--vscode-foreground); background: var(--vscode-toolbar-hoverBackground); }
 .mode-bar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 0 12px 8px; flex-shrink: 0; }
-.mode-bar .hybrid-menu { position: static; max-width: 100%; flex: 1; }
-.mode-bar .hybrid-popover { top: calc(100% - 4px); bottom: auto; left: 12px; right: 12px; width: auto; max-width: none; }
-.mode-bar .partner-picker { flex: 1; max-width: 220px; }
+/* 成員面板：摘要一行，展開後往下、寬度跟著側邊欄；每個帳號兩行，名稱與主帳號一行，模型、強度、核准一行。 */
+.agent-menu { position: static; flex: 1; min-width: 0; max-width: 100%; }
+.agent-popover { top: calc(100% - 4px); bottom: auto; left: 12px; right: 12px; width: auto; max-width: none; max-height: 60vh; overflow-y: auto; }
+.agent-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.agent-rows li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; font-size: 12px; }
+.agent-rows li.off .agent-fields { opacity: .6; }
+.agent-name, .agent-lead { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 24px; }
+.agent-name span { overflow-wrap: anywhere; }
+.agent-lead { color: var(--vscode-descriptionForeground); white-space: nowrap; }
+.agent-fields { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 4px; padding-left: 20px; }
+.agent-fields select { border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, transparent)); padding: 4px 6px; }
+.agent-problem { flex-basis: 100%; margin: 0; }

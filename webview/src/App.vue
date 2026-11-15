@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { AgentId, ExecutionMode, SearchFilters, SearchMatch, WebviewToHost } from '../../src/bridge/messages';
+import type { AccountSummary, AgentId, ExecutionMode, SearchFilters, SearchMatch, WebviewToHost } from '../../src/bridge/messages';
 import { useHost } from './composables/useHost';
 import Conversation from './components/Conversation.vue';
 import Composer from './components/Composer.vue';
@@ -10,9 +10,9 @@ import ApprovalCard from './components/ApprovalCard.vue';
 import DiscussionBar from './components/DiscussionBar.vue';
 import QueuedMessages from './components/QueuedMessages.vue';
 import HybridBar from './components/HybridBar.vue';
-import ModeBar from './components/ModeBar.vue';
+import AgentPanel from './components/AgentPanel.vue';
 import type { ChatKind, HybridMember, QueuedMessage } from './queue';
-import { defaultSettings, type ProviderPreferences } from '../../src/bridge/preferences';
+import { concretePreferences, defaultSettings, type AccountPreferences, type ProviderPreferences } from '../../src/bridge/preferences';
 const { steer, historyRequested, snapshot, error, running, submitting, draftRevision, post, send, draft, draftFor, saveDraft, searchConversations, searchResults, historySearching, navigating, navigate } = useHost();
 const selected = ref<AgentId>('codex');
 const insert = ref<{ text: string; revision: number }>();
@@ -28,9 +28,17 @@ watch(() => snapshot.value.conversationId, (id, previous) => {
   const last = snapshot.value.tasks.at(-1); if (last) selected.value = last.provider;
   if (previous) insert.value = { text: draftFor(id), revision: (insert.value?.revision ?? 0) + 1 };
 });
-const preferences = ref<ProviderPreferences>({ model: '', effort: 'medium' });
 const settings = computed(() => snapshot.value.settings ?? defaultSettings);
-watch(() => `${selected.value}:${JSON.stringify(settings.value[selected.value])}`, () => { preferences.value = { ...settings.value[selected.value] }; }, { immediate: true });
+const catalog = computed(() => ({ codex: snapshot.value.models?.codex ?? [], claude: snapshot.value.models?.claude ?? [] }));
+// 帳號自己記住的模型、強度與核准方式；沒設定時沿用該 Agent 的預設，模型清單有值時取第一個可用模型。
+function preferencesOf(account: AccountSummary): AccountPreferences {
+  const own = account.preferences; const fallback = settings.value[account.provider];
+  const model = own?.model || fallback.model || catalog.value[account.provider][0]?.id || '';
+  return { ...concretePreferences({ model, effort: own?.effort ?? fallback.effort }, catalog.value[account.provider]), approvalMode: own?.approvalMode ?? settings.value.approvalMode };
+}
+const soloAccount = computed(() => snapshot.value.accounts?.find(account => account.id === snapshot.value.selectedAccounts?.[selected.value]));
+const soloPreferences = computed(() => soloAccount.value ? preferencesOf(soloAccount.value) : { ...settings.value[selected.value], approvalMode: settings.value.approvalMode });
+const preferences = computed<ProviderPreferences>(() => ({ model: soloPreferences.value.model, effort: soloPreferences.value.effort, ...(soloAccount.value && { accountId: soloAccount.value.id }) }));
 const busy = computed(() => running.value || submitting.value || navigating.value || !!snapshot.value.discussionId);
 // 一般任務執行中仍可打字，送出會進待送清單；討論進行中才鎖住輸入框。
 const composerBusy = computed(() => submitting.value || navigating.value || !!snapshot.value.discussionId);
@@ -98,23 +106,35 @@ watch(() => [snapshot.value.activeTaskId, snapshot.value.activeConversationId, s
   const next = queued.value.find(item => !item.steering);
   if (next && canSend.value && !submitting.value) { take(next.id); dispatch(next, true); }
 });
-// 一般／討論／混合在標題列切換；討論與混合的設定由 ModeBar 回報，送出時才組成請求。
+// 一般／討論／混合在標題列切換；帳號與設定都在標題列下方的成員面板選，送出時才組成請求。
 const kind = ref<ChatKind>('solo');
 const kinds: Array<{ id: ChatKind; label: string }> = [{ id: 'solo', label: '一般' }, { id: 'discussion', label: '討論' }, { id: 'hybrid', label: '混合' }];
-const discussionSetup = ref<{ partner: AgentId; partnerAccountId?: string; rounds: number }>({ partner: 'codex', rounds: 4 });
-const hybridSetup = ref<{ members: HybridMember[]; lead: number }>({ members: [], lead: -1 });
-const kindReady = computed(() => kind.value !== 'hybrid' || (hybridSetup.value.members.length >= 2 && hybridSetup.value.members.length <= 4 && hybridSetup.value.lead >= 0));
+const team = ref<{ members: HybridMember[]; lead: number }>({ members: [], lead: -1 });
+const rounds = ref(4);
+const kindReady = computed(() => {
+  if (kind.value === 'solo') return true;
+  const { members, lead } = team.value;
+  const count = kind.value === 'discussion' ? members.length === 2 : members.length >= 2 && members.length <= 4;
+  return count && lead >= 0 && members.every(member => member.preferences.model);
+});
 function compose(text: string, mode: ExecutionMode, approvalMode: import('../../src/bridge/preferences').ApprovalMode, images: Array<{ mime: string; data: string }> = []) {
-  if (kind.value === 'discussion') discuss(text, discussionSetup.value.rounds, discussionSetup.value.partner, discussionSetup.value.partnerAccountId);
-  else if (kind.value === 'hybrid') startHybrid(text, mode, approvalMode, hybridSetup.value.members, hybridSetup.value.lead);
+  if (kind.value === 'discussion') discuss(text);
+  else if (kind.value === 'hybrid') startHybrid(text, mode, approvalMode);
   else submit(text, mode, approvalMode, images);
 }
-function discuss(text: string, rounds: number, partner: AgentId, partnerAccountId?: string) {
-  send({ version: 1, type: 'start-discussion', requestId: crypto.randomUUID(), provider: selected.value, partner, text, rounds, preferences: { ...preferences.value }, ...(partnerAccountId && { partnerAccountId }) });
+// 討論：主帳號是提案方 A，另一個是審查方 B，各自帶自己的模型與強度。
+function discuss(text: string) {
+  const { members, lead } = team.value; const a = members[lead]!; const b = members.find((_, index) => index !== lead)!;
+  send({ version: 1, type: 'start-discussion', requestId: crypto.randomUUID(), provider: a.provider, partner: b.provider, text, rounds: rounds.value, preferences: { ...a.preferences }, partnerPreferences: { ...b.preferences }, ...(b.preferences.accountId && { partnerAccountId: b.preferences.accountId }) });
 }
-function startHybrid(text: string, mode: ExecutionMode, approvalMode: import('../../src/bridge/preferences').ApprovalMode, members: HybridMember[], lead: number) {
-  send({ version: 1, type: 'start-hybrid', requestId: crypto.randomUUID(), text, mode, approvalMode, members: members.map(member => ({ provider: member.provider, preferences: { ...member.preferences } })), lead });
+function startHybrid(text: string, mode: ExecutionMode, approvalMode: import('../../src/bridge/preferences').ApprovalMode) {
+  send({ version: 1, type: 'start-hybrid', requestId: crypto.randomUUID(), text, mode, approvalMode, members: team.value.members.map(member => ({ provider: member.provider, preferences: { ...member.preferences }, ...(member.approvalMode && { approvalMode: member.approvalMode }) })), lead: team.value.lead });
 }
+function chooseSolo(provider: AgentId, accountId: string) {
+  selected.value = provider; userSelected.value = true;
+  if (accountId !== snapshot.value.selectedAccounts?.[provider]) selectAccount(provider, accountId);
+}
+function setAccountPreferences(accountId: string, value: AccountPreferences) { post({ version: 1, type: 'set-account-preferences', requestId: crypto.randomUUID(), accountId, preferences: value }); }
 // 只在目前對話含有該混合任務時顯示進度與離開的成員。
 const hybrid = computed(() => snapshot.value.hybrid && snapshot.value.tasks.some(task => task.hybrid?.id === snapshot.value.hybrid!.id) ? snapshot.value.hybrid : undefined);
 function selectAccount(provider: AgentId, accountId: string) { post({ version: 1, type: 'select-account', requestId: crypto.randomUUID(), provider, accountId }); }
@@ -141,10 +161,6 @@ function resolveDiscussion(decision: 'retry' | 'substitute' | 'end', provider?: 
 function extendDiscussion(rounds: number) {
   if (discussion.value) send({ version: 1, type: 'extend-discussion', requestId: crypto.randomUUID(), discussionId: discussion.value.id, rounds });
 }
-function selectPreferences(value: ProviderPreferences) {
-  preferences.value = value;
-  post({ version: 1, type: 'set-provider-preferences', requestId: crypto.randomUUID(), provider: selected.value, preferences: value });
-}
 function cancel() {
   // 討論中即使位於回合之間也能停止，Host 會阻止後續回合。
   if (snapshot.value.activeTaskId || snapshot.value.discussionId) post({ version: 1, type: 'cancel-task', requestId: crypto.randomUUID(), taskId: snapshot.value.activeTaskId ?? '' });
@@ -154,7 +170,7 @@ function cancel() {
 <template>
   <main class="workspace">
     <header class="chat-toolbar"><button type="button" class="conversation-title text-button" :disabled="navigationLocked" :aria-expanded="historyShown" @click="historyShown = !historyShown; historyQuery = ''; historyFilters = {}">{{ historyShown ? '歷史對話' : conversationTitle }}</button><div><span v-if="!historyShown" class="mode-tabs" role="group" aria-label="送出方式"><button v-for="item in kinds" :key="item.id" type="button" :aria-pressed="kind === item.id" :disabled="busy" @click="kind = item.id">{{ item.label }}</button></span><button type="button" class="icon-button" aria-label="歷史對話" :disabled="navigationLocked" :aria-pressed="historyShown" @click="historyShown = !historyShown; historyQuery = ''; historyFilters = {}"><ChatIcon name="history" /></button><button type="button" class="icon-button" aria-label="新增對話" :disabled="navigationLocked" @click="action('new-conversation'); historyShown = false"><ChatIcon name="new" /></button></div></header>
-    <ModeBar v-if="!historyShown" :kind="kind" :accounts="snapshot.accounts ?? []" :selected-accounts="snapshot.selectedAccounts ?? {}" :provider="selected" :models="{ codex: snapshot.models?.codex ?? [], claude: snapshot.models?.claude ?? [] }" :defaults="{ codex: settings.codex, claude: settings.claude }" :busy="busy" @discussion="(partner, partnerAccountId, rounds) => discussionSetup = { partner, partnerAccountId, rounds }" @hybrid="(members, lead) => hybridSetup = { members, lead }" />
+    <AgentPanel v-if="!historyShown" :kind="kind" :accounts="snapshot.accounts ?? []" :selected-accounts="snapshot.selectedAccounts ?? {}" :provider="selected" :models="catalog" :providers="snapshot.providers" :preferences-of="preferencesOf" :busy="busy" @solo="chooseSolo" @preferences="setAccountPreferences" @team="(members, lead) => team = { members, lead }" @rounds="value => rounds = value" />
     <p v-if="historyShown && error" class="error notice" role="alert">{{ error }}</p>
     <HistoryPanel v-if="historyShown" :conversations="history" :active-id="snapshot.conversationId" :busy="navigationLocked" :searching="historySearching" :providers="snapshot.policy.allowedProviders" @search="historySearch" @open="openConversation" @rename="renameConversation" @delete="deleteConversation" />
     <Conversation v-else :key="snapshot.conversationId" :tasks="snapshot.tasks" :focus="focus" :has-earlier="!!snapshot.hasEarlier" :external-changes="snapshot.externalChanges ?? 0" @earlier="post({ version: 1, type: 'load-earlier', requestId: newRequestId() })" @reload="snapshot.conversationId && openConversation(snapshot.conversationId)" @reject="rejectAnswer" />
@@ -165,7 +181,7 @@ function cancel() {
       <HybridBar v-if="hybrid && !error" :hybrid="hybrid" />
       <ApprovalCard v-for="request in snapshot.approvals ?? []" :key="request.id" :request="request" :background="!!request.conversationId && request.conversationId !== snapshot.conversationId" @answer="answerApproval" />
       <QueuedMessages v-if="queued.length" :items="queued" :can-steer="canSteer" :can-send="canSend && !busy" :running="running" @steer="steerQueued" @send="sendQueued" @edit="editQueued" @remove="take" />
-      <Composer :insert="insert" :accounts="snapshot.accounts" :selected-accounts="snapshot.selectedAccounts" :approval-mode="settings.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="composerBusy" :running="running || !!snapshot.discussionId" :can-send="canSend" :can-write="canWrite" :provider="selected" :preferences="preferences" :models="snapshot.models?.[selected] ?? []" :kind="kind" :kind-ready="kindReady" :models-loading="snapshot.models?.loading ?? false" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="compose" @account="selectAccount" @cancel="cancel" @draft="saveDraft" @select="selected = $event; userSelected = true" @preferences="selectPreferences" @settings="action('show-options')" @refresh-models="action('refresh-models')" />
+      <Composer :insert="insert" :approval-mode="soloPreferences.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="composerBusy" :running="running || !!snapshot.discussionId" :can-send="canSend" :can-write="canWrite" :kind="kind" :kind-ready="kindReady" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="compose" @cancel="cancel" @draft="saveDraft" />
     </div>
   </main>
 </template>

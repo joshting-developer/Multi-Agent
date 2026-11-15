@@ -4,9 +4,10 @@ import { join } from 'node:path';
 import type { AgentId, ProviderStatus, ResetCreditOutcome, UsageSnapshot } from '../bridge/messages';
 import type { AgentRegistry } from '../agents/AgentRegistry';
 import type { StateStorage } from '../storage/SessionRepository';
+import type { AccountPreferences } from '../bridge/preferences';
 
 /** cli：在終端機用官方命令登入；api-key：使用者輸入的 API Key。 */
-export interface StoredAccount { id: string; provider: AgentId; name: string; method?: 'cli' | 'api-key' }
+export interface StoredAccount { id: string; provider: AgentId; name: string; method?: 'cli' | 'api-key'; preferences?: AccountPreferences }
 /** VS Code SecretStorage（作業系統鑰匙圈）的最小介面。 */
 export interface SecretStore { get(key: string): PromiseLike<string | undefined>; store(key: string, value: string): PromiseLike<void>; delete(key: string): PromiseLike<void> }
 const secretKey = (id: string) => `multiAgent.apiKey.${id}`;
@@ -60,6 +61,13 @@ export class AccountService {
     if (!resolved) throw new Error(`還沒有 ${label(provider)} 帳號，請到設定 → 帳號新增並登入。`);
     return resolved;
   }
+  /** 帳號自己的模型、推理強度與動作核准；呼叫端先驗證模型與強度。 */
+  async setPreferences(id: string, preferences: AccountPreferences): Promise<void> {
+    this.find(id); const state = this.read();
+    state.accounts.find(item => item.id === id)!.preferences = { model: preferences.model, effort: preferences.effort, approvalMode: preferences.approvalMode };
+    await this.write(state);
+  }
+  preferences(id?: string): AccountPreferences | undefined { return id ? this.read().accounts.find(item => item.id === id)?.preferences : undefined; }
   async select(provider: AgentId, id: string): Promise<void> {
     if (this.find(id).provider !== provider) throw new Error('帳號與 Agent 不相符，請重新選擇。');
     const state = this.read(); state.selected = { ...state.selected, [provider]: id }; await this.write(state);

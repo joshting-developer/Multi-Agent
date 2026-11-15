@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { AccountPreferences } from './preferences';
 import { effortSchema, modelIdSchema, providerPreferencesSchema, settingsSchema, approvalModes, type ModelCatalog, type WorkspaceSettings } from './settings';
 
 export const agentIdSchema = z.enum(['claude', 'codex']);
@@ -77,16 +78,16 @@ export interface ResetCredit { id: string; title?: string; grantedAt?: number; e
 export interface UsageSnapshot { windows: UsageWindow[]; updatedAt: number; source: 'official' | 'last-run'; blocked?: boolean; resetCredits?: number; resetCreditList?: ResetCredit[] }
 /** 官方 account/rateLimitResetCredit/consume 的結果。 */
 export type ResetCreditOutcome = 'reset' | 'nothingToReset' | 'noCredit' | 'alreadyRedeemed';
-export interface AccountSummary { id: string; provider: AgentId; name: string; method?: 'cli' | 'api-key'; loggedIn?: boolean; account?: ProviderStatus['account']; usage?: UsageSnapshot }
+export interface AccountSummary { id: string; provider: AgentId; name: string; method?: 'cli' | 'api-key'; loggedIn?: boolean; account?: ProviderStatus['account']; usage?: UsageSnapshot; preferences?: AccountPreferences }
 export interface ApprovalRequest { id: string; taskId: string; provider: AgentId; title: string; detail: string; conversationId?: string }
 const base = { version: z.literal(1), requestId: z.string().min(1).max(100) };
 export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('ready') }),
   z.object({ ...base, type: z.literal('send-message'), provider: agentIdSchema, text: z.string().trim().max(32000), mode: modeSchema, preferences: providerPreferencesSchema.optional(), approvalMode: z.enum(approvalModes).optional(),
     attachments: z.array(z.object({ mime: z.string().max(40), data: z.string().max(7_000_000) })).max(4).optional() }),
-  z.object({ ...base, type: z.literal('start-discussion'), provider: agentIdSchema, partner: agentIdSchema.optional(), text: z.string().trim().min(1).max(32000), rounds: z.number().int().min(2).max(8), preferences: providerPreferencesSchema.optional(), partnerAccountId: z.string().max(100).optional() }),
+  z.object({ ...base, type: z.literal('start-discussion'), provider: agentIdSchema, partner: agentIdSchema.optional(), text: z.string().trim().min(1).max(32000), rounds: z.number().int().min(2).max(8), preferences: providerPreferencesSchema.optional(), partnerPreferences: providerPreferencesSchema.optional(), partnerAccountId: z.string().max(100).optional() }),
   z.object({ ...base, type: z.literal('start-hybrid'), text: z.string().trim().min(1).max(32000), mode: modeSchema, approvalMode: z.enum(approvalModes).optional(), lead: z.number().int().min(0).max(3),
-    members: z.array(z.object({ provider: agentIdSchema, preferences: providerPreferencesSchema })).min(2).max(4) }),
+    members: z.array(z.object({ provider: agentIdSchema, preferences: providerPreferencesSchema, approvalMode: z.enum(approvalModes).optional() })).min(2).max(4) }),
   z.object({ ...base, type: z.literal('extend-discussion'), discussionId: z.string().min(1).max(100), rounds: z.number().int().min(1).max(6) }),
   z.object({ ...base, type: z.literal('add-account'), provider: agentIdSchema, name: z.string().trim().max(60).optional(), apiKey: z.string().max(400).optional() }),
   z.object({ ...base, type: z.literal('rename-account'), accountId: z.string().min(1).max(100), name: z.string().trim().min(1).max(60) }),
@@ -96,6 +97,7 @@ export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('remove-read-root'), path: z.string().min(1).max(4096) }),
   z.object({ ...base, type: z.literal('use-reset-credit'), accountId: z.string().min(1).max(100), creditId: z.string().min(1).max(200).optional() }),
   z.object({ ...base, type: z.literal('select-account'), provider: agentIdSchema, accountId: z.string().min(1).max(100) }),
+  z.object({ ...base, type: z.literal('set-account-preferences'), accountId: z.string().min(1).max(100), preferences: z.object({ model: modelIdSchema, effort: effortSchema, approvalMode: z.enum(approvalModes) }) }),
   z.object({ ...base, type: z.literal('check-accounts') }),
   z.object({ ...base, type: z.literal('export-conversation'), format: z.enum(['json', 'markdown']) }),
   z.object({ ...base, type: z.literal('backup-history') }),

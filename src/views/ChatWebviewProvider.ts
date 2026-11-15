@@ -105,7 +105,9 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
   private readonly offeredFolders = new Set<string>();
   /** 明確選擇的帳號優先，其次是該 Provider 目前選定的帳號；每個環節（A、B、總結、代替）都各自帶入。 */
   private preferencesFor(provider: AgentId, explicit?: ProviderPreferences, accountId?: string): ProviderPreferences | undefined {
-    const preferences = explicit ?? this.settings?.read()[provider];
+    // 沒有明確帶入時，先用該帳號記住的設定，再用該 Agent 的預設。
+    const own = this.accounts?.preferences(accountId ?? explicit?.accountId ?? this.accounts.selected()[provider]);
+    const preferences = explicit ?? (own ? { model: own.model, effort: own.effort } : undefined) ?? this.settings?.read()[provider];
     if (preferences) this.settings?.validate(provider, preferences);
     if (this.settings && !preferences?.model) throw new Error('請先選擇明確的模型。');
     // 每次執行都必須落在 Multi-Agent 自己的帳號；舊版的預設帳號或已移除的帳號改用目前選定的帳號。
@@ -168,9 +170,9 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         if (this.approvalPending) throw new Error('請先完成目前的授權對話框。');
         const partner = message.partner ?? message.provider;
         try {
-          // A 使用畫面上選定的模型與帳號；B 若為同一 Provider 沿用相同模型，帳號可另外指定。
+          // A、B 各自用成員面板選的帳號與模型；舊版沒帶 B 的設定時，用 B 帳號記住的設定或該 Agent 的預設。
           const lead = this.preferencesFor(message.provider, message.preferences);
-          const partnerPreferences = partner === message.provider ? this.preferencesFor(partner, lead, message.partnerAccountId) : this.preferencesFor(partner, undefined, message.partnerAccountId);
+          const partnerPreferences = this.preferencesFor(partner, message.partnerPreferences, message.partnerAccountId);
           // 每次討論使用新的 Participant，避免沿用前一次討論的上下文。
           const run = this.discussions.run(message.text, [
             { id: randomUUID(), provider: message.provider, role: 'architect', preferences: lead },
@@ -189,7 +191,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
           const members = message.members.map(member => {
             const preferences = this.preferencesFor(member.provider, member.preferences);
             const account = this.accounts?.list().find(item => item.id === preferences?.accountId);
-            return { provider: member.provider, preferences, label: [providerLabel(member.provider), account?.name, preferences?.model].filter(Boolean).join(' · ') };
+            return { provider: member.provider, preferences, ...(member.approvalMode && { approvalMode: member.approvalMode }), label: [providerLabel(member.provider), account?.name, preferences?.model].filter(Boolean).join(' · ') };
           });
           if (new Set(members.map(member => `${member.provider}:${member.preferences?.accountId}:${member.preferences?.model}`)).size !== members.length) throw new Error('同一個帳號與模型只能加入一次。');
           let approvalMode = message.approvalMode ?? this.settings?.read().approvalMode ?? 'ask';
@@ -230,6 +232,15 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
         break;
       }
       case 'select-account': await this.accounts?.select(message.provider, message.accountId); break;
+      case 'set-account-preferences': {
+        if (!this.accounts) throw new Error('帳號管理尚未就緒。');
+        const account = this.accounts.list().find(item => item.id === message.accountId);
+        if (!account) throw new Error('找不到這個帳號，請重新選擇。');
+        this.settings?.validate(account.provider, message.preferences);
+        if (!this.orchestrator.state.providers.find(item => item.id === account.provider)?.approvalModes?.includes(message.preferences.approvalMode) && message.preferences.approvalMode !== 'ask') throw new Error('此 CLI 版本不支援所選核准模式，請更新 CLI。');
+        await this.accounts.setPreferences(account.id, message.preferences);
+        break;
+      }
       case 'check-accounts': await this.accounts?.refresh(); break;
       case 'export-conversation': {
         const id = this.orchestrator.state.conversationId;

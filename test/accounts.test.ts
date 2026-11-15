@@ -99,6 +99,17 @@ describe('Multiple official CLI accounts', () => {
     expect(accounts.list().find(item => item.id === normal.id)?.usage).toMatchObject({ source: 'official', windows: [{ usedPercent: 42 }, { usedPercent: 7 }] });
     expect(accounts.list().find(item => item.id === claude.id)?.usage?.windows[0]?.usedPercent).toBe(25);
   });
+  it('remembers each account own model, effort and approval mode', async () => {
+    const { root, registry } = await setup();
+    const storage = new Memory(); const accounts = new AccountService(storage, root, registry);
+    const work = await accounts.add('codex', 'work'); const home = await accounts.add('codex', 'home');
+    await accounts.setPreferences(work.id, { model: 'gpt', effort: 'high', approvalMode: 'auto-review' });
+    // 重新建立服務（重開視窗）後仍保留；另一個帳號不受影響。
+    const reopened = new AccountService(storage, root, registry);
+    expect(reopened.list().find(item => item.id === work.id)?.preferences).toEqual({ model: 'gpt', effort: 'high', approvalMode: 'auto-review' });
+    expect(reopened.preferences(home.id)).toBeUndefined();
+    await expect(reopened.setPreferences('missing', { model: 'gpt', effort: 'high', approvalMode: 'ask' })).rejects.toThrow('找不到這個帳號');
+  });
   it('uses an official reset credit only when the window is exhausted and refreshes usage afterwards', async () => {
     const { root, registry } = await setup();
     const accounts = new AccountService(new Memory(), root, registry);

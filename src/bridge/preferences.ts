@@ -14,6 +14,8 @@ export function languageInstruction(setting: ReplyLanguage, displayLanguage = 'e
   return `Reply to the user in ${name}. Keep code, commands, file paths, identifiers and quoted text unchanged.`;
 }
 export interface ProviderPreferences { model: string; effort: ReasoningEffort; accountId?: string }
+/** 帳號自己記住的模型、推理強度與動作核准；沒設定的帳號沿用該 Agent 的預設。 */
+export interface AccountPreferences { model: string; effort: ReasoningEffort; approvalMode: ApprovalMode }
 export interface WorkspaceSettings {
   sendShortcut: 'enter' | 'modifier-enter'; defaultMode: 'read-only' | 'workspace-write';
   codexPath: string; claudePath: string; codex: ProviderPreferences; claude: ProviderPreferences;
