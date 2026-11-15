@@ -19,7 +19,7 @@ export class SettingsService {
   read(): WorkspaceSettings {
     const config = vscode.workspace.getConfiguration('multiAgent');
     return {
-      timeoutSeconds: config.get('timeoutSeconds', 300), sendShortcut: config.get('sendShortcut', 'enter'), defaultMode: config.get('defaultMode', 'workspace-write'),
+      sendShortcut: config.get('sendShortcut', 'enter'), defaultMode: config.get('defaultMode', 'workspace-write'),
       codexPath: config.get('codexPath', ''), claudePath: config.get('claudePath', ''),
       approvalMode: config.get('approvalMode', 'ask'), replyLanguage: replyLanguageSchema.safeParse(config.get('replyLanguage')).data ?? 'auto',
       codex: concretePreferences({ model: config.get('codexModel', ''), effort: effortSchema.safeParse(config.get('codexEffort')).data ?? 'medium' }, this.models.codex),
@@ -52,7 +52,7 @@ export class SettingsService {
     this.validate('codex', settings.codex); this.validate('claude', settings.claude);
     const current = this.read();
     const values = {
-      approvalMode: settings.approvalMode, replyLanguage: settings.replyLanguage, timeoutSeconds: settings.timeoutSeconds, sendShortcut: settings.sendShortcut, defaultMode: settings.defaultMode,
+      approvalMode: settings.approvalMode, replyLanguage: settings.replyLanguage, sendShortcut: settings.sendShortcut, defaultMode: settings.defaultMode,
       codexPath: settings.codexPath, claudePath: settings.claudePath,
       codexModel: settings.codex.model, codexEffort: settings.codex.effort, claudeModel: settings.claude.model, claudeEffort: settings.claude.effort
     };

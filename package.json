@@ -100,13 +100,6 @@
           "scope": "machine",
           "description": "Absolute Codex executable path, or empty for automatic detection."
         },
-        "multiAgent.timeoutSeconds": {
-          "type": "number",
-          "default": 300,
-          "minimum": 10,
-          "maximum": 3600,
-          "description": "Maximum task duration."
-        },
         "multiAgent.codexModel": {
           "type": "string",
           "default": "",

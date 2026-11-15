@@ -43,7 +43,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Extens
   const database = await ConversationDatabase.open(join(context.globalStorageUri.fsPath, 'conversations.sqlite'), cwd, join(context.extensionPath, 'dist/sqlite/sql-wasm.wasm'));
   orchestrator = new Orchestrator(registry, new SessionRepository(context.workspaceState, cwd, database), cwd,
     () => vscode.workspace.isTrusted && vscode.workspace.workspaceFolders?.length === 1 && vscode.workspace.workspaceFolders[0]?.uri.toString() === folders[0]?.uri.toString(),
-    () => Math.min(3600, Math.max(10, config().get<number>('timeoutSeconds', 300))) * 1000,
+    // 任務不限時間，只有使用者停止才結束（MA-132）。
+    () => 0,
     () => { void vscode.window.showErrorMessage('Multi-Agent 無法儲存本機聊天紀錄。請檢查 VS Code storage 的可用空間與權限。'); },
     (provider, accountId) => accounts.env(provider, accountId));
   // 模型清單也用選定的 Codex 帳號讀取，不碰官方 CLI 的預設目錄；換帳號後重新讀取。

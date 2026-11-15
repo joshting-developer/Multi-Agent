@@ -35,7 +35,7 @@ describe('Model and settings UI', () => {
       expect(wrapper.find('.settings-footer').exists()).toBe(true);
       await wrapper.findAll('nav button')[3]!.trigger('click'); expect(wrapper.find('.settings-footer').exists()).toBe(false);
       await wrapper.findAll('nav button')[0]!.trigger('click');
-      await wrapper.get('input[aria-label="任務時間上限"]').setValue(600);
+      await wrapper.get('select[aria-label="傳送快捷鍵"]').setValue('modifier-enter');
       await wrapper.findAll('nav button')[2]!.trigger('click'); expect(wrapper.find('.settings-footer').exists()).toBe(true);
       await wrapper.findAll('nav button')[0]!.trigger('click');
       await wrapper.get('select[aria-label="傳送快捷鍵"]').setValue('modifier-enter');
@@ -43,7 +43,7 @@ describe('Model and settings UI', () => {
       await wrapper.get('select[aria-label="模型"]').setValue('test-model');
       await wrapper.get('select[aria-label="推理強度"]').setValue('high');
       await wrapper.get('form').trigger('submit');
-      expect(api.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'save-settings', settings: expect.objectContaining({ timeoutSeconds: 600, sendShortcut: 'modifier-enter', codex: { model: 'test-model', effort: 'high' } }) }));
+      expect(api.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'save-settings', settings: expect.objectContaining({ sendShortcut: 'modifier-enter', codex: { model: 'test-model', effort: 'high' } }) }));
     } finally { wrapper.unmount(); vi.unstubAllGlobals(); }
   });
 });

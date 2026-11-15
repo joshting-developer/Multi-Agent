@@ -8,7 +8,7 @@
 | Typed IPC / Controller | Zod 驗證、請求關聯、原生工作區授權、完整存取確認、刪除確認 |
 | Orchestrator | 單一執行者、對話切換鎖、Provider 資料政策、有限歷史上下文、核准等待／取消 |
 | AgentAdapter | 官方 CLI 的能力偵測、登入與帳號、模型／權限映射、事件及完成狀態 |
-| ProcessManager | argv + stdin、程序樹取消、逾時、輸出上限及清理 |
+| ProcessManager | argv + stdin、程序樹取消、輸出上限及清理；一般任務不限時間，只有偵測、模型、額度等短查詢有逾時（MA-132） |
 | SettingsService / Catalog | VS Code 設定、模型探索、支援強度驗證 |
 | SessionRepository / ConversationDatabase | 舊紀錄遷移、SQLite 交易、歷史、搜尋、interrupted recovery |
 

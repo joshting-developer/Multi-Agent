@@ -15,14 +15,14 @@ export function languageInstruction(setting: ReplyLanguage, displayLanguage = 'e
 }
 export interface ProviderPreferences { model: string; effort: ReasoningEffort; accountId?: string }
 export interface WorkspaceSettings {
-  timeoutSeconds: number; sendShortcut: 'enter' | 'modifier-enter'; defaultMode: 'read-only' | 'workspace-write';
+  sendShortcut: 'enter' | 'modifier-enter'; defaultMode: 'read-only' | 'workspace-write';
   codexPath: string; claudePath: string; codex: ProviderPreferences; claude: ProviderPreferences;
   approvalMode: ApprovalMode; replyLanguage: ReplyLanguage;
 }
 export interface ModelOption { id: string; label: string; efforts: ReasoningEffort[]; isDefault?: boolean; recommendedEffort?: ReasoningEffort }
 export interface ModelCatalog { codex: ModelOption[]; claude: ModelOption[]; loading: boolean; error?: string }
 export const defaultSettings: WorkspaceSettings = {
-  timeoutSeconds: 300, sendShortcut: 'enter', defaultMode: 'workspace-write', codexPath: '', claudePath: '',
+  sendShortcut: 'enter', defaultMode: 'workspace-write', codexPath: '', claudePath: '',
   codex: { model: '', effort: 'medium' }, claude: { model: 'sonnet', effort: 'medium' }, approvalMode: 'ask', replyLanguage: 'auto'
 };
 export const claudeModels: ModelOption[] = ['opus', 'sonnet', 'haiku', 'fable'].map(id => ({

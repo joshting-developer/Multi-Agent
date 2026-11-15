@@ -5,7 +5,7 @@ export class ProcessError extends Error {
   constructor(message: string, readonly kind: 'spawn' | 'exit' | 'cancelled' | 'timeout' | 'output-limit', readonly exitCode?: number) { super(message); }
 }
 export interface ProcessRequest {
-  command: string; args: string[]; cwd: string; input?: string; signal?: AbortSignal; timeoutMs: number;
+  command: string; args: string[]; cwd: string; input?: string; signal?: AbortSignal; /** 0 表示不限時間。 */ timeoutMs: number;
   env?: NodeJS.ProcessEnv;
   onStdinReady?: (send: (value: string) => void) => void;
 }
@@ -81,7 +81,8 @@ export class ProcessManager {
     const abort = () => stop(new ProcessError('任務已取消。', 'cancelled'));
     request.signal?.addEventListener('abort', abort, { once: true });
     if (request.signal?.aborted) abort();
-    const timeout = setTimeout(() => stop(new ProcessError('任務逾時，已終止 CLI。可在設定增加時間限制。', 'timeout')), request.timeoutMs);
+    // timeoutMs 為 0 表示不限時間（一般任務），只有使用者停止才結束；短查詢仍帶各自的逾時。
+    const timeout = request.timeoutMs > 0 ? setTimeout(() => stop(new ProcessError('查詢逾時，已終止 CLI。', 'timeout')), request.timeoutMs) : undefined;
     try {
       if (request.onStdinReady) request.onStdinReady(value => { child.stdin.write(value); });
       else child.stdin.end(request.input ?? '');

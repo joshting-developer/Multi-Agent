@@ -290,7 +290,9 @@ export class Orchestrator {
     const id = randomUUID();
     return new Promise(resolve => {
       const abort = () => finish(false);
-      const timer = setTimeout(() => finish(false), Math.max(1, this.timeoutMs() - (Date.now() - task.startedAt)));
+      // 不限時間時核准卡一直等到使用者回答或停止任務。
+      const limit = this.timeoutMs();
+      const timer = limit > 0 ? setTimeout(() => finish(false), Math.max(1, limit - (Date.now() - task.startedAt))) : undefined;
       const finish = (allow: boolean) => {
         this.audit(task, allow ? 'approval-allowed' : 'approval-denied', request.title);
         clearTimeout(timer); signal.removeEventListener('abort', abort);

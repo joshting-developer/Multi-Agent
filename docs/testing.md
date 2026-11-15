@@ -42,7 +42,7 @@
 
 - Claude / Codex 的登入偵測、串流文字、完整訊息去重、Session ID、額度錯誤、格式錯誤及舊版安全參數拒絕。
 - UTF-8 分段、最後一行無換行、退出碼、執行檔不存在、stdin 與 argv、Shell injection 與 cwd。
-- 逾時、重複取消、忽略 SIGTERM、真正停止子程序樹，以及 dispose 清理偵測程序。
+- 短查詢逾時、不限時間的任務只在停止時結束、重複取消、忽略 SIGTERM、真正停止子程序樹，以及 dispose 清理偵測程序。
 - 大量未知 JSONL 事件相容、缺少完成事件不視為成功。
 - 單一 Provider 可用、Provider 切換與歷史隔離、單任務鎖、取消、工作區變動停用、重啟 interrupted。
 - unclassified/restricted、company Provider allowlist、Workspace Trust。

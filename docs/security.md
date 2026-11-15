@@ -31,7 +31,7 @@ Git push、部署、破壞性操作要求人工授權的意圖會傳給 Agent；
 ## 程序、Webview 與資料
 
 - 使用 argv、shell:false、stdin；不以 shell 字串拼接任務。CLI 設定僅接受執行檔絕對路徑。
-- 程序群組取消／逾時、SIGTERM → SIGKILL、等待 close；底層測試涵蓋子程序樹。等待核准也能 Stop，過期的核准 ID 不接受回應。
+- 程序群組取消、SIGTERM → SIGKILL、等待 close；一般任務不限時間，只能由使用者停止，短查詢仍有逾時；底層測試涵蓋子程序樹。等待核准也能 Stop，過期的核准 ID 不接受回應。
 - JSONL、單行、輸出佇列和每筆 Agent 回覆有上限。缺少官方完成事件、非零退出與格式錯誤不視為成功。
 - Typed IPC 經 Zod 驗證；CSP、nonce、受限資源目錄。Markdown 不執行 HTML、script、command links 或外部圖片。
 - SQLite 明文資料存於 globalStorageUri，依 canonical workspace 隔離。目錄建立為 0700，資料庫／寫入暫存／鎖為 0600；交易後原子匯出。

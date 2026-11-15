@@ -8,7 +8,6 @@ export const providerPreferencesSchema = z.object({ model: modelIdSchema, effort
 export const settingsSchema = z.object({
   approvalMode: z.enum(approvalModes).default('ask'),
   replyLanguage: z.enum(replyLanguages).default('auto'),
-  timeoutSeconds: z.number().int().min(10).max(3600),
   sendShortcut: z.enum(['enter', 'modifier-enter']),
   defaultMode: z.enum(['read-only', 'workspace-write']),
   codexPath: z.string().max(2048), claudePath: z.string().max(2048),

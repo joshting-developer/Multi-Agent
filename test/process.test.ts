@@ -30,6 +30,15 @@ describe('ProcessManager', () => {
   it('enforces timeout even when SIGTERM is ignored', async () => {
     await expect(manager.collect(request('timeout', { timeoutMs: 100 }))).rejects.toMatchObject({ kind: 'timeout' });
   });
+  it('never times out a task run with timeoutMs 0; only cancel ends it', async () => {
+    const controller = new AbortController();
+    const run = manager.collect(request('timeout', { timeoutMs: 0, signal: controller.signal }));
+    // 給它比上面逾時測試更久的時間，仍在執行。
+    const early = await Promise.race([run.then(() => 'ended', () => 'ended'), new Promise(resolve => setTimeout(() => resolve('running'), 400))]);
+    expect(early).toBe('running');
+    controller.abort();
+    await expect(run).rejects.toMatchObject({ kind: 'cancelled' });
+  });
   it('cancels idempotently and kills descendants', async () => {
     const controller = new AbortController();
     let descendant = 0;
