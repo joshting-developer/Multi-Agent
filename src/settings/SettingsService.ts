@@ -1,9 +1,12 @@
 import * as vscode from 'vscode';
 import { isAbsolute } from 'node:path';
 import type { AgentId } from '../bridge/messages';
+import { z } from 'zod';
+import { replyLanguages } from '../bridge/preferences';
 import { claudeModels, concretePreferences, effortSchema, providerPreferencesSchema, settingsSchema, type ModelCatalog, type ProviderPreferences, type WorkspaceSettings } from '../bridge/settings';
 import { CodexModelCatalog } from './CodexModelCatalog';
 
+const replyLanguageSchema = z.enum(replyLanguages);
 export class SettingsService {
   readonly models: ModelCatalog = { codex: [], claude: claudeModels, loading: false };
   private readonly listeners = new Set<() => void>();
@@ -18,7 +21,7 @@ export class SettingsService {
     return {
       timeoutSeconds: config.get('timeoutSeconds', 300), sendShortcut: config.get('sendShortcut', 'enter'), defaultMode: config.get('defaultMode', 'workspace-write'),
       codexPath: config.get('codexPath', ''), claudePath: config.get('claudePath', ''),
-      approvalMode: config.get('approvalMode', 'ask'),
+      approvalMode: config.get('approvalMode', 'ask'), replyLanguage: replyLanguageSchema.safeParse(config.get('replyLanguage')).data ?? 'auto',
       codex: concretePreferences({ model: config.get('codexModel', ''), effort: effortSchema.safeParse(config.get('codexEffort')).data ?? 'medium' }, this.models.codex),
       claude: concretePreferences({ model: config.get('claudeModel', '') || 'sonnet', effort: effortSchema.safeParse(config.get('claudeEffort')).data ?? 'medium' }, this.models.claude)
     };
@@ -49,7 +52,7 @@ export class SettingsService {
     this.validate('codex', settings.codex); this.validate('claude', settings.claude);
     const current = this.read();
     const values = {
-      approvalMode: settings.approvalMode, timeoutSeconds: settings.timeoutSeconds, sendShortcut: settings.sendShortcut, defaultMode: settings.defaultMode,
+      approvalMode: settings.approvalMode, replyLanguage: settings.replyLanguage, timeoutSeconds: settings.timeoutSeconds, sendShortcut: settings.sendShortcut, defaultMode: settings.defaultMode,
       codexPath: settings.codexPath, claudePath: settings.claudePath,
       codexModel: settings.codex.model, codexEffort: settings.codex.effort, claudeModel: settings.claude.model, claudeEffort: settings.claude.effort
     };

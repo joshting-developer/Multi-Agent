@@ -180,6 +180,23 @@
             "Allow access beyond the workspace after confirmation."
           ],
           "description": "Who approves agent actions. Read-only tasks remain read-only."
+        },
+        "multiAgent.replyLanguage": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "zh-TW",
+            "en",
+            "none"
+          ],
+          "enumDescriptions": [
+            "Follow the VS Code display language.",
+            "Traditional Chinese (Taiwan).",
+            "English.",
+            "Do not add a language instruction."
+          ],
+          "description": "Language agents reply in."
         }
       }
     }

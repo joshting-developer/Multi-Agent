@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useHost } from './composables/useHost';
 import ProviderSettings from './components/ProviderSettings.vue';
 import AccountSettings from './components/AccountSettings.vue';
-import { approvalModes, approvalLabels, defaultSettings, type WorkspaceSettings } from '../../src/bridge/preferences';
+import { approvalModes, approvalLabels, defaultSettings, replyLanguages, replyLanguageLabels, type WorkspaceSettings } from '../../src/bridge/preferences';
 import type { AgentId, WebviewToHost } from '../../src/bridge/messages';
 const { snapshot, error, post, saveSettings, settingsSaving, settingsSaved } = useHost();
 const section = ref<'general' | 'agents' | 'accounts' | 'workspace'>('general');
@@ -39,7 +39,7 @@ const pathKey = computed(() => provider.value === 'codex' ? 'codexPath' : 'claud
       <h1>{{ { general: '一般', agents: 'Agent 與模型', accounts: '帳號', workspace: '工作區與資料' }[section] }}</h1>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <template v-if="section === 'general'">
-        <section class="settings-card"><h2>聊天</h2><label class="setting-row"><span>傳送快捷鍵</span><select v-model="draft.sendShortcut" aria-label="傳送快捷鍵"><option value="enter">Enter</option><option value="modifier-enter">⌘ / Ctrl + Enter</option></select></label><label class="setting-row"><span>新對話檔案權限</span><select v-model="draft.defaultMode" aria-label="預設檔案權限"><option value="workspace-write">可編輯</option><option value="read-only">唯讀</option></select></label></section>
+        <section class="settings-card"><h2>聊天</h2><label class="setting-row"><span>傳送快捷鍵</span><select v-model="draft.sendShortcut" aria-label="傳送快捷鍵"><option value="enter">Enter</option><option value="modifier-enter">⌘ / Ctrl + Enter</option></select></label><label class="setting-row"><span>新對話檔案權限</span><select v-model="draft.defaultMode" aria-label="預設檔案權限"><option value="workspace-write">可編輯</option><option value="read-only">唯讀</option></select></label><label class="setting-row"><span>回覆語言</span><select v-model="draft.replyLanguage" aria-label="回覆語言"><option v-for="item in replyLanguages" :key="item" :value="item">{{ replyLanguageLabels[item] }}</option></select></label></section>
         <section class="settings-card"><h2>執行</h2><label class="setting-row"><span>動作核准</span><select v-model="draft.approvalMode" aria-label="動作核准"><option v-for="item in approvalModes" :key="item" :value="item">{{ approvalLabels[item] }}</option></select></label><label class="setting-row"><span>任務時間上限<small>秒（10–3600）</small></span><input v-model.number="draft.timeoutSeconds" type="number" min="10" max="3600" required aria-label="任務時間上限" /></label></section>
       </template>
       <template v-else-if="section === 'agents'">

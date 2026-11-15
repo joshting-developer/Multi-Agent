@@ -36,6 +36,8 @@ WASM 模式採 SQLite 交易後原子匯出單檔，短生命週期寫入鎖避�
 
 執行過程保存在 task 的 `steps`：Agent 文字與工具依實際順序交錯，工具有開始／完成／失敗／已停止狀態；Claude 取 `tool_use`／`tool_result`，Codex 取 App Server `item/started`／`item/completed`。工具 IN／OUT 先經 `Redact` 遮罩常見秘密格式，再截斷為 2000／4000 字，單次最多 100 個工具；Stop 或失敗時仍在執行的工具改為已停止。聊天中工具預設收合，展開才顯示 IN／OUT。
 
+回覆語言（設定 → 聊天 → 回覆語言，`multiAgent.replyLanguage`）預設跟隨 VS Code 介面語言，可改成繁體中文、English 或不指定。Orchestrator 每次執行把一行語言指示放在送出內容的最前面（在角色指示之後），一般聊天、討論與總結都適用；保存的使用者訊息不含這行（MA-113）。
+
 續聊上下文由 `ContextBuilder` 組裝：只取同一 Participant 已完成的回合，依時間排序並標明來源 ID 與時間，使用者訊息與 Agent 過去回答（標示可能有誤）分開；超過 48000 字元預算時先省略較舊的回答，再省略較舊的回合並註明數量。使用者標成「不採用」的回答保留紀錄但不再帶入；每次執行把帶入的 run ID 記在 `contextIds`。目前不使用 LLM 摘要舊回合。
 
 目前搜尋是參數化 SQL 的子字串查詢；中英文字面查詢已測試。打包的 sql.js 沒有 FTS5，評估與啟用條件見 [全文索引評估](research/fts-search.md)。日期／Provider 篩選、FTS5、工程記憶與來源引用依 v0.2 後續里程碑增加。

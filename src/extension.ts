@@ -14,6 +14,7 @@ import { ChatWebviewProvider } from './views/ChatWebviewProvider';
 import { chatLocation } from './views/ChatLocation';
 import { SettingsService } from './settings/SettingsService';
 import { CodexModelCatalog } from './settings/CodexModelCatalog';
+import { languageInstruction } from './bridge/preferences';
 
 let orchestrator: Orchestrator | undefined;
 let processManager: ProcessManager | undefined;
@@ -50,6 +51,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Extens
   let modelAccount = accounts.selected().codex;
   context.subscriptions.push({ dispose: accounts.subscribe(() => { if (accounts.selected().codex !== modelAccount) { modelAccount = accounts.selected().codex; void settings.refreshModels(); } }) });
   orchestrator.onUsage = (provider, accountId, usage) => accounts.recordUsage(provider, accountId, usage);
+  orchestrator.languageInstruction = () => languageInstruction(settings.read().replyLanguage, vscode.env.language);
   orchestrator.attachmentStore = new AttachmentStore(join(context.globalStorageUri.fsPath, 'attachments'));
   const controller = new ChatWebviewProvider(context.extensionUri, orchestrator, settings, accounts);
   let providerCheckPending = false;

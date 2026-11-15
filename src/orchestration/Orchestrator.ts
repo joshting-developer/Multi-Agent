@@ -34,6 +34,8 @@ export class Orchestrator {
   readonly state: Snapshot;
   /** 執行中官方回報的額度狀態，交給帳號管理記錄（依執行時的帳號）。 */
   onUsage?: (provider: AgentId, accountId: string | undefined, usage: UsageSnapshot) => void;
+  /** 每次執行時讀取的回覆語言指示（設定 → 回覆語言）；沒有時不加。 */
+  languageInstruction?: () => string | undefined;
   /** 使用者貼上圖片的本機儲存；未設定時不接受附件。 */
   attachmentStore?: AttachmentStore;
   private active?: { task: Task; controller: AbortController; finished: Promise<void>; conversationId: string };
@@ -211,7 +213,8 @@ export class Orchestrator {
     const { prompt: message, contextIds } = resumeSessionId ? { prompt: task.prompt, contextIds: [] } : buildContext(history, task.prompt);
     if (contextIds.length) task.contextIds = contextIds; else delete task.contextIds;
     if (resumeSessionId) task.contextMode = 'native'; else if (contextIds.length) task.contextMode = 'rebuilt'; else delete task.contextMode;
-    const prompt = task.participantRole ? `${roleInstructions[task.participantRole]}\n\n${message}` : message;
+    const language = this.languageInstruction?.();
+    const prompt = [task.participantRole && roleInstructions[task.participantRole], language, message].filter(Boolean).join('\n\n');
     const env = await this.accountEnv(task.provider, task.accountId);
     const conversationId = this.taskConversations.get(task.id) ?? this.repository.conversationId;
     if (task.attachments?.length && !this.attachmentStore) throw new Error('目前無法讀取圖片附件。');

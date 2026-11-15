@@ -7,8 +7,8 @@ beforeEach(() => { configValues.clear(); vi.clearAllMocks(); });
 describe('Persistent provider and chat settings', () => {
   it('saves model, effort, timeout and chat preferences to VS Code settings', async () => {
     const settings = service(); await settings.refreshModels();
-    await settings.save({ ...defaultSettings, timeoutSeconds: 600, sendShortcut: 'modifier-enter', defaultMode: 'read-only', codex: { model: 'model-a', effort: 'high' } });
-    expect(settings.read()).toMatchObject({ timeoutSeconds: 600, sendShortcut: 'modifier-enter', defaultMode: 'read-only', codex: { model: 'model-a', effort: 'high' } });
+    await settings.save({ ...defaultSettings, timeoutSeconds: 600, sendShortcut: 'modifier-enter', defaultMode: 'read-only', replyLanguage: 'zh-TW', codex: { model: 'model-a', effort: 'high' } });
+    expect(settings.read()).toMatchObject({ timeoutSeconds: 600, sendShortcut: 'modifier-enter', defaultMode: 'read-only', replyLanguage: 'zh-TW', codex: { model: 'model-a', effort: 'high' } });
     expect(configuration.update).toHaveBeenCalledWith('codexModel', 'model-a', 1);
   });
   it('serializes changes so providers cannot overwrite each other', async () => {
