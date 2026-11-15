@@ -27,6 +27,8 @@ function rename(id: string) {
 </script>
 
 <template>
+  <!-- 放在最上面：帳號一多時不用捲到底才能重新整理。 -->
+  <div class="account-toolbar"><button type="button" class="secondary-button" :disabled="checking" @click="emit('refresh')">{{ checking ? '檢查中…' : '重新整理登入資訊' }}</button></div>
   <section v-for="provider in providers" :key="provider" class="settings-card">
     <h2>{{ provider === 'codex' ? 'Codex' : 'Claude Code' }}</h2>
     <ul class="account-list">
@@ -64,5 +66,4 @@ function rename(id: string) {
       <button type="submit" class="secondary-button" :disabled="!ready(provider)">{{ methods[provider] === 'api-key' ? '新增' : '新增帳號並登入' }}</button>
     </form>
   </section>
-  <button type="button" class="secondary-button" :disabled="checking" @click="emit('refresh')">{{ checking ? '檢查中…' : '重新整理登入資訊' }}</button>
 </template>

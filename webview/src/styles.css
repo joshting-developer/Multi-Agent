@@ -170,3 +170,4 @@ mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inh
 .read-roots span { overflow-wrap: anywhere; font-family: var(--vscode-editor-font-family); font-size: 12px; }
 .credit-list { list-style: none; margin: 6px 0 0; padding: 0; }
 .credit-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.account-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }

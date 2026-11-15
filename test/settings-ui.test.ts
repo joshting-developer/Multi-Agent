@@ -86,6 +86,8 @@ describe('Explicit models, accounts and history controls', () => {
     expect(wrapper.findAll('.account-row').find(row => row.text().includes('公司 Claude'))!.text()).not.toContain('同一個帳戶');
     await personal.findAll('button')[1]!.trigger('click'); await wrapper.get('.account-rename input').setValue('私人'); await wrapper.get('.account-rename').trigger('submit');
     expect(wrapper.emitted('rename')).toEqual([['me', '私人']]);
+    // 重新整理在所有帳號卡片之前，不用捲到底。
+    expect(wrapper.element.firstElementChild?.textContent).toContain('重新整理登入資訊');
     await wrapper.findAll('button').find(button => button.text().includes('重新整理'))!.trigger('click'); expect(wrapper.emitted('refresh')).toHaveLength(1); wrapper.unmount();
   });
   it('shows how much quota is left so an exhausted window reads as 0%', async () => {
