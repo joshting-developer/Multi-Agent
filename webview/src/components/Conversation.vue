@@ -59,6 +59,8 @@ const date = (value: number) => new Date(value).toLocaleString('zh-TW', { month:
 const elapsed = (task: Task) => Math.max(0, Math.floor(((task.endedAt ?? now.value) - task.startedAt) / 1000));
 const speaker = (task: Task) => {
   const name = task.provider === 'claude' ? 'Claude Code' : 'Codex';
+  // 混合任務：顯示成員名稱與這次負責的階段。
+  if (task.hybrid) return `${task.hybrid.member} · ${task.hybrid.stage === 'plan' ? '規劃分工' : task.hybrid.stage === 'step' ? `環節 ${task.hybrid.index}：${task.hybrid.title}` : task.hybrid.stage === 'review' ? 'Review' : '結論'}`;
   if (!task.participantRole) return name;
   if (task.participantRole === 'summarizer') return `${name} · 討論結論`;
   return `${name} ${task.participantRole === 'architect' ? 'A · 提案' : 'B · 審查'}${task.roundNo ? ` · 第 ${task.roundNo} 輪` : ''}${task.substitute ? ' · 代替' : ''}`;
@@ -75,11 +77,11 @@ const statusLabel = (task: Task) => ({ queued: '排隊中', running: '執行中'
     <button v-if="hasEarlier" type="button" class="text-button load-earlier" @click="earlier">載入更早的訊息</button>
     <p v-if="missing" class="notice" role="alert">找不到原始訊息，可能已刪除</p>
     <article v-for="task in tasks" :key="task.id" :class="['turn', { focused: focus?.runId === task.id && !missing }]" :data-run="task.id">
-      <div v-if="!task.discussionId || task.roundNo === 1" class="message user-message"><p class="prompt">{{ task.prompt }}</p><p v-if="task.attachments?.length" class="attachment-list"><span v-for="(item, index) in task.attachments" :key="item.id" class="attachment-chip">圖片 {{ index + 1 }} · {{ item.bytes >= 1048576 ? `${(item.bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(item.bytes / 1024))} KB` }}</span></p></div>
+      <div v-if="task.hybrid ? task.hybrid.text : !task.discussionId || task.roundNo === 1" class="message user-message"><p class="prompt">{{ task.hybrid?.text ?? task.prompt }}</p><p v-if="task.attachments?.length" class="attachment-list"><span v-for="(item, index) in task.attachments" :key="item.id" class="attachment-chip">圖片 {{ index + 1 }} · {{ item.bytes >= 1048576 ? `${(item.bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(item.bytes / 1024))} KB` }}</span></p></div>
       <div :class="['message', 'assistant-message', { rejected: task.rejected }]">
         <div class="message-label">
           <strong>{{ speaker(task) }}</strong><span v-if="focus?.runId === task.id" class="task-status">{{ date(task.startedAt) }}</span><span v-if="task.status !== 'completed'" :class="['task-status', task.status]">{{ statusLabel(task) }}<template v-if="task.status === 'running'"> · {{ elapsed(task) }}s</template></span><span v-else-if="task.rejected" class="task-status">已不採用</span><span v-if="task.persisted && task.contextMode === 'rebuilt'" class="task-status">上下文已重建</span>
-          <button v-if="task.status === 'completed' && !task.discussionId" type="button" class="text-button" @click="emit('reject', task.id, !task.rejected)">{{ task.rejected ? '恢復採用' : '不採用' }}</button>
+          <button v-if="task.status === 'completed' && !task.discussionId && !task.hybrid" type="button" class="text-button" @click="emit('reject', task.id, !task.rejected)">{{ task.rejected ? '恢復採用' : '不採用' }}</button>
         </div>
         <template v-if="task.steps?.length">
           <template v-for="(step, index) in task.steps" :key="step.kind === 'tool' ? step.id : `text-${index}`">

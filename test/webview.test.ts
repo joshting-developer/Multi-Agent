@@ -267,6 +267,38 @@ describe('Vue chat', () => {
     } finally { wrapper.unmount(); vi.unstubAllGlobals(); }
   });
 });
+describe('Hybrid mode', () => {
+  it('picks members with a lead and shows per-stage speakers and who left', async () => {
+    const { default: Composer } = await import('../webview/src/components/Composer.vue');
+    const { default: HybridBar } = await import('../webview/src/components/HybridBar.vue');
+    const { default: Conversation } = await import('../webview/src/components/Conversation.vue');
+    const accounts = [{ id: 'c1', provider: 'codex' as const, name: '工作', loggedIn: true }, { id: 'c2', provider: 'codex' as const, name: '備用', loggedIn: false }, { id: 'a1', provider: 'claude' as const, name: '個人', loggedIn: true }];
+    const models = { codex: [{ id: 'gpt', label: 'GPT', efforts: ['high' as const] }], claude: [{ id: 'sonnet', label: 'Sonnet', efforts: ['medium' as const] }] };
+    const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: '加上匯出', canWrite: true, provider: 'codex', accounts, selectedAccounts: { codex: 'c1', claude: 'a1' }, catalog: models, defaults: { codex: { model: 'gpt', effort: 'high' }, claude: { model: 'sonnet', effort: 'medium' } } } });
+    await wrapper.findAll('button').find(button => button.text() === '混合')!.trigger('click');
+    // 只列已登入的帳號；預設勾選各 Agent 使用中的帳號，主帳號是輸入框選定的 Agent。
+    expect(wrapper.findAll('.hybrid-members li')).toHaveLength(2);
+    await wrapper.get('form').trigger('submit');
+    expect(wrapper.emitted('hybrid')).toEqual([['加上匯出', 'workspace-write', 'ask', [{ provider: 'codex', preferences: { model: 'gpt', effort: 'high', accountId: 'c1' } }, { provider: 'claude', preferences: { model: 'sonnet', effort: 'medium', accountId: 'a1' } }], 0]]);
+    await wrapper.findAll('.hybrid-lead input')[1]!.setValue(true); await wrapper.get('form').trigger('submit');
+    expect(wrapper.emitted('hybrid')![1]![4]).toBe(1);
+    // 少於兩個成員不能送出。
+    await wrapper.findAll('.hybrid-member input')[1]!.setValue(false); await wrapper.get('form').trigger('submit');
+    expect(wrapper.emitted('hybrid')).toHaveLength(2); expect(wrapper.text()).toContain('至少選兩個成員');
+    wrapper.unmount();
+    const bar = mount(HybridBar, { props: { hybrid: { id: 'h', status: 'completed', stage: 'conclusion', members: [{ label: 'Codex · 工作', provider: 'codex', lead: true }, { label: 'Claude Code · 個人', provider: 'claude', left: '環節「補測試」：額度用完' }], steps: [{ title: '寫程式', member: 0, status: 'done' }, { title: '補測試', member: 0, status: 'done' }] } } });
+    expect(bar.text()).toContain('混合任務已完成 · 2 個環節'); expect(bar.text()).toContain('Claude Code · 個人 中途離開 · 環節「補測試」：額度用完');
+    await bar.setProps({ hybrid: { id: 'h', status: 'running', stage: 'step', members: [{ label: 'Codex · 工作', provider: 'codex', lead: true }], steps: [{ title: '寫程式', member: 0, status: 'running' }] } });
+    expect(bar.text()).toBe('混合 · 環節 1／1 · 寫程式 · Codex · 工作');
+    const task = { provider: 'codex' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, prompt: '內部指示', output: 'ok' };
+    const timeline = mount(Conversation, { props: { tasks: [{ ...task, id: 'p', hybrid: { id: 'h', stage: 'plan' as const, member: 'Codex · 工作', text: '加上匯出' } }, { ...task, id: 's', hybrid: { id: 'h', stage: 'step' as const, index: 1, title: '寫程式', member: 'Codex · 工作' } }], hasEarlier: false, externalChanges: 0 } });
+    // 只顯示一次使用者的原始要求，內部指示不顯示；每則標出成員與階段。
+    expect(timeline.findAll('.user-message').map(item => item.text())).toEqual(['加上匯出']); expect(timeline.text()).not.toContain('內部指示');
+    expect(timeline.findAll('.message-label strong').map(item => item.text())).toEqual(['Codex · 工作 · 規劃分工', 'Codex · 工作 · 環節 1：寫程式']);
+    expect(timeline.findAll('.message-label button')).toHaveLength(0);
+    timeline.unmount(); bar.unmount();
+  });
+});
 describe('Queued messages while a task runs', () => {
   it('queues the next message, steers it into a running Codex task and sends the rest after completion', async () => {
     const api = { postMessage: vi.fn(), getState: () => undefined, setState: vi.fn() };

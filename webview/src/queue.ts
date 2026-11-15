@@ -6,3 +6,5 @@ export interface QueuedMessage {
   id: string; conversationId: string; provider: AgentId; text: string; mode: ExecutionMode; approvalMode: ApprovalMode;
   preferences: ProviderPreferences; images: Array<{ mime: string; data: string }>; steering?: boolean;
 }
+/** 混合模式的一個成員：帳號、模型與推理強度都放在 preferences。 */
+export interface HybridMember { provider: AgentId; preferences: ProviderPreferences }

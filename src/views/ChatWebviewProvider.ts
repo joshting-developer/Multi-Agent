@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { webviewMessageSchema, type AgentId, type HostToWebview, type Task, type WebviewToHost } from '../bridge/messages';
 import { Orchestrator } from '../orchestration/Orchestrator';
+import { HybridCoordinator } from '../orchestration/HybridCoordinator';
+import { providerLabel } from '../bridge/labels';
 import { DiscussionCoordinator } from '../orchestration/DiscussionCoordinator';
 import { randomUUID } from 'node:crypto';
 import { SettingsService } from '../settings/SettingsService';
@@ -24,12 +26,14 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
   private approvalPending = false;
   private readonly fullAccessGrants = new Set<AgentId>();
   private readonly discussions: DiscussionCoordinator;
+  private readonly hybrids: HybridCoordinator;
   private resolveReady: () => void = () => undefined;
   readonly whenReady = new Promise<void>(resolve => { this.resolveReady = resolve; });
   private resolveSettingsReady: () => void = () => undefined;
   readonly whenSettingsReady = new Promise<void>(resolve => { this.resolveSettingsReady = resolve; });
   constructor(private readonly extensionUri: vscode.Uri, private readonly orchestrator: Orchestrator, private readonly settings?: SettingsService, private readonly accounts?: AccountService) {
     this.discussions = new DiscussionCoordinator(orchestrator, () => this.snapshot());
+    this.hybrids = new HybridCoordinator(orchestrator, () => this.snapshot());
     this.unsubscribe = orchestrator.subscribe(() => {
       if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; this.snapshot(); }, 40);
     });
@@ -109,7 +113,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     return preferences && account ? { ...preferences, accountId: account } : preferences;
   }
   private snapshot(target?: vscode.Webview): void {
-    this.post({ version: 1, type: 'snapshot', snapshot: { ...this.orchestrator.state, discussion: this.discussions.summary(), accounts: this.accounts?.list(), selectedAccounts: this.accounts?.selected(),
+    this.post({ version: 1, type: 'snapshot', snapshot: { ...this.orchestrator.state, discussion: this.discussions.summary(), hybrid: this.hybrids.summary(), accounts: this.accounts?.list(), selectedAccounts: this.accounts?.selected(),
       settings: this.settings?.read() ?? defaultSettings,
       models: this.settings?.models ?? { codex: [], claude: claudeModels, loading: false }
     } }, target);
@@ -138,7 +142,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'answer-approval': this.orchestrator.answerApproval(message.approvalId, message.allow); break;
       case 'check-providers': await this.orchestrator.checkProviders(); await this.accounts?.refresh(); break;
       case 'steer-task': await this.orchestrator.steer(message.taskId, message.text); this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); break;
-      case 'cancel-task': if (this.orchestrator.state.discussionId) await this.discussions.cancel(); else await this.orchestrator.cancel(message.taskId); break;
+      case 'cancel-task': if (this.hybrids.running) await this.hybrids.cancel(); else if (this.orchestrator.state.discussionId) await this.discussions.cancel(); else await this.orchestrator.cancel(message.taskId); break;
       case 'clear-conversation': {
         const answer = await vscode.window.showWarningMessage('刪除目前對話的本機聊天紀錄？其他對話與官方 CLI 紀錄不受影響。', { modal: true }, '清除');
         if (answer === '清除') await this.orchestrator.clear();
@@ -173,6 +177,27 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
             { id: randomUUID(), provider: partner, role: 'critic', preferences: partnerPreferences }
           ], message.rounds);
           this.snapshot();
+          await run;
+        }
+        finally { this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); }
+        break;
+      }
+      case 'start-hybrid': {
+        if (this.approvalPending) throw new Error('請先完成目前的授權對話框。');
+        try {
+          // 每個成員各自解析帳號與模型；名稱用帳號名稱加模型，畫面與結論都用這個名稱。
+          const members = message.members.map(member => {
+            const preferences = this.preferencesFor(member.provider, member.preferences);
+            const account = this.accounts?.list().find(item => item.id === preferences?.accountId);
+            return { provider: member.provider, preferences, label: [providerLabel(member.provider), account?.name, preferences?.model].filter(Boolean).join(' · ') };
+          });
+          if (new Set(members.map(member => `${member.provider}:${member.preferences?.accountId}:${member.preferences?.model}`)).size !== members.length) throw new Error('同一個帳號與模型只能加入一次。');
+          let approvalMode = message.approvalMode ?? this.settings?.read().approvalMode ?? 'ask';
+          // 完整存取需要逐次原生確認，混合模式不代為開啟。
+          if (approvalMode === 'full-access') approvalMode = 'ask';
+          const run = this.hybrids.run(message.text, members, message.lead, message.mode, approvalMode);
+          this.snapshot();
+          this.post({ version: 1, type: 'request-accepted', requestId: message.requestId }, source);
           await run;
         }
         finally { this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); }

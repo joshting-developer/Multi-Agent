@@ -9,7 +9,8 @@ import HistoryPanel from './components/HistoryPanel.vue';
 import ApprovalCard from './components/ApprovalCard.vue';
 import DiscussionBar from './components/DiscussionBar.vue';
 import QueuedMessages from './components/QueuedMessages.vue';
-import type { QueuedMessage } from './queue';
+import HybridBar from './components/HybridBar.vue';
+import type { HybridMember, QueuedMessage } from './queue';
 import { defaultSettings, type ProviderPreferences } from '../../src/bridge/preferences';
 const { steer, historyRequested, snapshot, error, running, submitting, draftRevision, post, send, draft, draftFor, saveDraft, searchConversations, searchResults, historySearching, navigating, navigate } = useHost();
 const selected = ref<AgentId>('codex');
@@ -99,6 +100,11 @@ watch(() => [snapshot.value.activeTaskId, snapshot.value.activeConversationId, s
 function discuss(text: string, rounds: number, partner: AgentId, partnerAccountId?: string) {
   send({ version: 1, type: 'start-discussion', requestId: crypto.randomUUID(), provider: selected.value, partner, text, rounds, preferences: { ...preferences.value }, ...(partnerAccountId && { partnerAccountId }) });
 }
+function startHybrid(text: string, mode: ExecutionMode, approvalMode: import('../../src/bridge/preferences').ApprovalMode, members: HybridMember[], lead: number) {
+  send({ version: 1, type: 'start-hybrid', requestId: crypto.randomUUID(), text, mode, approvalMode, members: members.map(member => ({ provider: member.provider, preferences: { ...member.preferences } })), lead });
+}
+// 只在目前對話含有該混合任務時顯示進度與離開的成員。
+const hybrid = computed(() => snapshot.value.hybrid && snapshot.value.tasks.some(task => task.hybrid?.id === snapshot.value.hybrid!.id) ? snapshot.value.hybrid : undefined);
 function selectAccount(provider: AgentId, accountId: string) { post({ version: 1, type: 'select-account', requestId: crypto.randomUUID(), provider, accountId }); }
 // 只在目前對話含有該討論時顯示進度、完成、停止或失敗。
 const discussion = computed(() => {
@@ -141,9 +147,10 @@ function cancel() {
       <p v-if="error" class="error notice" role="alert">{{ error }}</p>
       <div v-else-if="notice" class="notice" role="status"><span>{{ notice.text }}</span><button v-if="notice.action" type="button" class="text-button" :disabled="busy" @click="action(notice.action)">{{ notice.action === 'authorize-workspace' ? '授權' : '設定' }}</button></div>
       <DiscussionBar v-if="discussion && !error && !notice" :discussion="discussion" :busy="busy" :summary-ready="!!summaryTask" :alternatives="alternatives" @extend="extendDiscussion" @adopt="adoptSummary" @resolve="resolveDiscussion" />
+      <HybridBar v-if="hybrid && !error" :hybrid="hybrid" />
       <ApprovalCard v-for="request in snapshot.approvals ?? []" :key="request.id" :request="request" :background="!!request.conversationId && request.conversationId !== snapshot.conversationId" @answer="answerApproval" />
       <QueuedMessages v-if="queued.length" :items="queued" :can-steer="canSteer" :can-send="canSend && !busy" :running="running" @steer="steerQueued" @send="sendQueued" @edit="editQueued" @remove="take" />
-      <Composer :insert="insert" :accounts="snapshot.accounts" :selected-accounts="snapshot.selectedAccounts" :approval-mode="settings.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="composerBusy" :running="running || !!snapshot.discussionId" :can-send="canSend" :can-write="canWrite" :provider="selected" :preferences="preferences" :models="snapshot.models?.[selected] ?? []" :models-loading="snapshot.models?.loading ?? false" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="submit" @discuss="discuss" @account="selectAccount" @cancel="cancel" @draft="saveDraft" @select="selected = $event; userSelected = true" @preferences="selectPreferences" @settings="action('show-options')" @refresh-models="action('refresh-models')" />
+      <Composer :insert="insert" :accounts="snapshot.accounts" :selected-accounts="snapshot.selectedAccounts" :approval-mode="settings.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="composerBusy" :running="running || !!snapshot.discussionId" :can-send="canSend" :can-write="canWrite" :provider="selected" :preferences="preferences" :models="snapshot.models?.[selected] ?? []" :catalog="{ codex: snapshot.models?.codex ?? [], claude: snapshot.models?.claude ?? [] }" :defaults="{ codex: settings.codex, claude: settings.claude }" :models-loading="snapshot.models?.loading ?? false" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="submit" @discuss="discuss" @hybrid="startHybrid" @account="selectAccount" @cancel="cancel" @draft="saveDraft" @select="selected = $event; userSelected = true" @preferences="selectPreferences" @settings="action('show-options')" @refresh-models="action('refresh-models')" />
     </div>
   </main>
 </template>

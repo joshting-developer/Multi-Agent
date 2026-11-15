@@ -65,8 +65,8 @@ export function useHost() {
     post({ version: 1, type: 'search-conversations', requestId: searchRequestId, query, ...(Object.keys(filters).length && { filters }) });
   }
   // keepDraft：送出待送清單裡的訊息時，不清掉輸入框裡正在打的下一則。
-  function send(message: Extract<WebviewToHost, { type: 'send-message' | 'start-discussion' | 'extend-discussion' }>, keepDraft = false) {
-    submitting.value = true; pendingRequestId = message.requestId; pendingDiscussion = message.type !== 'send-message'; pendingKeepsDraft = keepDraft; post(message);
+  function send(message: Extract<WebviewToHost, { type: 'send-message' | 'start-discussion' | 'extend-discussion' | 'start-hybrid' }>, keepDraft = false) {
+    submitting.value = true; pendingRequestId = message.requestId; pendingDiscussion = message.type === 'start-discussion' || message.type === 'extend-discussion'; pendingKeepsDraft = keepDraft; post(message);
   }
   /** 補充給執行中的任務；回傳是否被接受，失敗原因顯示在錯誤列。 */
   function steer(taskId: string, text: string): Promise<boolean> {

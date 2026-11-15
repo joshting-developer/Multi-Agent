@@ -16,7 +16,8 @@ import { SessionRepository } from '../storage/SessionRepository';
 import type { ApprovalMode, ProviderPreferences } from '../bridge/settings';
 
 export interface ParticipantRef { id: string; role: ParticipantRole; substitute?: boolean }
-export interface SendOptions { participant?: ParticipantRef; discussion?: { id: string; roundNo?: number }; outbound?: string; attachments?: StoredAttachment[] }
+/** hybrid：混合任務的一次執行，沿用討論的鎖定（期間不接受其他送出），但可以寫入工作區。 */
+export interface SendOptions { participant?: ParticipantRef; discussion?: { id: string; roundNo?: number }; hybrid?: NonNullable<Task['hybrid']>; outbound?: string; attachments?: StoredAttachment[] }
 /** 單次執行最多保留的稽核事件數，避免長任務的工具事件撐大歷史。 */
 const maxEvents = 200;
 /** 單次執行最多保留的工具步驟數，以及 IN／OUT 的保存長度。 */
@@ -137,11 +138,12 @@ export class Orchestrator {
     if (mode === 'workspace-write' && !status.capabilities.workspaceWrite) throw new Error('此 CLI 版本不支援工作區寫入。');
   }
   /** 每次只執行一個 Participant；不會自動接續另一方，下一輪由呼叫端（Coordinator）決定。 */
-  async send(provider: AgentId, text: string, mode: ExecutionMode, preferences?: ProviderPreferences, approvalMode: ApprovalMode = 'ask', { participant, discussion, outbound, attachments }: SendOptions = {}): Promise<Task> {
-    this.assertCanSend(provider, mode, discussion?.id);
+  async send(provider: AgentId, text: string, mode: ExecutionMode, preferences?: ProviderPreferences, approvalMode: ApprovalMode = 'ask', { participant, discussion, hybrid, outbound, attachments }: SendOptions = {}): Promise<Task> {
+    this.assertCanSend(provider, mode, discussion?.id ?? hybrid?.id);
     if (discussion && (mode !== 'read-only' || !participant)) throw new Error('討論輪次必須為唯讀且指定 Participant。');
     if (participant && this.state.tasks.some(item => item.participantId === participant.id && (item.provider !== provider || item.participantRole !== participant.role))) throw new Error('Participant 已綁定其他 Provider 或角色。');
     const task: Task = { id: randomUUID(), provider, mode, prompt: text, output: '', status: 'running', startedAt: Date.now(), activity: '啟動官方 CLI…', approvalMode, ...preferences, ...(participant && { participantId: participant.id, participantRole: participant.role, ...(participant.substitute && { substitute: true }) }), ...(discussion && { discussionId: discussion.id, ...(discussion.roundNo && { roundNo: discussion.roundNo }) }) };
+    if (hybrid) task.hybrid = hybrid;
     if (outbound) this.audit(task, 'data-outbound', outbound);
     if (attachments?.length) task.attachments = attachments;
     // 任務屬於送出當下的對話；之後切換檢視也繼續寫回這個對話。同步排入佇列，順序與送出順序相同。

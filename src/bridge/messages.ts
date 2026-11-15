@@ -29,7 +29,9 @@ export const taskSchema = z.object({
   rejected: z.boolean().optional(), contextIds: z.array(z.string()).optional(),
   attachments: z.array(z.object({ id: z.string(), mime: z.string(), bytes: z.number() })).optional(), events: z.array(auditEventSchema).optional(), steps: z.array(stepSchema).optional(),
   /** native：接續官方原生 Session；rebuilt：由 SQLite 上下文重建。persisted：這次的原生 Session 有保留，可供下次接續。 */
-  contextMode: z.enum(['native', 'rebuilt']).optional(), persisted: z.boolean().optional(), accountId: z.string().optional()
+  contextMode: z.enum(['native', 'rebuilt']).optional(), persisted: z.boolean().optional(), accountId: z.string().optional(),
+  /** 混合任務的一次執行：stage 為規劃、環節、review 或結論；text 只在第一則帶使用者的原始要求。 */
+  hybrid: z.object({ id: z.string(), stage: z.enum(['plan', 'step', 'review', 'conclusion']), index: z.number().int().positive().optional(), title: z.string().max(200).optional(), member: z.string().max(200), text: z.string().optional() }).optional()
 });
 export type Task = z.infer<typeof taskSchema>;
 export type Classification = 'unclassified' | 'personal' | 'company' | 'restricted';
@@ -45,7 +47,7 @@ export interface ProviderStatus {
 }
 export interface Snapshot {
   workspace: string; policy: WorkspacePolicy; providers: ProviderStatus[]; tasks: Task[];
-  activeTaskId?: string; activeConversationId?: string; discussionId?: string; discussion?: DiscussionSummary; checking: boolean; trusted: boolean;
+  activeTaskId?: string; activeConversationId?: string; discussionId?: string; discussion?: DiscussionSummary; hybrid?: HybridSummary; checking: boolean; trusted: boolean;
   settings?: WorkspaceSettings; models?: ModelCatalog;
   conversations?: ConversationSummary[]; conversationId?: string; approvals?: ApprovalRequest[];
   accounts?: AccountSummary[]; selectedAccounts?: Partial<Record<AgentId, string>>; persistent?: boolean;
@@ -56,6 +58,12 @@ export interface Snapshot {
 export const maxDiscussionRounds = 8;
 export interface DiscussionBlock { kind: 'quota' | 'rate-limit'; provider: AgentId; roundNo: number }
 export interface DiscussionSummary { id: string; status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'; completedRounds: number; maxRounds: number; summaryTaskId?: string; blocked?: DiscussionBlock }
+/** 混合任務的進度：members 的 left 是離開的環節與原因；steps 的 member 是實際執行（或預定）的成員索引。 */
+export interface HybridSummary {
+  id: string; status: 'running' | 'completed' | 'failed' | 'cancelled'; stage: 'plan' | 'step' | 'review' | 'conclusion';
+  members: Array<{ label: string; provider: AgentId; lead?: boolean; left?: string }>;
+  steps: Array<{ title: string; member: number; status: 'pending' | 'running' | 'done' | 'failed' }>;
+}
 export interface SearchFilters { provider?: AgentId; mode?: 'solo' | 'discussion'; since?: number; until?: number }
 /** 搜尋命中的那一次執行：實際來源與時間，供結果顯示與跳到原始訊息。 */
 export interface SearchMatch { runId: string; messageId?: string; at: number; provider: AgentId; discussion: boolean }
@@ -77,6 +85,8 @@ export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('send-message'), provider: agentIdSchema, text: z.string().trim().max(32000), mode: modeSchema, preferences: providerPreferencesSchema.optional(), approvalMode: z.enum(approvalModes).optional(),
     attachments: z.array(z.object({ mime: z.string().max(40), data: z.string().max(7_000_000) })).max(4).optional() }),
   z.object({ ...base, type: z.literal('start-discussion'), provider: agentIdSchema, partner: agentIdSchema.optional(), text: z.string().trim().min(1).max(32000), rounds: z.number().int().min(2).max(8), preferences: providerPreferencesSchema.optional(), partnerAccountId: z.string().max(100).optional() }),
+  z.object({ ...base, type: z.literal('start-hybrid'), text: z.string().trim().min(1).max(32000), mode: modeSchema, approvalMode: z.enum(approvalModes).optional(), lead: z.number().int().min(0).max(3),
+    members: z.array(z.object({ provider: agentIdSchema, preferences: providerPreferencesSchema })).min(2).max(4) }),
   z.object({ ...base, type: z.literal('extend-discussion'), discussionId: z.string().min(1).max(100), rounds: z.number().int().min(1).max(6) }),
   z.object({ ...base, type: z.literal('add-account'), provider: agentIdSchema, name: z.string().trim().max(60).optional(), apiKey: z.string().max(400).optional() }),
   z.object({ ...base, type: z.literal('rename-account'), accountId: z.string().min(1).max(100), name: z.string().trim().min(1).max(60) }),

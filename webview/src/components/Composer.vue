@@ -4,12 +4,14 @@ import type { AccountSummary, AgentId, ExecutionMode } from '../../../src/bridge
 import ProviderPicker from './ProviderPicker.vue';
 import ChatIcon from './ChatIcon.vue';
 import ModelPicker from './ModelPicker.vue';
+import HybridPicker from './HybridPicker.vue';
+import type { HybridMember } from '../queue';
 import { approvalLabels, approvalModes, type ApprovalMode, type ModelOption, type ProviderPreferences } from '../../../src/bridge/preferences';
 const props = withDefaults(defineProps<{
   busy: boolean; running: boolean; canSend: boolean; initialDraft: string; draftRevision?: number; canWrite?: boolean; provider?: AgentId;
-  insert?: { text: string; revision: number }; accounts?: AccountSummary[]; selectedAccounts?: Partial<Record<AgentId, string>>; approvalMode?: ApprovalMode; supportedApprovalModes?: ApprovalMode[]; preferences?: ProviderPreferences; models?: ModelOption[]; modelsLoading?: boolean; sendShortcut?: 'enter' | 'modifier-enter'; defaultMode?: ExecutionMode;
-}>(), { insert: undefined, accounts: () => [], selectedAccounts: () => ({}), approvalMode: 'ask', supportedApprovalModes: () => [...approvalModes], provider: 'codex', draftRevision: 0, canWrite: true, preferences: () => ({ model: '', effort: 'medium' }), models: () => [], modelsLoading: false, sendShortcut: 'enter', defaultMode: 'workspace-write' });
-const emit = defineEmits<{ send: [text: string, mode: ExecutionMode, approvalMode: ApprovalMode, images?: PastedImage[]]; discuss: [text: string, rounds: number, partner: AgentId, partnerAccountId: string | undefined]; account: [provider: AgentId, accountId: string]; cancel: []; draft: [text: string]; select: [id: AgentId]; preferences: [value: ProviderPreferences]; settings: []; refreshModels: [] }>();
+  insert?: { text: string; revision: number }; accounts?: AccountSummary[]; selectedAccounts?: Partial<Record<AgentId, string>>; approvalMode?: ApprovalMode; supportedApprovalModes?: ApprovalMode[]; preferences?: ProviderPreferences; models?: ModelOption[]; catalog?: Record<AgentId, ModelOption[]>; defaults?: Record<AgentId, ProviderPreferences>; modelsLoading?: boolean; sendShortcut?: 'enter' | 'modifier-enter'; defaultMode?: ExecutionMode;
+}>(), { insert: undefined, accounts: () => [], selectedAccounts: () => ({}), approvalMode: 'ask', supportedApprovalModes: () => [...approvalModes], provider: 'codex', draftRevision: 0, canWrite: true, preferences: () => ({ model: '', effort: 'medium' }), models: () => [], catalog: () => ({ codex: [], claude: [] }), defaults: () => ({ codex: { model: '', effort: 'medium' as const }, claude: { model: '', effort: 'medium' as const } }), modelsLoading: false, sendShortcut: 'enter', defaultMode: 'workspace-write' });
+const emit = defineEmits<{ send: [text: string, mode: ExecutionMode, approvalMode: ApprovalMode, images?: PastedImage[]]; discuss: [text: string, rounds: number, partner: AgentId, partnerAccountId: string | undefined]; hybrid: [text: string, mode: ExecutionMode, approvalMode: ApprovalMode, members: HybridMember[], lead: number]; account: [provider: AgentId, accountId: string]; cancel: []; draft: [text: string]; select: [id: AgentId]; preferences: [value: ProviderPreferences]; settings: []; refreshModels: [] }>();
 const text = ref(props.initialDraft);
 // 貼上的圖片只在送出前留在輸入框；預覽用 blob URL，送出時才轉成 base64。
 export interface PastedImage { mime: string; data: string; url: string; bytes: number }
@@ -44,6 +46,12 @@ watch(() => props.provider, () => { approval.value = props.approvalMode; });
 const mode = ref<ExecutionMode>(props.canWrite === false ? 'read-only' : props.defaultMode);
 const modeChosen = ref(false);
 const discussion = ref(false);
+// 混合模式：多個帳號與模型分工，和討論二擇一。
+const hybrid = ref(false);
+const hybridMembers = ref<HybridMember[]>([]);
+const hybridLead = ref(-1);
+watch(discussion, value => { if (value) hybrid.value = false; });
+watch(hybrid, value => { if (value) discussion.value = false; });
 const rounds = ref(4);
 // 審查方預設與提案方相同（同 Agent 討論），手動選擇後才固定。
 const partner = ref<AgentId>(props.provider);
@@ -61,7 +69,8 @@ function choose(provider: AgentId, accountId?: string) {
 function choosePartner(provider: AgentId, accountId?: string) { partnerChosen.value = true; partner.value = provider; partnerAccount.value = accountId ?? props.selectedAccounts[provider]; }
 // 執行中只能排一般訊息，不能開始討論。
 watch(() => props.running, value => { if (value) discussion.value = false; });
-const valid = computed(() => props.canSend && props.supportedApprovalModes.includes(approval.value) && !props.busy && (text.value.trim().length > 0 || (!discussion.value && images.value.length > 0)) && text.value.length <= 32000 && (!discussion.value || text.value.trim().length > 0));
+const hybridReady = computed(() => hybridMembers.value.length >= 2 && hybridMembers.value.length <= 4 && hybridLead.value >= 0);
+const valid = computed(() => props.canSend && props.supportedApprovalModes.includes(approval.value) && !props.busy && (text.value.trim().length > 0 || (!discussion.value && images.value.length > 0)) && text.value.length <= 32000 && (!discussion.value || text.value.trim().length > 0) && (!hybrid.value || (hybridReady.value && text.value.trim().length > 0 && !images.value.length && !props.running)));
 watch(text, value => emit('draft', value));
 watch(() => props.draftRevision, () => { text.value = ''; clearImages(); });
 // 討論結論只帶入輸入框，由使用者自己選模式後送出，不自動執行。
@@ -77,7 +86,8 @@ watch(() => props.canWrite, value => {
 watch(() => props.defaultMode, value => { if (!modeChosen.value) mode.value = value === 'workspace-write' && !props.canWrite ? 'read-only' : value; });
 function submit() {
   if (!valid.value) return;
-  if (discussion.value) emit('discuss', text.value.trim(), rounds.value, partner.value, partnerAccounts.value.length > 1 ? partnerAccount.value : undefined);
+  if (hybrid.value) emit('hybrid', text.value.trim(), mode.value, approval.value, hybridMembers.value, hybridLead.value);
+  else if (discussion.value) emit('discuss', text.value.trim(), rounds.value, partner.value, partnerAccounts.value.length > 1 ? partnerAccount.value : undefined);
   else if (images.value.length) emit('send', text.value.trim(), mode.value, approval.value, images.value);
   else emit('send', text.value.trim(), mode.value, approval.value);
 }
@@ -98,6 +108,8 @@ function onKey(event: KeyboardEvent) {
         <ProviderPicker :selected="provider" :account="selectedAccounts[provider]" :accounts="accounts" :busy="busy" @select="choose" />
         <ModelPicker :provider="provider" :value="preferences" :models="models" :busy="busy" :loading="modelsLoading" @change="$emit('preferences', $event)" @settings="$emit('settings')" @refresh="$emit('refreshModels')" />
         <button type="button" class="permission-picker discussion-toggle" :aria-pressed="discussion" :disabled="busy || running" @click="discussion = !discussion">討論</button>
+        <button type="button" class="permission-picker discussion-toggle" :aria-pressed="hybrid" :disabled="busy || running" @click="hybrid = !hybrid">混合</button>
+        <HybridPicker v-if="hybrid" :accounts="accounts" :models="catalog" :defaults="defaults" :selected-accounts="selectedAccounts" :provider="provider" :busy="busy" @change="(members, lead) => { hybridMembers = members; hybridLead = lead; }" />
         <ProviderPicker v-if="discussion" class="permission-picker partner-picker" label="審查 Agent" prefix="審查：" :selected="partner" :account="partnerAccount" :accounts="accounts" :busy="busy" @select="choosePartner" />
         <select v-if="discussion" v-model.number="rounds" class="permission-picker" :disabled="busy" aria-label="討論回合"><option v-for="count in [2, 3, 4, 5, 6, 7, 8]" :key="count" :value="count">{{ count }} 輪</option></select>
         <template v-else>
