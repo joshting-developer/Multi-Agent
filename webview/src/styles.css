@@ -27,7 +27,7 @@ button, select, summary { transition: background-color .12s ease-out, color .12s
 .markdown p { margin: 8px 0; }
 .markdown pre { overflow-x: auto; background: var(--vscode-textCodeBlock-background); padding: 12px; border-radius: var(--radius-m); font-size: 12px; }
 .markdown code { font-family: var(--vscode-editor-font-family, monospace); }
-.markdown table { border-collapse: collapse; }
+.markdown table { display: block; width: max-content; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
 .markdown th, .markdown td { padding: 4px; border: 1px solid var(--vscode-panel-border); }
 .activity, .muted { color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.6; }
 .error { font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
@@ -177,7 +177,7 @@ mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inh
 .credit-list { list-style: none; margin: 6px 0 0; padding: 0; max-width: 320px; }
 .credit-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
 .account-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
-.queued-list { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 4px; }
+.queued-list { list-style: none; margin: 0 0 6px; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .queued-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; border: 1px solid var(--vscode-panel-border); border-radius: var(--radius-m); font-size: 12px; }
 .queued-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queued-actions { display: flex; flex-shrink: 0; gap: 2px; }
