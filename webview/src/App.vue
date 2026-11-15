@@ -10,7 +10,8 @@ import ApprovalCard from './components/ApprovalCard.vue';
 import DiscussionBar from './components/DiscussionBar.vue';
 import QueuedMessages from './components/QueuedMessages.vue';
 import HybridBar from './components/HybridBar.vue';
-import type { HybridMember, QueuedMessage } from './queue';
+import ModeBar from './components/ModeBar.vue';
+import type { ChatKind, HybridMember, QueuedMessage } from './queue';
 import { defaultSettings, type ProviderPreferences } from '../../src/bridge/preferences';
 const { steer, historyRequested, snapshot, error, running, submitting, draftRevision, post, send, draft, draftFor, saveDraft, searchConversations, searchResults, historySearching, navigating, navigate } = useHost();
 const selected = ref<AgentId>('codex');
@@ -97,6 +98,17 @@ watch(() => [snapshot.value.activeTaskId, snapshot.value.activeConversationId, s
   const next = queued.value.find(item => !item.steering);
   if (next && canSend.value && !submitting.value) { take(next.id); dispatch(next, true); }
 });
+// 一般／討論／混合在標題列切換；討論與混合的設定由 ModeBar 回報，送出時才組成請求。
+const kind = ref<ChatKind>('solo');
+const kinds: Array<{ id: ChatKind; label: string }> = [{ id: 'solo', label: '一般' }, { id: 'discussion', label: '討論' }, { id: 'hybrid', label: '混合' }];
+const discussionSetup = ref<{ partner: AgentId; partnerAccountId?: string; rounds: number }>({ partner: 'codex', rounds: 4 });
+const hybridSetup = ref<{ members: HybridMember[]; lead: number }>({ members: [], lead: -1 });
+const kindReady = computed(() => kind.value !== 'hybrid' || (hybridSetup.value.members.length >= 2 && hybridSetup.value.members.length <= 4 && hybridSetup.value.lead >= 0));
+function compose(text: string, mode: ExecutionMode, approvalMode: import('../../src/bridge/preferences').ApprovalMode, images: Array<{ mime: string; data: string }> = []) {
+  if (kind.value === 'discussion') discuss(text, discussionSetup.value.rounds, discussionSetup.value.partner, discussionSetup.value.partnerAccountId);
+  else if (kind.value === 'hybrid') startHybrid(text, mode, approvalMode, hybridSetup.value.members, hybridSetup.value.lead);
+  else submit(text, mode, approvalMode, images);
+}
 function discuss(text: string, rounds: number, partner: AgentId, partnerAccountId?: string) {
   send({ version: 1, type: 'start-discussion', requestId: crypto.randomUUID(), provider: selected.value, partner, text, rounds, preferences: { ...preferences.value }, ...(partnerAccountId && { partnerAccountId }) });
 }
@@ -114,6 +126,8 @@ const discussion = computed(() => {
 });
 const summaryTask = computed(() => snapshot.value.tasks.find(task => task.id === discussion.value?.summaryTaskId && task.status === 'completed' && task.output));
 function adoptSummary() {
+  // 帶入結論後回到一般模式，由使用者自己選權限送出。
+  if (summaryTask.value) kind.value = 'solo';
   if (summaryTask.value) insert.value = { text: `依照下面的討論結論處理：\n\n${summaryTask.value.output}`, revision: (insert.value?.revision ?? 0) + 1 };
 }
 // 只列出已授權、可用且不是卡住的那個 Provider；實際送出前 Host 仍會再檢查。
@@ -139,7 +153,8 @@ function cancel() {
 
 <template>
   <main class="workspace">
-    <header class="chat-toolbar"><button type="button" class="conversation-title text-button" :disabled="navigationLocked" :aria-expanded="historyShown" @click="historyShown = !historyShown; historyQuery = ''; historyFilters = {}">{{ historyShown ? '歷史對話' : conversationTitle }}</button><div><button type="button" class="icon-button" aria-label="歷史對話" :disabled="navigationLocked" :aria-pressed="historyShown" @click="historyShown = !historyShown; historyQuery = ''; historyFilters = {}"><ChatIcon name="history" /></button><button type="button" class="icon-button" aria-label="新增對話" :disabled="navigationLocked" @click="action('new-conversation'); historyShown = false"><ChatIcon name="new" /></button></div></header>
+    <header class="chat-toolbar"><button type="button" class="conversation-title text-button" :disabled="navigationLocked" :aria-expanded="historyShown" @click="historyShown = !historyShown; historyQuery = ''; historyFilters = {}">{{ historyShown ? '歷史對話' : conversationTitle }}</button><div><span v-if="!historyShown" class="mode-tabs" role="group" aria-label="送出方式"><button v-for="item in kinds" :key="item.id" type="button" :aria-pressed="kind === item.id" :disabled="busy" @click="kind = item.id">{{ item.label }}</button></span><button type="button" class="icon-button" aria-label="歷史對話" :disabled="navigationLocked" :aria-pressed="historyShown" @click="historyShown = !historyShown; historyQuery = ''; historyFilters = {}"><ChatIcon name="history" /></button><button type="button" class="icon-button" aria-label="新增對話" :disabled="navigationLocked" @click="action('new-conversation'); historyShown = false"><ChatIcon name="new" /></button></div></header>
+    <ModeBar v-if="!historyShown" :kind="kind" :accounts="snapshot.accounts ?? []" :selected-accounts="snapshot.selectedAccounts ?? {}" :provider="selected" :models="{ codex: snapshot.models?.codex ?? [], claude: snapshot.models?.claude ?? [] }" :defaults="{ codex: settings.codex, claude: settings.claude }" :busy="busy" @discussion="(partner, partnerAccountId, rounds) => discussionSetup = { partner, partnerAccountId, rounds }" @hybrid="(members, lead) => hybridSetup = { members, lead }" />
     <p v-if="historyShown && error" class="error notice" role="alert">{{ error }}</p>
     <HistoryPanel v-if="historyShown" :conversations="history" :active-id="snapshot.conversationId" :busy="navigationLocked" :searching="historySearching" :providers="snapshot.policy.allowedProviders" @search="historySearch" @open="openConversation" @rename="renameConversation" @delete="deleteConversation" />
     <Conversation v-else :key="snapshot.conversationId" :tasks="snapshot.tasks" :focus="focus" :has-earlier="!!snapshot.hasEarlier" :external-changes="snapshot.externalChanges ?? 0" @earlier="post({ version: 1, type: 'load-earlier', requestId: newRequestId() })" @reload="snapshot.conversationId && openConversation(snapshot.conversationId)" @reject="rejectAnswer" />
@@ -150,7 +165,7 @@ function cancel() {
       <HybridBar v-if="hybrid && !error" :hybrid="hybrid" />
       <ApprovalCard v-for="request in snapshot.approvals ?? []" :key="request.id" :request="request" :background="!!request.conversationId && request.conversationId !== snapshot.conversationId" @answer="answerApproval" />
       <QueuedMessages v-if="queued.length" :items="queued" :can-steer="canSteer" :can-send="canSend && !busy" :running="running" @steer="steerQueued" @send="sendQueued" @edit="editQueued" @remove="take" />
-      <Composer :insert="insert" :accounts="snapshot.accounts" :selected-accounts="snapshot.selectedAccounts" :approval-mode="settings.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="composerBusy" :running="running || !!snapshot.discussionId" :can-send="canSend" :can-write="canWrite" :provider="selected" :preferences="preferences" :models="snapshot.models?.[selected] ?? []" :catalog="{ codex: snapshot.models?.codex ?? [], claude: snapshot.models?.claude ?? [] }" :defaults="{ codex: settings.codex, claude: settings.claude }" :models-loading="snapshot.models?.loading ?? false" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="submit" @discuss="discuss" @hybrid="startHybrid" @account="selectAccount" @cancel="cancel" @draft="saveDraft" @select="selected = $event; userSelected = true" @preferences="selectPreferences" @settings="action('show-options')" @refresh-models="action('refresh-models')" />
+      <Composer :insert="insert" :accounts="snapshot.accounts" :selected-accounts="snapshot.selectedAccounts" :approval-mode="settings.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="composerBusy" :running="running || !!snapshot.discussionId" :can-send="canSend" :can-write="canWrite" :provider="selected" :preferences="preferences" :models="snapshot.models?.[selected] ?? []" :kind="kind" :kind-ready="kindReady" :models-loading="snapshot.models?.loading ?? false" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="compose" @account="selectAccount" @cancel="cancel" @draft="saveDraft" @select="selected = $event; userSelected = true" @preferences="selectPreferences" @settings="action('show-options')" @refresh-models="action('refresh-models')" />
     </div>
   </main>
 </template>

@@ -25,7 +25,8 @@ watch([members, lead, model], () => {
   if (!members.value.some(account => account.id === lead.value)) lead.value = members.value[0]?.id ?? '';
   emit('change', members.value.map(account => ({ provider: account.provider, preferences: { model: model.value[account.id]!, effort: props.defaults[account.provider].effort, accountId: account.id } })), members.value.findIndex(account => account.id === lead.value));
 }, { immediate: true, deep: true });
-const label = computed(() => `成員 ${members.value.length}`);
+const leadAccount = computed(() => members.value.find(account => account.id === lead.value));
+const label = computed(() => `成員 ${members.value.length}${leadAccount.value ? ` · 主帳號 ${providerLabel(leadAccount.value.provider)} · ${leadAccount.value.name}` : ''}`);
 </script>
 
 <template>

@@ -19,14 +19,22 @@ describe('Vue chat', () => {
     wrapper.unmount();
   });
   it('starts a read-only discussion with the chosen round count and labels each speaker', async () => {
-    const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: 'Repository Pattern？' } });
-    await wrapper.get('button.discussion-toggle').trigger('click');
-    expect(wrapper.find('select[aria-label="任務權限"]').exists()).toBe(false);
-    await wrapper.get('select[aria-label="討論回合"]').setValue('2');
+    // 討論的設定在標題列下方的設定列；輸入框在討論模式只留送出，不顯示權限。
+    const { default: ModeBar } = await import('../webview/src/components/ModeBar.vue');
+    const models = { codex: [], claude: [] }; const defaults = { codex: { model: 'gpt', effort: 'high' as const }, claude: { model: 'sonnet', effort: 'medium' as const } };
+    const bar = mount(ModeBar, { props: { kind: 'discussion', accounts: [], selectedAccounts: {}, provider: 'codex', models, defaults, busy: false } });
+    await bar.get('select[aria-label="討論回合"]').setValue('2');
+    expect(bar.emitted('discussion')?.at(-1)).toEqual(['codex', undefined, 2]);
+    await bar.get('select[aria-label="審查 Agent"]').setValue('claude');
+    expect(bar.emitted('discussion')?.at(-1)).toEqual(['claude', undefined, 2]);
+    await bar.setProps({ kind: 'solo' }); expect(bar.find('.mode-bar').exists()).toBe(false);
+    bar.unmount();
+    const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: 'Repository Pattern？', kind: 'discussion' } });
+    expect(wrapper.find('select[aria-label="任務權限"]').exists()).toBe(false); expect(wrapper.find('.discussion-toggle').exists()).toBe(false);
     await wrapper.get('form').trigger('submit');
-    expect(wrapper.emitted('discuss')).toEqual([['Repository Pattern？', 2, 'codex', undefined]]);
-    await wrapper.get('select[aria-label="審查 Agent"]').setValue('claude'); await wrapper.get('textarea').setValue('跨 Agent'); await wrapper.get('form').trigger('submit');
-    expect(wrapper.emitted('discuss')?.at(-1)).toEqual(['跨 Agent', 2, 'claude', undefined]); expect(wrapper.emitted('send')).toBeUndefined();
+    expect(wrapper.emitted('send')).toEqual([['Repository Pattern？', 'workspace-write', 'ask']]);
+    // 執行中不能開始討論。
+    await wrapper.setProps({ running: true }); await wrapper.get('form').trigger('submit'); expect(wrapper.emitted('send')).toHaveLength(1);
     wrapper.unmount();
     const base = { provider: 'claude' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, discussionId: 'd' };
     const timeline = mount(Conversation, { props: { tasks: [
@@ -120,11 +128,14 @@ describe('Vue chat', () => {
     expect((picker.element as HTMLSelectElement).value).toBe('claude:a');
     await picker.setValue('claude:b'); expect(wrapper.emitted('account')).toEqual([['claude', 'b']]); expect(wrapper.emitted('select')).toBeUndefined();
     await picker.setValue('codex'); expect(wrapper.emitted('select')).toEqual([['codex']]);
-    await wrapper.get('button.discussion-toggle').trigger('click');
-    const reviewer = wrapper.get('select[aria-label="審查 Agent"]');
+    // 審查方的帳號在標題列下方的設定列選。
+    const { default: ModeBar } = await import('../webview/src/components/ModeBar.vue');
+    const bar = mount(ModeBar, { props: { kind: 'discussion', accounts, selectedAccounts: { claude: 'a' }, provider: 'claude', models: { codex: [], claude: [] }, defaults: { codex: { model: '', effort: 'medium' }, claude: { model: '', effort: 'medium' } }, busy: false } });
+    const reviewer = bar.get('select[aria-label="審查 Agent"]');
     expect(reviewer.findAll('option').map(option => option.text())).toContain('審查：Claude Code · 個人（未登入）');
-    await reviewer.setValue('claude:b'); await wrapper.get('form').trigger('submit');
-    expect(wrapper.emitted('discuss')?.at(-1)).toEqual(['題目', 4, 'claude', 'b']);
+    await reviewer.setValue('claude:b');
+    expect(bar.emitted('discussion')?.at(-1)).toEqual(['claude', 'b', 4]);
+    bar.unmount();
     await wrapper.setProps({ accounts: accounts.slice(0, 1) });
     expect(wrapper.get('select[aria-label="執行 Agent"]').findAll('option').map(option => option.text())).toEqual(['Codex', 'Claude Code']);
     wrapper.unmount();
@@ -274,18 +285,24 @@ describe('Hybrid mode', () => {
     const { default: Conversation } = await import('../webview/src/components/Conversation.vue');
     const accounts = [{ id: 'c1', provider: 'codex' as const, name: '工作', loggedIn: true }, { id: 'c2', provider: 'codex' as const, name: '備用', loggedIn: false }, { id: 'a1', provider: 'claude' as const, name: '個人', loggedIn: true }];
     const models = { codex: [{ id: 'gpt', label: 'GPT', efforts: ['high' as const] }], claude: [{ id: 'sonnet', label: 'Sonnet', efforts: ['medium' as const] }] };
-    const wrapper = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: '加上匯出', canWrite: true, provider: 'codex', accounts, selectedAccounts: { codex: 'c1', claude: 'a1' }, catalog: models, defaults: { codex: { model: 'gpt', effort: 'high' }, claude: { model: 'sonnet', effort: 'medium' } } } });
-    await wrapper.findAll('button').find(button => button.text() === '混合')!.trigger('click');
+    const { default: ModeBar } = await import('../webview/src/components/ModeBar.vue');
+    const wrapper = mount(ModeBar, { props: { kind: 'hybrid', busy: false, provider: 'codex', accounts, selectedAccounts: { codex: 'c1', claude: 'a1' }, models, defaults: { codex: { model: 'gpt', effort: 'high' }, claude: { model: 'sonnet', effort: 'medium' } } } });
     // 只列已登入的帳號；預設勾選各 Agent 使用中的帳號，主帳號是輸入框選定的 Agent。
     expect(wrapper.findAll('.hybrid-members li')).toHaveLength(2);
-    await wrapper.get('form').trigger('submit');
-    expect(wrapper.emitted('hybrid')).toEqual([['加上匯出', 'workspace-write', 'ask', [{ provider: 'codex', preferences: { model: 'gpt', effort: 'high', accountId: 'c1' } }, { provider: 'claude', preferences: { model: 'sonnet', effort: 'medium', accountId: 'a1' } }], 0]]);
-    await wrapper.findAll('.hybrid-lead input')[1]!.setValue(true); await wrapper.get('form').trigger('submit');
-    expect(wrapper.emitted('hybrid')![1]![4]).toBe(1);
-    // 少於兩個成員不能送出。
-    await wrapper.findAll('.hybrid-member input')[1]!.setValue(false); await wrapper.get('form').trigger('submit');
-    expect(wrapper.emitted('hybrid')).toHaveLength(2); expect(wrapper.text()).toContain('至少選兩個成員');
+    expect(wrapper.emitted('hybrid')?.at(-1)).toEqual([[{ provider: 'codex', preferences: { model: 'gpt', effort: 'high', accountId: 'c1' } }, { provider: 'claude', preferences: { model: 'sonnet', effort: 'medium', accountId: 'a1' } }], 0]);
+    expect(wrapper.get('summary').text()).toBe('成員 2 · 主帳號 Codex · 工作');
+    await wrapper.findAll('.hybrid-lead input')[1]!.setValue(true);
+    expect(wrapper.emitted('hybrid')?.at(-1)?.[1]).toBe(1);
+    // 少於兩個成員時提示，輸入框也不讓送出。
+    await wrapper.findAll('.hybrid-member input')[1]!.setValue(false);
+    expect(wrapper.emitted('hybrid')?.at(-1)?.[0]).toHaveLength(1); expect(wrapper.text()).toContain('至少選兩個成員');
     wrapper.unmount();
+    const composer = mount(Composer, { props: { busy: false, running: false, canSend: true, initialDraft: '加上匯出', kind: 'hybrid', kindReady: false } });
+    // 混合模式由成員決定 Agent 與模型，輸入框不顯示這兩個。
+    expect(composer.find('select[aria-label="執行 Agent"]').exists()).toBe(false); expect(composer.find('.model-menu').exists()).toBe(false);
+    await composer.get('form').trigger('submit'); expect(composer.emitted('send')).toBeUndefined();
+    await composer.setProps({ kindReady: true }); await composer.get('form').trigger('submit'); expect(composer.emitted('send')).toHaveLength(1);
+    composer.unmount();
     const bar = mount(HybridBar, { props: { hybrid: { id: 'h', status: 'completed', stage: 'conclusion', members: [{ label: 'Codex · 工作', provider: 'codex', lead: true }, { label: 'Claude Code · 個人', provider: 'claude', left: '環節「補測試」：額度用完' }], steps: [{ title: '寫程式', member: 0, status: 'done' }, { title: '補測試', member: 0, status: 'done' }] } } });
     expect(bar.text()).toContain('混合任務已完成 · 2 個環節'); expect(bar.text()).toContain('Claude Code · 個人 中途離開 · 環節「補測試」：額度用完');
     await bar.setProps({ hybrid: { id: 'h', status: 'running', stage: 'step', members: [{ label: 'Codex · 工作', provider: 'codex', lead: true }], steps: [{ title: '寫程式', member: 0, status: 'running' }] } });
