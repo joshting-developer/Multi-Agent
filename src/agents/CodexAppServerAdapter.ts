@@ -1,3 +1,4 @@
+import { toolLabel } from '../bridge/labels';
 import type { AgentEvent, AgentRequest } from './AgentAdapter';
 import { CodexAdapter } from './CodexAdapter';
 import { CodexRpc, readCodexAccount } from './CodexRpc';
@@ -132,7 +133,7 @@ export class CodexAppServerAdapter extends CodexAdapter {
             if (item.text.startsWith(previous) && item.text.length > previous.length) yield { type: 'text-delta', taskId: request.taskId, text: item.text.slice(previous.length) };
             outputs.set(id, item.text);
           } else if (item.type !== 'reasoning' && item.type !== 'userMessage') {
-            if (message.method === 'item/started') yield { type: 'activity', taskId: request.taskId, text: `處理中：${String(item.type ?? '工具')}` };
+            if (message.method === 'item/started') yield { type: 'activity', taskId: request.taskId, text: `處理中：${toolLabel(String(item.type ?? 'tool'))}` };
             const done = message.method === 'item/completed';
             yield { type: 'tool', taskId: request.taskId, id, tool: String(item.type ?? 'tool'), phase: done ? 'end' : 'start', input: codexInput(item),
               ...(done && { success: !['failed', 'declined'].includes(String(item.status)), output: toolText(item.aggregatedOutput ?? item.result ?? item.error) }) };

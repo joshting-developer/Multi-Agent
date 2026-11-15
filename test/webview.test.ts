@@ -90,7 +90,7 @@ describe('Vue chat', () => {
     expect(timeline.emitted('reject')).toEqual([['a', true], ['b', false]]);
     timeline.unmount();
   });
-  it('shows agent text and tools in their real order with collapsed IN／OUT and a status per tool', async () => {
+  it('shows agent text and tools in their real order with collapsed input／output and a status per tool', async () => {
     const steps = [
       { kind: 'text' as const, text: '先看檔案' },
       { kind: 'tool' as const, id: '1', name: 'Read', status: 'done' as const, input: 'notes.txt\nmore', output: 'body' },
@@ -100,7 +100,9 @@ describe('Vue chat', () => {
     ];
     const timeline = mount(Conversation, { props: { tasks: [{ id: 't', provider: 'claude' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, prompt: '問', output: '先看檔案結論', steps }] } });
     const parts = timeline.findAll('.assistant-message > .markdown, .assistant-message > details');
-    expect(parts.map(part => part.element.tagName === 'DETAILS' ? part.get('strong').text() : part.text())).toEqual(['先看檔案', 'Read', 'Bash', '結論', 'Bash']);
+    expect(parts.map(part => part.element.tagName === 'DETAILS' ? part.get('strong').text() : part.text())).toEqual(['先看檔案', '讀取檔案', '執行命令', '結論', '執行命令']);
+    // 失敗除了紅點也有文字，不只靠顏色。
+    expect(timeline.findAll('.tool-step').map(tool => tool.find('summary .failed').exists())).toEqual([false, true, false]);
     const tools = timeline.findAll('details.tool-step');
     expect(tools.map(tool => tool.get('.tool-dot').attributes('aria-label'))).toEqual(['完成', '失敗', '已停止']);
     expect(tools[0]!.get('.tool-summary').text()).toBe('notes.txt'); expect(tools[0]!.attributes('open')).toBeUndefined();
@@ -138,7 +140,7 @@ describe('Vue chat', () => {
     expect(focused.get('.task-status').text()).not.toBe(''); expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
     expect(timeline.find('[role="alert"]').exists()).toBe(false);
     await timeline.setProps({ focus: { runId: 'deleted', query: 'x', revision: 2 } }); await nextTick(); await nextTick();
-    expect(timeline.get('[role="alert"]').text()).toBe('找不到原始訊息，可能已刪除。');
+    expect(timeline.get('[role="alert"]').text()).toBe('找不到原始訊息，可能已刪除');
     timeline.unmount();
   });
   it('offers earlier messages and a reload when another window added messages', async () => {

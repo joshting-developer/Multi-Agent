@@ -38,11 +38,11 @@ const canWrite = computed(() => snapshot.value.providers.find(provider => provid
 const canSend = computed(() => !!preferences.value.model && snapshot.value.trusted && snapshot.value.policy.allowedProviders.includes(selected.value) && snapshot.value.providers.some(provider => provider.id === selected.value && provider.status === 'ready') && !snapshot.value.checking);
 const notice = computed(() => {
   if (!snapshot.value.workspace) return undefined;
-  if (!snapshot.value.trusted) return { text: '請先信任目前工作區。', action: undefined };
-  if (!snapshot.value.policy.allowedProviders.includes(selected.value)) return { text: '首次使用，請授權工作區。', action: 'authorize-workspace' as const };
+  if (!snapshot.value.trusted) return { text: '請先信任目前工作區', action: undefined };
+  if (!snapshot.value.policy.allowedProviders.includes(selected.value)) return { text: '首次使用，請授權工作區', action: 'authorize-workspace' as const };
   const provider = snapshot.value.providers.find(provider => provider.id === selected.value);
   if (snapshot.value.checking) return { text: '正在連線…', action: undefined };
-  if (provider?.status !== 'ready') return { text: provider?.reason ?? '請檢查 Agent 連線。', action: 'show-options' as const };
+  if (provider?.status !== 'ready') return { text: provider?.reason ?? '請檢查 Agent 連線', action: 'show-options' as const };
   return undefined;
 });
 watch(() => snapshot.value.providers, providers => {

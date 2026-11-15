@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { toolLabel } from '../../../src/bridge/labels';
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import type { Step, Task } from '../../../src/bridge/messages';
 import MessageBody from './MessageBody.vue';
@@ -72,7 +73,7 @@ const statusLabel = (task: Task) => ({ queued: '排隊中', running: '執行中'
     <div v-if="tasks.length === 0" class="empty-state" aria-label="開始對話"><ChatIcon name="chat" /></div>
     <p v-if="externalChanges" class="notice" role="status"><span>其他視窗有 {{ externalChanges }} 則新訊息</span><button type="button" class="text-button" @click="emit('reload')">重新載入</button></p>
     <button v-if="hasEarlier" type="button" class="text-button load-earlier" @click="earlier">載入更早的訊息</button>
-    <p v-if="missing" class="notice" role="alert">找不到原始訊息，可能已刪除。</p>
+    <p v-if="missing" class="notice" role="alert">找不到原始訊息，可能已刪除</p>
     <article v-for="task in tasks" :key="task.id" :class="['turn', { focused: focus?.runId === task.id && !missing }]" :data-run="task.id">
       <div v-if="!task.discussionId || task.roundNo === 1" class="message user-message"><p class="prompt">{{ task.prompt }}</p><p v-if="task.attachments?.length" class="attachment-list"><span v-for="(item, index) in task.attachments" :key="item.id" class="attachment-chip">圖片 {{ index + 1 }} · {{ item.bytes >= 1048576 ? `${(item.bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(item.bytes / 1024))} KB` }}</span></p></div>
       <div :class="['message', 'assistant-message', { rejected: task.rejected }]">
@@ -84,9 +85,9 @@ const statusLabel = (task: Task) => ({ queued: '排隊中', running: '執行中'
           <template v-for="(step, index) in task.steps" :key="step.kind === 'tool' ? step.id : `text-${index}`">
             <MessageBody v-if="step.kind === 'text'" :text="step.text" />
             <details v-else :class="['tool-step', step.status]">
-              <summary><span class="tool-dot" role="img" :aria-label="toolStatus[step.status]"></span><strong>{{ step.name }}</strong><span class="tool-summary">{{ summaryLine(step) }}</span></summary>
-              <div v-if="step.input" class="tool-io"><span>IN</span><pre>{{ step.input }}</pre></div>
-              <div v-if="step.output" class="tool-io"><span>OUT</span><pre>{{ step.output }}</pre></div>
+              <summary><span class="tool-dot" role="img" :aria-label="toolStatus[step.status]"></span><strong>{{ toolLabel(step.name) }}</strong><span v-if="step.status === 'failed'" class="failed">失敗</span><span class="tool-summary">{{ summaryLine(step) }}</span></summary>
+              <div v-if="step.input" class="tool-io"><span>輸入</span><pre>{{ step.input }}</pre></div>
+              <div v-if="step.output" class="tool-io"><span>輸出</span><pre>{{ step.output }}</pre></div>
             </details>
           </template>
         </template>

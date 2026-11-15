@@ -120,8 +120,8 @@ describe('Explicit models, accounts and history controls', () => {
     await wrapper.get('input').setValue('注入'); await new Promise(resolve => setTimeout(resolve, 210));
     expect(wrapper.emitted('search')).toEqual([['注入', {}]]);
     await wrapper.setProps({ providers: ['codex'] });
-    expect(wrapper.findAll('select[aria-label="Provider"] option').map(option => option.text())).toEqual(['全部 Agent', 'Codex']);
-    await wrapper.get('select[aria-label="Provider"]').setValue('codex'); await wrapper.get('select[aria-label="類型"]').setValue('discussion'); await wrapper.get('select[aria-label="時間"]').setValue('7');
+    expect(wrapper.findAll('select[aria-label="Agent"] option').map(option => option.text())).toEqual(['全部 Agent', 'Codex']);
+    await wrapper.get('select[aria-label="Agent"]').setValue('codex'); await wrapper.get('select[aria-label="類型"]').setValue('discussion'); await wrapper.get('select[aria-label="時間"]').setValue('7');
     await new Promise(resolve => setTimeout(resolve, 210));
     const [, filters] = wrapper.emitted('search')!.at(-1) as [string, { provider: string; mode: string; since: number }];
     expect(filters).toMatchObject({ provider: 'codex', mode: 'discussion' }); expect(Date.now() - filters.since).toBeGreaterThan(6.9 * 86400000);

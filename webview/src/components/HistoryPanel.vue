@@ -23,7 +23,7 @@ function rename(id: string) { if (title.value.trim()) emit('rename', id, title.v
   <section class="history-panel" aria-label="歷史對話">
     <input v-model="query" type="search" class="history-search" placeholder="搜尋對話標題與內容" aria-label="搜尋歷史對話" maxlength="500" />
     <div class="history-filters">
-      <select v-model="provider" class="permission-picker" aria-label="Provider"><option value="">全部 Agent</option><option v-for="item in providers" :key="item" :value="item">{{ item === 'claude' ? 'Claude' : 'Codex' }}</option></select>
+      <select v-model="provider" class="permission-picker" aria-label="Agent"><option value="">全部 Agent</option><option v-for="item in providers" :key="item" :value="item">{{ item === 'claude' ? 'Claude' : 'Codex' }}</option></select>
       <select v-model="mode" class="permission-picker" aria-label="類型"><option value="">全部類型</option><option value="solo">一般</option><option value="discussion">討論</option></select>
       <select v-model="period" class="permission-picker" aria-label="時間"><option value="">全部時間</option><option value="today">今天</option><option value="7">7 天內</option><option value="30">30 天內</option></select>
     </div>

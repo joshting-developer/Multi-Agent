@@ -1,3 +1,4 @@
+import { toolLabel } from '../bridge/labels';
 import type { ProviderStatus } from '../bridge/messages';
 import { protectedPatterns } from '../execution/ExecutionPolicy';
 import type { AgentRequest } from './AgentAdapter';
@@ -59,7 +60,7 @@ export class CodexAdapter extends CliAdapter {
       state.itemText.set(id, item.text);
       return delta ? [{ type: 'text-delta', text: delta }] : [];
     }
-    if (line.type === 'item.started' && typeof item.type === 'string') return [{ type: 'activity', text: `處理中：${item.type}` }];
+    if (line.type === 'item.started' && typeof item.type === 'string') return [{ type: 'activity', text: `處理中：${toolLabel(item.type)}` }];
     if (line.type === 'turn.started') return [{ type: 'activity', text: 'Provider 正在處理…' }];
     return [];
   }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { statusLabels } from '../../../src/bridge/labels';
 import type { AgentId, ProviderStatus } from '../../../src/bridge/messages';
 import type { ModelOption, ProviderPreferences } from '../../../src/bridge/preferences';
 import ModelFields from './ModelFields.vue';
@@ -8,7 +9,7 @@ defineEmits<{ change: [value: ProviderPreferences]; pathChange: [path: string]; 
 
 <template>
   <section class="settings-card provider-settings">
-    <div class="settings-card-heading"><h2>{{ provider === 'codex' ? 'Codex' : 'Claude Code' }}</h2><span class="connection-status">{{ status?.status ?? '尚未檢查' }}</span></div>
+    <div class="settings-card-heading"><h2>{{ provider === 'codex' ? 'Codex' : 'Claude Code' }}</h2><span class="connection-status">{{ status ? statusLabels[status.status] : '尚未檢查' }}</span></div>
     <p v-if="status?.reason" class="setting-description">{{ status.reason }}</p>
     <ModelFields :provider="provider" :value="value" :models="models" custom @change="$emit('change', $event)" />
     <details class="advanced-settings">

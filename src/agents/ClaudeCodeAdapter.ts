@@ -1,3 +1,4 @@
+import { toolLabel } from '../bridge/labels';
 import type { ProviderStatus } from '../bridge/messages';
 import { protectedPatterns } from '../execution/ExecutionPolicy';
 import type { AgentRequest } from './AgentAdapter';
@@ -100,7 +101,7 @@ export class ClaudeCodeAdapter extends CliAdapter {
       const block = record(event.content_block);
       if (block.type === 'tool_use') {
         (state.tools ??= new Map()).set(String(block.id), String(block.name));
-        events.push({ type: 'activity', text: `使用工具：${String(block.name)}` }, { type: 'tool', id: String(block.id), tool: String(block.name), phase: 'start' });
+        events.push({ type: 'activity', text: `使用工具：${toolLabel(String(block.name))}` }, { type: 'tool', id: String(block.id), tool: String(block.name), phase: 'start' });
       }
     }
     if (line.type === 'user') {
