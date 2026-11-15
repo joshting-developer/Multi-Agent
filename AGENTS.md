@@ -65,4 +65,4 @@ claim、狀態、留言、待驗收、小待辦、分類與工時都照 task-tra
 
 ## 前端介面
 
-修改或新增 Webview UI 時, 先讀並套用 [quiet-workspace-ui](skills/quiet-workspace-ui/SKILL.md)。本專案明確避免冗餘的操作教學、空狀態填充及常駐技術說明。Vue 實作依共用庫的 vue-best-practices, 使用者明確要求優先於 Skill
+修改或新增 Webview UI 時, 先讀並套用 [quiet-workspace-ui](skills/quiet-workspace-ui/SKILL.md)。檢查或調整畫面細節時, 另外用共用庫連結到 `.agents/skills` 的 [ui-ux-pro-max](.agents/skills/ui-ux-pro-max/SKILL.md)（無障礙與互動規則）和 [unslop](.agents/skills/unslop/SKILL.md)（間距、圓角、文字細節）；最近一次掃描與採用的方向見 [docs/ui-audit-2026-11-15.md](docs/ui-audit-2026-11-15.md)。本專案明確避免冗餘的操作教學、空狀態填充及常駐技術說明。Vue 實作依共用庫的 vue-best-practices, 使用者明確要求優先於 Skill
