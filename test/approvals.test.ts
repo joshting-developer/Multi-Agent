@@ -61,6 +61,14 @@ describe.each(['codex', 'claude'] as const)('%s official approval protocol', pro
     await expect(codex.steer('task', 'late')).rejects.toThrow('請改為排隊送出');
     await processes.dispose();
   });
+  it('shows each Codex file change as add, update or delete with the moved path', async () => {
+    if (provider !== 'codex') return;
+    const { adapter, processes } = setup('changes'); await adapter.detect();
+    const inputs: string[] = [];
+    for await (const event of adapter.execute({ ...request, approvalMode: undefined })) if (event.type === 'tool' && event.input) inputs.push(event.input);
+    expect(inputs.at(-1)).toBe('新增 a.txt\n修改 b.txt → c.txt\n刪除 d.txt');
+    await processes.dispose();
+  });
   it('turns unknown Claude usage codes into readable labels', () => {
     expect([usageLabel('seven_day_opus'), usageLabel('seven_day_new_scope'), usageLabel('monthly_cap')]).toEqual(['7 天（Opus）', '7 天（new scope）', 'monthly cap']);
   });

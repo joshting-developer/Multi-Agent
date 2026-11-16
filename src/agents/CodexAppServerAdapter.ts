@@ -189,9 +189,16 @@ export class CodexAppServerAdapter extends CodexAdapter {
   override async cancel(taskId: string): Promise<void> { this.running.get(taskId)?.abort(); await super.cancel(taskId); }
 }
 /** 命令、修改的檔案、搜尋或 MCP 工具參數；Codex 各種 item 只取使用者看得懂的部分。 */
+/** 一個檔案變更：新版的 kind 是 {type, move_path}，舊版是字串（MA-155）。 */
+function changeLine(change: Record<string, unknown>): string {
+  const kind = typeof change.kind === 'string' ? { type: change.kind } : record(change.kind);
+  const label = ({ add: '新增', delete: '刪除', update: '修改' } as Record<string, string>)[String(kind.type)] ?? String(kind.type ?? '');
+  const moved = typeof kind.move_path === 'string' && kind.move_path ? ` → ${kind.move_path}` : '';
+  return `${label} ${String(change.path ?? '')}${moved}`.trim();
+}
 function codexInput(item: Record<string, unknown>): string | undefined {
   if (typeof item.command === 'string') return item.command;
-  if (Array.isArray(item.changes)) return item.changes.map(change => `${String(record(change).kind ?? '')} ${String(record(change).path ?? '')}`.trim()).join('\n');
+  if (Array.isArray(item.changes)) return item.changes.map(change => changeLine(record(change))).join('\n');
   if (typeof item.query === 'string') return item.query;
   if (item.tool) return [`${String(item.server ?? '')} ${String(item.tool)}`.trim(), toolText(item.arguments)].filter(Boolean).join('\n');
   return undefined;
