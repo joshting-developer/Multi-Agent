@@ -40,7 +40,7 @@ export type Task = z.infer<typeof taskSchema>;
 export type Classification = 'unclassified' | 'personal' | 'company' | 'restricted';
 /** readRoots：使用者允許 Agent 唯讀的工作區外資料夾（realpath）。 */
 /** 工作區可另外開放的 Agent 功能（MA-140）；沒列在 features 裡的一律關閉。 */
-export const agentFeatures = ['apps', 'mcp', 'subagents', 'browser', 'memory', 'hooks', 'commands'] as const;
+export const agentFeatures = ['host', 'apps', 'mcp', 'subagents', 'browser', 'memory', 'hooks', 'commands'] as const;
 export type AgentFeature = typeof agentFeatures[number];
 /** network：允許 Agent 的命令連網、使用網頁搜尋與讀取網頁；預設關閉（MA-135）。features：另外開放的 Agent 功能。 */
 export interface WorkspacePolicy { classification: Classification; allowedProviders: AgentId[]; readRoots?: string[]; network?: boolean; features?: AgentFeature[] }

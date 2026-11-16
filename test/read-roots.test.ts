@@ -194,3 +194,22 @@ describe('Detecting blocked permissions in one command', () => {
     expect(blockedBy('all good', workspace, {})).toEqual([]);
   });
 });
+
+describe('Operating this Mac', () => {
+  it('runs Codex outside the sandbox with every non-read command reviewed, only when the workspace allows it', async () => {
+    const base = { taskId: 't', prompt: 'p', cwd: process.cwd(), timeoutMs: 3000, signal: new AbortController().signal, model: 'test-model', effort: 'low' as const };
+    const start = async (request: Partial<AgentRequest>) => {
+      const codex = new FixtureProcesses('codex'); const adapter = new CodexAppServerAdapter(codex, () => process.execPath, process.cwd()); await adapter.detect();
+      let text = ''; for await (const event of adapter.execute({ ...base, mode: 'workspace-write', approvalMode: 'auto-review', ...request })) if (event.type === 'text-delta') text += event.text;
+      return { params: JSON.parse(text) as Record<string, unknown>, args: codex.requests.at(-1)!.args };
+    };
+    const host = await start({ features: ['host'] });
+    expect(host.params).toMatchObject({ sandbox: 'danger-full-access', approvalPolicy: 'untrusted', approvalsReviewer: 'auto_review' });
+    expect(host.args).toContain('default_permissions="multi_agent_full"');
+    const normal = await start({});
+    expect(normal.params).toMatchObject({ approvalPolicy: 'on-request' }); expect(normal.params).not.toHaveProperty('sandbox');
+    // 唯讀任務不受影響。
+    const readOnly = await start({ features: ['host'], mode: 'read-only' });
+    expect(readOnly.params).toMatchObject({ approvalPolicy: 'never' }); expect(readOnly.params).not.toHaveProperty('sandbox');
+  });
+});

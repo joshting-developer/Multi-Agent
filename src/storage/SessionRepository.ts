@@ -7,7 +7,7 @@ import { agentFeatures, agentIdSchema, taskSchema, type Task, type WorkspacePoli
 export interface StateStorage { get<T>(key: string): T | undefined; update(key: string, value: unknown): Thenable<void> | Promise<void> }
 const storedSchema = z.object({
   version: z.literal(1), root: z.string(), tasks: z.array(taskSchema).max(60),
-  policy: z.object({ classification: z.enum(['unclassified', 'personal', 'company', 'restricted']), allowedProviders: z.array(agentIdSchema), readRoots: z.array(z.string().max(4096)).max(20).optional(), network: z.boolean().optional(), features: z.array(z.enum(agentFeatures)).max(7).optional() })
+  policy: z.object({ classification: z.enum(['unclassified', 'personal', 'company', 'restricted']), allowedProviders: z.array(agentIdSchema), readRoots: z.array(z.string().max(4096)).max(20).optional(), network: z.boolean().optional(), features: z.array(z.enum(agentFeatures)).max(agentFeatures.length).optional() })
 });
 /** 開啟對話時先載入的最新執行數；更早的訊息按需往前翻頁。 */
 export const pageSize = 100;

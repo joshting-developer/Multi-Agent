@@ -200,4 +200,25 @@ describe('Asking for blocked permissions while a task runs', () => {
       expect(nativeWindow.showWarningMessage).toHaveBeenCalledTimes(1);
     } finally { controller.dispose(); await orchestrator.dispose(); nativeWindow.showWarningMessage.mockReset(); }
   });
+  it('turns on operating this Mac only after a native confirmation', async () => {
+    const capabilities = { streaming: true, readOnly: true, workspaceWrite: true, resumeSession: false, structuredOutput: true, toolApproval: false };
+    const adapter: AgentAdapter = { id: 'codex', capabilities: () => capabilities, detect: async () => ({ id: 'codex', status: 'ready', capabilities }), async *execute(request) { yield { type: 'complete', taskId: request.taskId }; }, cancel: async () => undefined };
+    const orchestrator = new Orchestrator(new AgentRegistry([adapter]), new SessionRepository({ get: () => undefined, update: async () => undefined }, '/workspace'), '/workspace', () => true, () => 0);
+    await orchestrator.setPolicy({ classification: 'personal', allowedProviders: ['codex'] }); await orchestrator.checkProviders();
+    const controller = new ChatWebviewProvider(vscode.Uri.file('/extension'), orchestrator);
+    let receive: ((message: unknown) => void) | undefined; const postMessage = vi.fn().mockResolvedValue(true);
+    controller.resolveWebviewView({ webview: { options: {}, cspSource: 'vscode-webview:', html: '', asWebviewUri: (uri: vscode.Uri) => uri, postMessage, onDidReceiveMessage: (handler: (message: unknown) => void) => { receive = handler; return { dispose() {} }; } }, onDidDispose: () => ({ dispose() {} }) } as unknown as vscode.WebviewView);
+    try {
+      nativeWindow.showWarningMessage.mockReset(); nativeWindow.showWarningMessage.mockResolvedValueOnce(undefined);
+      receive!({ version: 1, requestId: 'h1', type: 'set-agent-feature', feature: 'host', enabled: true });
+      await vi.waitFor(() => expect(nativeWindow.showWarningMessage).toHaveBeenCalledWith(expect.stringContaining('在沙盒外執行命令'), { modal: true }, '開啟'));
+      await new Promise(resolve => setTimeout(resolve, 20)); expect(orchestrator.state.policy.features).toBeUndefined();
+      nativeWindow.showWarningMessage.mockResolvedValueOnce('開啟');
+      receive!({ version: 1, requestId: 'h2', type: 'set-agent-feature', feature: 'host', enabled: true });
+      await vi.waitFor(() => expect(orchestrator.state.policy.features).toEqual(['host']));
+      // 關閉不需要確認。
+      receive!({ version: 1, requestId: 'h3', type: 'set-agent-feature', feature: 'host', enabled: false });
+      await vi.waitFor(() => expect(orchestrator.state.policy.features).toBeUndefined()); expect(nativeWindow.showWarningMessage).toHaveBeenCalledTimes(2);
+    } finally { controller.dispose(); await orchestrator.dispose(); nativeWindow.showWarningMessage.mockReset(); }
+  });
 });

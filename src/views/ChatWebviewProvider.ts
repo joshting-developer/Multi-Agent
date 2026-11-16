@@ -107,10 +107,14 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     const solo = !task.participantId && !task.discussionId && !task.hybrid;
     const rerun = '允許並重新執行';
     if (blocked.kind === 'browser') {
-      // macOS 沙盒內 Chrome 無法啟動，只能用完整存取重跑；完整存取仍要原生確認。
-      if (!solo || task.approvalMode === 'full-access') return;
-      const answer = await vscode.window.showWarningMessage(`${name} 在沙盒內無法啟動瀏覽器（macOS 沙盒的限制）。要用完整存取重新執行嗎？`, '用完整存取重新執行');
-      if (answer && await this.grantFullAccess(task.provider)) await this.rerun(task, '剛才在沙盒內無法啟動瀏覽器，現在改用完整存取。請從中斷的地方繼續。', 'full-access');
+      // macOS 沙盒內 Chrome 無法啟動；開啟「操作這台 Mac」後 Codex 改在沙盒外執行，仍依核准方式核准。
+      if (task.provider !== 'codex' || task.approvalMode === 'full-access' || this.orchestrator.state.policy.features?.includes('host')) return;
+      const allow = '開啟操作這台 Mac';
+      const answer = await vscode.window.showWarningMessage(`${name} 在沙盒內無法啟動瀏覽器。要讓 Codex 在這個專案操作這台 Mac（Chrome、Playwright、Docker）嗎？`, ...(solo ? [`${allow}並重新執行`, allow] : [allow]));
+      if (!answer || !await this.confirmHost()) return;
+      if (answer !== allow && this.orchestrator.state.activeTaskId === task.id) await this.orchestrator.cancel(task.id);
+      await this.orchestrator.whenIdle(); await this.orchestrator.setFeature('host', true);
+      if (answer !== allow) await this.rerun(task, '剛才在沙盒內無法啟動瀏覽器，現在已允許操作這台 Mac。請從中斷的地方繼續。');
       return;
     }
     const what = blocked.kind === 'network' ? '的命令沒有網路可用。要允許這個工作區的 Agent 使用網路嗎？' : `無法讀取工作區外的 ${blocked.folders.join('、')}。要允許這個專案唯讀這些資料夾嗎？`;
@@ -128,6 +132,10 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     await this.orchestrator.whenIdle();
     const preferences = task.model && task.effort ? { model: task.model, effort: task.effort, ...(task.accountId && { accountId: task.accountId }) } : undefined;
     await this.orchestrator.send(task.provider, text, task.mode, preferences, approvalMode ?? 'ask');
+  }
+  private async confirmHost(): Promise<boolean> {
+    const answer = await vscode.window.showWarningMessage('開啟後 Codex 會在沙盒外執行命令，可以操作這台 Mac 的 Chrome、Playwright、Docker 與其他程式，也能讀寫工作區以外的檔案。命令仍依你選的核准方式核准。要對這個專案開啟嗎？', { modal: true }, '開啟');
+    return answer === '開啟';
   }
   /** 完整存取在這個視窗第一次使用前要原生確認，並寫入稽核紀錄。 */
   private async grantFullAccess(provider: AgentId): Promise<boolean> {
@@ -255,7 +263,11 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'add-read-root': await this.pickReadRoot(); break;
       case 'remove-read-root': await this.orchestrator.removeReadRoot(message.path); break;
       case 'set-network': await this.orchestrator.setNetwork(message.enabled); break;
-      case 'set-agent-feature': await this.orchestrator.setFeature(message.feature, message.enabled); break;
+      case 'set-agent-feature': {
+        // 操作這台 Mac 會讓 Codex 在沙盒外執行命令，開啟前要原生確認。
+        if (message.feature === 'host' && message.enabled && !await this.confirmHost()) break;
+        await this.orchestrator.setFeature(message.feature, message.enabled); break;
+      }
       case 'use-reset-credit': {
         if (!this.accounts) throw new Error('帳號管理尚未就緒。');
         const credit = message.creditId ? this.accounts.list().find(item => item.id === message.accountId)?.usage?.resetCreditList?.find(item => item.id === message.creditId) : undefined;

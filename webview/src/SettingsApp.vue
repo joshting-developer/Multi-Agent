@@ -11,6 +11,7 @@ const section = ref<'general' | 'accounts' | 'workspace'>('general');
 const agents: AgentId[] = ['codex', 'claude'];
 // 每項標明支援的 Agent；Claude 為了把檔案工具限制在工作區，不讀設定檔，外掛與 hooks 只開放給 Codex。
 const featureRows: Array<{ id: AgentFeature; label: string; agents: string }> = [
+  { id: 'host', label: '操作這台 Mac（Chrome、Playwright、Docker）', agents: 'Codex · 在沙盒外執行命令，仍依核准方式核准' },
   { id: 'apps', label: '外掛與 Apps', agents: 'Codex' }, { id: 'mcp', label: 'MCP 伺服器', agents: 'Codex、Claude Code' },
   { id: 'subagents', label: '子 Agent', agents: 'Codex、Claude Code' }, { id: 'browser', label: '瀏覽器與電腦操作', agents: 'Codex' },
   { id: 'memory', label: '記憶', agents: 'Codex、Claude Code' }, { id: 'hooks', label: 'Hooks', agents: 'Codex' },
