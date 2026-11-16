@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { blockedFolders, networkBlocked } from '../src/execution/ReadRoots';
+import { protectedFiles } from '../src/execution/ExecutionPolicy';
 import { CodexAppServerAdapter } from '../src/agents/CodexAppServerAdapter';
 import { ClaudeCodeAdapter } from '../src/agents/ClaudeCodeAdapter';
 import { AgentRegistry } from '../src/agents/AgentRegistry';
@@ -162,5 +163,22 @@ describe('Optional agent features', () => {
     expect(open.claude).not.toContain('--safe-mode'); expect(open.claude).not.toContain('--strict-mcp-config'); expect(open.claude).not.toContain('--disable-slash-commands');
     expect(open.claude).toContain('--restricted'); expect(open.claude[open.claude.indexOf('--tools') + 1]).toBe('Read,Glob,Grep,Agent');
     expect(JSON.parse(open.claude[open.claude.indexOf('--settings') + 1]!)).toMatchObject({ disableAllHooks: true, autoMemoryEnabled: true });
+  });
+});
+
+describe('Protected secret files for Codex', () => {
+  it('denies the secret files that exist instead of wildcard rules, so folders stay removable', async () => {
+    const { workspace } = await folders();
+    await writeFile(join(workspace, '.env'), 'x'); await mkdir(join(workspace, 'config')); await writeFile(join(workspace, 'config', 'server.key'), 'x');
+    await mkdir(join(workspace, '.ssh')); await writeFile(join(workspace, '.ssh', 'id'), 'x');
+    await mkdir(join(workspace, 'node_modules', 'pkg'), { recursive: true }); await writeFile(join(workspace, 'node_modules', 'pkg', '.env'), 'x');
+    await mkdir(join(workspace, 'dist', 'admin'), { recursive: true }); await writeFile(join(workspace, 'dist', 'admin', 'index.html'), 'x');
+    expect(protectedFiles(workspace).sort()).toEqual(['.env', '.ssh', 'config/server.key']);
+    const codex = new FixtureProcesses('codex');
+    const adapter = new CodexAppServerAdapter(codex, () => process.execPath, workspace);
+    for await (const event of adapter.execute({ taskId: 't', prompt: 'p', cwd: workspace, timeoutMs: 3000, signal: new AbortController().signal, mode: 'workspace-write', approvalMode: 'ask', model: 'test-model', effort: 'low' })) void event;
+    const profile = codex.requests.at(-1)!.args.find(value => value.startsWith('permissions.multi_agent={'))!;
+    expect(profile).toContain('".env"="deny"'); expect(profile).toContain('"config/server.key"="deny"'); expect(profile).toContain('".ssh"="deny"');
+    expect(profile).not.toContain('**');
   });
 });

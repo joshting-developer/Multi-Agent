@@ -5,7 +5,7 @@ import { CodexRpc, readCodexAccount } from './CodexRpc';
 import { providerFailure, record, SessionUnavailable, toolText, windowLabel } from './CliAdapter';
 import { randomUUID } from 'node:crypto';
 import type { AgentFeature, ResetCreditOutcome, UsageSnapshot } from '../bridge/messages';
-import { protectedPatterns } from '../execution/ExecutionPolicy';
+import { protectedFiles } from '../execution/ExecutionPolicy';
 
 /** Codex 官方功能名稱對應到工作區的開關。 */
 const codexFeatures: Record<string, AgentFeature> = { multi_agent: 'subagents', apps: 'apps', plugins: 'apps', hooks: 'hooks', browser_use: 'browser', computer_use: 'browser', memories: 'memory' };
@@ -83,7 +83,7 @@ export class CodexAppServerAdapter extends CodexAdapter {
     if (request.signal.aborted) abort(); this.running.set(request.taskId, controller);
     const rpc = new CodexRpc(this.processes);
     const sandboxed = approvalMode !== 'full-access' || request.mode === 'read-only';
-    const rules = ['"."="' + (request.mode === 'read-only' ? 'read' : 'write') + '"', '".git"="read"', '".agents"="read"', '".vscode"="read"', ...protectedPatterns.map(pattern => `${JSON.stringify(pattern)}="deny"`)];
+    const rules = ['"."="' + (request.mode === 'read-only' ? 'read' : 'write') + '"', '".git"="read"', '".agents"="read"', '".vscode"="read"', ...protectedFiles(request.cwd).map(path => `${JSON.stringify(path)}="deny"`)];
     // 工作區外的資料夾只加 read；寫入、網路仍依原本的 profile。
     const readRoots = (request.readRoots ?? []).map(root => `,${JSON.stringify(root)}="read"`).join('');
     // 工作區開放的功能才打開；其餘維持關閉。MCP 用帳號自己設定資料夾裡的設定。

@@ -1,6 +1,6 @@
 import { toolLabel } from '../bridge/labels';
 import type { ProviderStatus } from '../bridge/messages';
-import { protectedPatterns } from '../execution/ExecutionPolicy';
+import { protectedFiles } from '../execution/ExecutionPolicy';
 import type { AgentRequest } from './AgentAdapter';
 import { CliAdapter, providerFailure, record, type ParsedEvent, type StreamState } from './CliAdapter';
 
@@ -27,7 +27,7 @@ export class CodexAdapter extends CliAdapter {
     const rules = [
       `"."="${request.mode === 'workspace-write' ? 'write' : 'read'}"`,
       '".git"="read"', '".agents"="read"', '".vscode"="read"',
-      ...protectedPatterns.map(pattern => `${JSON.stringify(pattern)}="deny"`)
+      ...protectedFiles(request.cwd).map(path => `${JSON.stringify(path)}="deny"`)
     ];
     const profile = `permissions.multi_agent={filesystem={":minimal"="read",":workspace_roots"={${rules.join(',')}}},network={enabled=false}}`;
     const settings: string[] = [
