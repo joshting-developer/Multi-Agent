@@ -63,6 +63,10 @@ claim、狀態、留言、待驗收、小待辦、分類與工時都照 task-tra
 - Commit 不帶任何 AI 署名, 規則依 commit-without-ai-attribution, 優先於工具預設
 - 不自行 amend、squash、改寫歷史或 push
 
+## 版本更新紀錄
+
+`CHANGELOG.md` 是本專案的 Release Notes。每次打包安裝包都要在最上面新增該版本一節, 列出這版改了什麼（使用者看得懂的描述, 附卡號）與歷史資料庫版本是否變動。只改文件、流程或規範的變更不另外打包, 併入下一個有實際功能的版本
+
 ## 前端介面
 
 修改或新增 Webview UI 時, 先讀並套用 [quiet-workspace-ui](skills/quiet-workspace-ui/SKILL.md)。檢查或調整畫面細節時, 另外用共用庫連結到 `.agents/skills` 的 [ui-ux-pro-max](.agents/skills/ui-ux-pro-max/SKILL.md)（無障礙與互動規則）和 [unslop](.agents/skills/unslop/SKILL.md)（間距、圓角、文字細節）；最近一次掃描與採用的方向見 [docs/ui-audit-2026-11-15.md](docs/ui-audit-2026-11-15.md)。本專案明確避免冗餘的操作教學、空狀態填充及常駐技術說明。Vue 實作依共用庫的 vue-best-practices, 使用者明確要求優先於 Skill

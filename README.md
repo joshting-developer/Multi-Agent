@@ -1,20 +1,20 @@
-# Multi-Agent Workspace · 0.1.4
+# Multi-Agent Workspace
 
 在 VS Code 右側聊天分頁使用官方本機 Claude Code / Codex，沿用既有登入。TypeScript、Vue 3、SQLite；不用另外提供 API Key。
 
-目前為個人本機版本，正式方向以 [v0.2 規格](Multi_Agent_AI_Workspace_SPEC_v0.2.md) 為準。[功能里程碑](docs/roadmap.md)
+目前為個人本機版本，正式方向以 [v0.2 規格](Multi_Agent_AI_Workspace_SPEC_v0.2.md) 為準。[功能里程碑](docs/roadmap.md) · [版本更新紀錄](CHANGELOG.md)
 
 ## 安裝使用
 
 1. 安裝官方 CLI，分別完成 `claude auth login`、`codex login`；只使用其中一個也可以。
-2. VS Code Extensions → `…` → **Install from VSIX…**，選擇 `multi-agent-workspace-0.1.4.vsix`，重新載入視窗。
+2. VS Code Extensions → `…` → **Install from VSIX…**，選擇最新的 `multi-agent-workspace-<版本>.vsix`，重新載入視窗。每一版改了什麼見[版本更新紀錄](CHANGELOG.md)。
 3. 用 **Open Folder** 開啟單一本機資料夾並信任它。執行 `Multi-Agent: Open Chat`，或點右側 **Multi-Agent** 分頁。
 4. 首次使用授權工作區的資料分類與 Provider。
-5. 在輸入框選擇 Agent、明確的模型與推理強度，以及檔案權限與核准模式。Enter 送出、Shift+Enter 換行；執行中可按 Stop。
+5. 在標題列選擇一般、討論或混合，在下方的成員面板選帳號，並設定每個帳號的模型、推理強度與核准方式；輸入框選擇檔案權限。Enter 送出、Shift+Enter 換行；執行中可按 Stop，也可以先打下一則放進待送清單。
 
 頂部時鐘圖示開啟**歷史對話**，可搜尋標題和訊息內容、重新開啟續聊、重新命名或刪除；新增圖示建立獨立對話。
 
-齒輪開啟完整設定頁：**一般／Agent 與模型／工作區與資料／帳號**。帳號頁顯示 CLI 提供的電子郵件、登入方式、方案與組織；未提供的欄位不會猜測。切換官方 CLI 帳號後重新整理。
+齒輪開啟完整設定頁：**一般／工作區與資料／帳號**。帳號頁顯示 CLI 提供的電子郵件、登入方式、方案與組織；未提供的欄位不會猜測。切換官方 CLI 帳號後重新整理。
 
 ## 模型與核准
 
