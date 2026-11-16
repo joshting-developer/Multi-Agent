@@ -8,6 +8,10 @@ const turn = (index: number, extra: Partial<Task> = {}): Task => ({
 });
 
 describe('Conversation context builder', () => {
+  it('carries messages added while the agent was working as part of what the user said', () => {
+    const { prompt } = buildContext([turn(1, { steps: [{ kind: 'text', text: 'working' }, { kind: 'steer', text: 'also add tests', at: 1 }] })], 'next');
+    expect(prompt).toContain('question 1\\n[added while the agent was working] also add tests');
+  });
   it('sends the current message alone when there is no history', () => {
     expect(buildContext([], 'hello')).toEqual({ prompt: 'hello', contextIds: [] });
   });

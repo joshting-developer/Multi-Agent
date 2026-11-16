@@ -9,14 +9,11 @@ const emit = defineEmits<{ steer: [id: string]; send: [id: string]; edit: [id: s
     <li v-for="item in items" :key="item.id" class="queued-item">
       <span class="queued-text" :title="item.text">{{ item.text || `圖片 ${item.images.length} 張` }}<small v-if="item.text && item.images.length"> · 圖片 {{ item.images.length }} 張</small></span>
       <span class="queued-actions">
-        <span v-if="item.steering" class="muted">補充中…</span>
-        <template v-else>
-          <!-- 圖片無法補充給執行中的任務，只能排隊。 -->
-          <button v-if="running && canSteer && !item.images.length" type="button" class="text-button" @click="emit('steer', item.id)">立即補充</button>
-          <button v-if="!running" type="button" class="text-button" :disabled="!canSend" @click="emit('send', item.id)">送出</button>
-          <button type="button" class="text-button" @click="emit('edit', item.id)">編輯</button>
-          <button type="button" class="text-button" :aria-label="`移除待送訊息：${item.text.slice(0, 30)}`" @click="emit('remove', item.id)">移除</button>
-        </template>
+        <!-- 圖片無法補充給執行中的任務，只能排隊。 -->
+        <button v-if="running && canSteer && !item.images.length" type="button" class="text-button" @click="emit('steer', item.id)">立即補充</button>
+        <button v-if="!running" type="button" class="text-button" :disabled="!canSend" @click="emit('send', item.id)">送出</button>
+        <button type="button" class="text-button" @click="emit('edit', item.id)">編輯</button>
+        <button type="button" class="text-button" :aria-label="`移除待送訊息：${item.text.slice(0, 30)}`" @click="emit('remove', item.id)">移除</button>
       </span>
     </li>
   </ol>

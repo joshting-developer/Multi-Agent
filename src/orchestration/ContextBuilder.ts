@@ -18,7 +18,9 @@ export function buildContext(history: Task[], current: string, budget = contextB
   for (let index = history.length - 1; index >= 0; index--) {
     const task = history[index]!;
     const images = task.attachments?.length ? `\n[attached ${task.attachments.length} image(s), not re-sent]` : '';
-    const entry: Entry = { ref: task.id.slice(0, 8), at: new Date(task.startedAt).toISOString(), user: task.prompt.slice(0, userLimit) + images };
+    // 執行中補充的訊息也是使用者說的話，接在原訊息後面帶入。
+    const steers = (task.steps ?? []).flatMap(step => step.kind === 'steer' ? [`\n[added while the agent was working] ${step.text}`] : []).join('');
+    const entry: Entry = { ref: task.id.slice(0, 8), at: new Date(task.startedAt).toISOString(), user: (task.prompt + steers).slice(0, userLimit) + images };
     const base = JSON.stringify(entry).length;
     if (used + base > budget) { dropped = index + 1; break; }
     const answer = task.output.slice(-answerLimit);

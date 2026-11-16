@@ -92,11 +92,15 @@ const canSteer = computed(() => !!activeTask.value && !!snapshot.value.providers
 const take = (id: string) => { const item = queue.value.find(entry => entry.id === id); queue.value = queue.value.filter(entry => entry.id !== id); return item; };
 function sendQueued(id: string) { if (submitting.value || running.value) return; const item = take(id); if (item) dispatch(item, true); }
 function editQueued(id: string) { const item = take(id); if (item) insert.value = { text: item.text, revision: (insert.value?.revision ?? 0) + 1 }; }
+// 立即補充：先從待送清單移到對話裡顯示傳送中；Agent 接受後由 Host 的紀錄取代，被拒絕就放回清單最前面。
+const pendingSteers = ref<Array<{ id: string; taskId: string; text: string }>>([]);
 async function steerQueued(id: string) {
-  const item = queue.value.find(entry => entry.id === id); const task = activeTask.value;
-  if (!item || !task || item.steering) return;
-  item.steering = true;
-  if (await steer(task.id, item.text)) take(id); else item.steering = false;
+  const task = activeTask.value; const item = task ? take(id) : undefined;
+  if (!item || !task) return;
+  pendingSteers.value.push({ id: item.id, taskId: task.id, text: item.text });
+  const accepted = await steer(task.id, item.text);
+  pendingSteers.value = pendingSteers.value.filter(entry => entry.id !== item.id);
+  if (!accepted) queue.value.unshift(item);
 }
 // 目前對話的任務正常完成才自動送下一則；失敗或停止時留在清單讓使用者決定。
 let watchedTask: string | undefined;
@@ -104,7 +108,7 @@ watch(() => [snapshot.value.activeTaskId, snapshot.value.activeConversationId, s
   const finished = watchedTask; watchedTask = id && conversation === current ? id : undefined;
   if (!finished || finished === id) return;
   if (snapshot.value.tasks.find(task => task.id === finished)?.status !== 'completed') return;
-  const next = queued.value.find(item => !item.steering);
+  const next = queued.value[0];
   if (next && canSend.value && !submitting.value) { take(next.id); dispatch(next, true); }
 });
 // 一般／討論／混合在標題列切換；帳號與設定都在標題列下方的成員面板選，送出時才組成請求。
@@ -183,7 +187,7 @@ function cancel() {
     <HistoryPanel v-if="historyShown" :conversations="history" :active-id="snapshot.conversationId" :busy="navigationLocked" :searching="historySearching" :providers="snapshot.policy.allowedProviders" @search="historySearch" @open="openConversation" @rename="renameConversation" @delete="deleteConversation" />
     <!-- 沒有任何已登入的帳號、也沒有對話內容時，整個聊天區只放登入入口，不顯示輸入框。 -->
     <div v-else-if="needsLogin && !snapshot.tasks.length" class="login-screen"><p v-if="error" class="error notice" role="alert">{{ error }}</p><LoginCard :accounts="snapshot.accounts ?? []" :busy="snapshot.checking" @login="login" @api-key="loginWithKey" /></div>
-    <Conversation v-else :key="snapshot.conversationId" :tasks="snapshot.tasks" :focus="focus" :has-earlier="!!snapshot.hasEarlier" :external-changes="snapshot.externalChanges ?? 0" @earlier="post({ version: 1, type: 'load-earlier', requestId: newRequestId() })" @reload="snapshot.conversationId && openConversation(snapshot.conversationId)" @reject="rejectAnswer" />
+    <Conversation v-else :key="snapshot.conversationId" :tasks="snapshot.tasks" :pending-steers="pendingSteers" :focus="focus" :has-earlier="!!snapshot.hasEarlier" :external-changes="snapshot.externalChanges ?? 0" @earlier="post({ version: 1, type: 'load-earlier', requestId: newRequestId() })" @reload="snapshot.conversationId && openConversation(snapshot.conversationId)" @reject="rejectAnswer" />
     <div v-if="!historyShown && !(needsLogin && !snapshot.tasks.length)" class="input-area">
       <p v-if="error" class="error notice" role="alert">{{ error }}</p>
       <div v-else-if="notice" class="notice" role="status"><span>{{ notice.text }}</span><button v-if="notice.action" type="button" class="text-button" :disabled="busy" @click="action(notice.action)">{{ notice.action === 'authorize-workspace' ? '授權' : '設定' }}</button></div>

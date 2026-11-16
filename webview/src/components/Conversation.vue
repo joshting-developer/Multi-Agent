@@ -4,7 +4,8 @@ import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import type { Step, Task } from '../../../src/bridge/messages';
 import MessageBody from './MessageBody.vue';
 import ChatIcon from './ChatIcon.vue';
-const props = withDefaults(defineProps<{ tasks: Task[]; focus?: { runId: string; query: string; revision: number }; hasEarlier?: boolean; externalChanges?: number }>(), { focus: undefined, hasEarlier: false, externalChanges: 0 });
+/** pendingSteers：已按下立即補充、Agent 還沒接受的訊息，先顯示在對話裡並標示傳送中。 */
+const props = withDefaults(defineProps<{ tasks: Task[]; focus?: { runId: string; query: string; revision: number }; hasEarlier?: boolean; externalChanges?: number; pendingSteers?: Array<{ id: string; taskId: string; text: string }> }>(), { focus: undefined, hasEarlier: false, externalChanges: 0, pendingSteers: () => [] });
 const emit = defineEmits<{ reject: [taskId: string, rejected: boolean]; earlier: []; reload: [] }>();
 // 往前載入時維持目前看到的位置，不跳到頂端或底部。
 let anchor: number | undefined;
@@ -84,8 +85,9 @@ const statusLabel = (task: Task) => ({ queued: '排隊中', running: '執行中'
           <button v-if="task.status === 'completed' && !task.discussionId && !task.hybrid" type="button" class="text-button" @click="emit('reject', task.id, !task.rejected)">{{ task.rejected ? '恢復採用' : '不採用' }}</button>
         </div>
         <template v-if="task.steps?.length">
-          <template v-for="(step, index) in task.steps" :key="step.kind === 'tool' ? step.id : `text-${index}`">
+          <template v-for="(step, index) in task.steps" :key="step.kind === 'tool' ? step.id : `${step.kind}-${index}`">
             <MessageBody v-if="step.kind === 'text'" :text="step.text" />
+            <div v-else-if="step.kind === 'steer'" class="message user-message steer-message"><p class="prompt">{{ step.text }}</p></div>
             <details v-else :class="['tool-step', step.status]">
               <summary><span class="tool-dot" role="img" :aria-label="toolStatus[step.status]"></span><strong>{{ toolLabel(step.name) }}</strong><span v-if="step.status === 'failed'" class="failed">失敗</span><span class="tool-summary">{{ summaryLine(step) }}</span></summary>
               <div v-if="step.input" class="tool-io"><span>輸入</span><pre>{{ step.input }}</pre></div>
@@ -95,6 +97,7 @@ const statusLabel = (task: Task) => ({ queued: '排隊中', running: '執行中'
         </template>
         <MessageBody v-else-if="task.output" :text="task.output" />
         <p v-else-if="task.status === 'running'" class="muted">等待 Provider 輸出…</p>
+        <div v-for="item in pendingSteers.filter(entry => entry.taskId === task.id)" :key="item.id" class="message user-message steer-message pending" aria-busy="true"><p class="prompt">{{ item.text }}</p><span class="steer-status" role="status"><span class="steer-spinner" aria-hidden="true"></span>傳送中…</span></div>
         <p v-if="task.activity" role="status" class="activity">{{ task.activity }}</p>
         <p v-if="task.error" role="alert" class="error">{{ task.error }}</p>
       </div>

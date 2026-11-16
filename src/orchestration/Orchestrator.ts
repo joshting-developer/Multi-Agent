@@ -283,14 +283,16 @@ export class Orchestrator {
     if (rejected) task.rejected = true; else delete task.rejected;
     this.changed(); await this.flush();
   }
-  /** 把補充訊息送進執行中的任務；成功後記在該則使用者訊息後面，回放歷史時也看得到。 */
+  /** 把補充訊息送進執行中的任務；成功後存成對話裡的一則補充訊息，回放歷史時也帶入。 */
   async steer(taskId: string, text: string): Promise<void> {
     const active = this.active;
     if (!active || active.task.id !== taskId || active.task.status !== 'running') throw new Error('這個任務已經結束，請改為排隊送出。');
     const adapter = this.registry.get(active.task.provider);
     if (!adapter.steer || !adapter.capabilities().steer) throw new Error('這個 Agent 不支援補充給執行中的任務，訊息會等任務完成再送出。');
     await adapter.steer(taskId, text);
-    active.task.prompt = `${active.task.prompt}\n\n補充：${text}`; this.changed();
+    // 補充是對話裡的下一則使用者訊息，放在 Agent 目前輸出的位置；之後的文字接在它後面。
+    const steps = active.task.steps ??= active.task.output ? [{ kind: 'text', text: active.task.output }] : [];
+    steps.push({ kind: 'steer', text, at: Date.now() }); this.changed();
   }
   async cancel(taskId?: string): Promise<void> {
     // 排隊中的任務直接取消，不會啟動。

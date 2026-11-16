@@ -48,7 +48,9 @@ describe('Manual orchestration', () => {
     await vi.waitFor(() => expect(orchestrator.state.activeTaskId).toBeDefined());
     const id = orchestrator.state.activeTaskId!;
     await orchestrator.steer(id, '也補測試');
-    expect(codex.steered).toEqual(['也補測試']); expect(orchestrator.state.tasks.find(task => task.id === id)?.prompt).toBe('修 bug\n\n補充：也補測試');
+    expect(codex.steered).toEqual(['也補測試']); // 原訊息不變，補充存成對話裡的一則訊息，接在目前輸出後面。
+    const steered = orchestrator.state.tasks.find(task => task.id === id)!;
+    expect(steered.prompt).toBe('修 bug'); expect(steered.steps).toEqual([{ kind: 'text', text: 'codex reply' }, { kind: 'steer', text: '也補測試', at: expect.any(Number) }]);
     await expect(orchestrator.steer('other', 'x')).rejects.toThrow('請改為排隊送出');
     await orchestrator.cancel(); await running;
     await expect(orchestrator.steer(id, 'late')).rejects.toThrow('請改為排隊送出');

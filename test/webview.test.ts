@@ -130,6 +130,11 @@ describe('Vue chat', () => {
     expect(tools[0]!.findAll('.tool-io pre').map(pre => pre.text())).toEqual(['notes.txt\nmore', 'body']);
     expect(tools[2]!.find('.tool-io').exists()).toBe(false);
     timeline.unmount();
+    // 執行中補充的訊息顯示成對話裡另一則使用者訊息，原訊息不變。
+    const steered = mount(Conversation, { props: { tasks: [{ id: 's', provider: 'codex' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, prompt: '修 bug', output: '先看再補', steps: [{ kind: 'text' as const, text: '先看' }, { kind: 'steer' as const, text: '也補測試', at: 2 }, { kind: 'text' as const, text: '再補' }] }] } });
+    expect(steered.findAll('.user-message').map(item => item.text())).toEqual(['修 bug', '也補測試']);
+    expect(steered.findAll('.assistant-message > .markdown, .assistant-message > .steer-message').map(item => item.text())).toEqual(['先看', '也補測試', '再補']);
+    steered.unmount();
   });
   it('picks one account in normal mode and saves each account own model, effort and approval', async () => {
     const wrapper = mount(AgentPanel, { props: { ...panelProps, kind: 'solo' } });
@@ -377,8 +382,16 @@ describe('Queued messages while a task runs', () => {
       await wrapper.findAll('.queued-item')[0]!.findAll('button').find(button => button.text() === '立即補充')!.trigger('click');
       const steer = api.postMessage.mock.calls.map(([message]) => message).find(message => message.type === 'steer-task');
       expect(steer).toMatchObject({ taskId: 't1', text: '也補測試' });
-      await deliver({ version: 1, type: 'request-settled', requestId: steer.requestId }); await nextTick();
+      // 送出後馬上從清單移到對話裡，接受前顯示傳送中。
       expect(wrapper.findAll('.queued-item')).toHaveLength(1);
+      expect(wrapper.get('.steer-message.pending').text()).toContain('也補測試'); expect(wrapper.get('.steer-message.pending').text()).toContain('傳送中');
+      await deliver({ version: 1, type: 'request-settled', requestId: steer.requestId }); await nextTick();
+      expect(wrapper.find('.steer-message.pending').exists()).toBe(false); expect(wrapper.findAll('.queued-item')).toHaveLength(1);
+      // 被拒絕時移除傳送中的訊息，放回待送清單最前面。
+      await wrapper.findAll('.queued-item')[0]!.findAll('button').find(button => button.text() === '立即補充')!.trigger('click');
+      const rejected = api.postMessage.mock.calls.map(([message]) => message).filter(message => message.type === 'steer-task').at(-1);
+      await deliver({ version: 1, type: 'error', requestId: rejected.requestId, message: 'Codex 沒有接受補充' }); await nextTick();
+      expect(wrapper.find('.steer-message.pending').exists()).toBe(false); expect(wrapper.findAll('.queued-item').map(item => item.get('.queued-text').text())).toEqual(['再整理文件']);
       // 輸入框裡正在打的內容不會被自動送出的那則清掉。
       await wrapper.get('textarea').setValue('還在打');
       await deliver({ version: 1, type: 'snapshot', snapshot: { ...base, tasks: [{ ...task, status: 'completed' }] } });

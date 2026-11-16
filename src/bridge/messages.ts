@@ -15,7 +15,9 @@ export type AuditEvent = z.infer<typeof auditEventSchema>;
 /** 執行過程依實際順序保存：Agent 文字與工具交錯；工具 IN／OUT 已遮罩並截斷。 */
 export const stepSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('text'), text: z.string() }),
-  z.object({ kind: z.literal('tool'), id: z.string(), name: z.string(), status: z.enum(['running', 'done', 'failed', 'stopped']), input: z.string().optional(), output: z.string().optional() })
+  z.object({ kind: z.literal('tool'), id: z.string(), name: z.string(), status: z.enum(['running', 'done', 'failed', 'stopped']), input: z.string().optional(), output: z.string().optional() }),
+  /** 執行中使用者補充給 Agent 的訊息（MA-142），放在被補充的位置，原本的使用者訊息不變。 */
+  z.object({ kind: z.literal('steer'), text: z.string(), at: z.number() })
 ]);
 export type Step = z.infer<typeof stepSchema>;
 export const taskSchema = z.object({

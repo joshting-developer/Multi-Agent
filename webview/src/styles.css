@@ -221,3 +221,10 @@ mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inh
 .login-key input { flex: 1; min-width: 0; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: var(--radius-m); padding: 6px 8px; }
 .login-screen { flex: 1; min-height: 0; overflow-y: auto; display: grid; align-content: center; padding: 16px 12px; }
 .login-screen .login-card { width: 100%; max-width: 420px; margin: 0 auto; }
+/* 執行中補充的訊息：和一般使用者訊息同樣的泡泡；還沒被接受時淡一點並顯示傳送中。 */
+.steer-message { margin: 12px 0 12px auto; }
+.steer-message.pending { opacity: .7; }
+.steer-status { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px; color: var(--vscode-descriptionForeground); }
+.steer-spinner { width: 10px; height: 10px; border: 2px solid var(--vscode-descriptionForeground); border-right-color: transparent; border-radius: 50%; animation: steer-spin .8s linear infinite; }
+@keyframes steer-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .steer-spinner { animation: none; border-right-color: var(--vscode-descriptionForeground); } }

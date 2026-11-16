@@ -167,3 +167,10 @@ describe('SQLite conversation history', () => {
     await db.close();
   });
 });
+describe('Steer messages in exports', () => {
+  it('exports a message added during the run as its own user line', () => {
+    const run = { id: 'r', provider: 'codex', mode: 'read-only', prompt: '修 bug', output: 'ok', status: 'completed', startedAt: 0, steps: [{ kind: 'text', text: 'ok' }, { kind: 'steer', text: '也補測試', at: 1 }] } as Task;
+    const markdown = toMarkdown({ conversation: { id: 'c', title: 't', createdAt: 0, updatedAt: 0 }, root: '/w', exportedAt: 'now', schemaVersion: 5, runs: [run] } as unknown as Parameters<typeof toMarkdown>[0]);
+    expect(markdown).toContain('**使用者**\n\n修 bug'); expect(markdown).toContain('**使用者補充**\n\n也補測試');
+  });
+});
