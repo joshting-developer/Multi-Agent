@@ -1,4 +1,4 @@
-import type { AgentId, ExecutionMode, ProviderStatus, ResetCreditOutcome, UsageSnapshot } from '../bridge/messages';
+import type { AgentId, ExecutionMode, ProviderStatus, ResetCreditOutcome, UsageSnapshot, AgentFeature } from '../bridge/messages';
 import type { ApprovalMode, ReasoningEffort } from '../bridge/settings';
 import type { ApprovalRequest } from '../bridge/messages';
 export interface AgentRequest {
@@ -15,6 +15,8 @@ export interface AgentRequest {
   readRoots?: string[];
   /** 工作區允許連網時為 true；沙盒內的命令才能連網，並開放網頁搜尋與讀取網頁工具。 */
   network?: boolean;
+  /** 工作區另外開放的功能（外掛、MCP、子 Agent…）；沒有時全部關閉。 */
+  features?: AgentFeature[];
   approve?: (request: Omit<ApprovalRequest, 'id' | 'taskId' | 'provider'>) => Promise<boolean>;
 }
 export type AgentEvent =

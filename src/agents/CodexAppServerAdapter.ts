@@ -4,9 +4,11 @@ import { CodexAdapter } from './CodexAdapter';
 import { CodexRpc, readCodexAccount } from './CodexRpc';
 import { providerFailure, record, SessionUnavailable, toolText, windowLabel } from './CliAdapter';
 import { randomUUID } from 'node:crypto';
-import type { ResetCreditOutcome, UsageSnapshot } from '../bridge/messages';
+import type { AgentFeature, ResetCreditOutcome, UsageSnapshot } from '../bridge/messages';
 import { protectedPatterns } from '../execution/ExecutionPolicy';
 
+/** Codex 官方功能名稱對應到工作區的開關。 */
+const codexFeatures: Record<string, AgentFeature> = { multi_agent: 'subagents', apps: 'apps', plugins: 'apps', hooks: 'hooks', browser_use: 'browser', computer_use: 'browser', memories: 'memory' };
 export class CodexAppServerAdapter extends CodexAdapter {
   private readonly running = new Map<string, AbortController>();
   // 執行中的 turn：補充訊息用官方 turn/steer 送進同一個 turn。
@@ -84,8 +86,11 @@ export class CodexAppServerAdapter extends CodexAdapter {
     const rules = ['"."="' + (request.mode === 'read-only' ? 'read' : 'write') + '"', '".git"="read"', '".agents"="read"', '".vscode"="read"', ...protectedPatterns.map(pattern => `${JSON.stringify(pattern)}="deny"`)];
     // 工作區外的資料夾只加 read；寫入、網路仍依原本的 profile。
     const readRoots = (request.readRoots ?? []).map(root => `,${JSON.stringify(root)}="read"`).join('');
+    // 工作區開放的功能才打開；其餘維持關閉。MCP 用帳號自己設定資料夾裡的設定。
+    const allowed = new Set(request.features ?? []);
+    const unlock = [...(allowed.has('mcp') ? ['mcp_servers'] : []), ...(allowed.has('apps') ? ['features.apps', 'features.plugins'] : []), ...(allowed.has('hooks') ? ['features.hooks'] : [])];
     const config = [
-      'features.shell_tool=true', ...['multi_agent', 'apps', 'plugins', 'hooks', 'browser_use', 'computer_use', 'memories'].filter(name => this.hasFeature(name)).map(name => `features.${name}=false`),
+      'features.shell_tool=true', ...Object.entries(codexFeatures).filter(([name]) => this.hasFeature(name)).map(([name, feature]) => `features.${name}=${allowed.has(feature)}`),
       'shell_environment_policy.inherit="core"', `web_search="${request.network ? 'live' : 'disabled'}"`,
       ...(sandboxed ? [`permissions.multi_agent={filesystem={":minimal"="read",":workspace_roots"={${rules.join(',')}}${readRoots}},network={enabled=${request.network ? 'true' : 'false'}}}`, 'default_permissions="multi_agent"'] : ['permissions.multi_agent_full={filesystem={":root"="write"},network={enabled=true}}', 'default_permissions="multi_agent_full"'])
     ];
@@ -93,7 +98,7 @@ export class CodexAppServerAdapter extends CodexAdapter {
     const outputs = new Map<string, string>();
     const changes = new Map<string, unknown>();
     try {
-      for await (const message of rpc.messages({ command: this.command, cwd: request.cwd, timeoutMs: request.timeoutMs, signal: controller.signal, config, ...(request.env && { env: { ...process.env, ...request.env } }) })) {
+      for await (const message of rpc.messages({ command: this.command, cwd: request.cwd, timeoutMs: request.timeoutMs, signal: controller.signal, config, unlock, ...(request.env && { env: { ...process.env, ...request.env } }) })) {
         // 補充訊息的回應另外處理；被拒絕只讓那次補充失敗，不中斷任務。
         const turn = this.turns.get(request.taskId);
         if (turn && typeof message.id === 'number' && !message.method && turn.pending.has(message.id)) {

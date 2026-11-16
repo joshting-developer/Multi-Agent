@@ -5,10 +5,17 @@ import { useHost } from './composables/useHost';
 import AccountSettings from './components/AccountSettings.vue';
 import ToggleSwitch from './components/ToggleSwitch.vue';
 import { approvalModes, approvalLabels, defaultSettings, replyLanguages, replyLanguageLabels, type WorkspaceSettings } from '../../src/bridge/preferences';
-import type { AgentId, WebviewToHost } from '../../src/bridge/messages';
+import type { AgentFeature, AgentId, WebviewToHost } from '../../src/bridge/messages';
 const { snapshot, error, post, saveSettings, settingsSaving, settingsSaved } = useHost();
 const section = ref<'general' | 'accounts' | 'workspace'>('general');
 const agents: AgentId[] = ['codex', 'claude'];
+// 每項標明支援的 Agent；Claude 為了把檔案工具限制在工作區，不讀設定檔，外掛與 hooks 只開放給 Codex。
+const featureRows: Array<{ id: AgentFeature; label: string; agents: string }> = [
+  { id: 'apps', label: '外掛與 Apps', agents: 'Codex' }, { id: 'mcp', label: 'MCP 伺服器', agents: 'Codex、Claude Code' },
+  { id: 'subagents', label: '子 Agent', agents: 'Codex、Claude Code' }, { id: 'browser', label: '瀏覽器與電腦操作', agents: 'Codex' },
+  { id: 'memory', label: '記憶', agents: 'Codex、Claude Code' }, { id: 'hooks', label: 'Hooks', agents: 'Codex' },
+  { id: 'commands', label: '斜線指令與 Skill', agents: 'Claude Code' }
+];
 const pathKey = (id: AgentId) => id === 'codex' ? 'codexPath' as const : 'claudePath' as const;
 const clone = (value: WorkspaceSettings): WorkspaceSettings => JSON.parse(JSON.stringify(value)) as WorkspaceSettings;
 const draft = ref(clone(defaultSettings));
@@ -55,6 +62,11 @@ const newId = () => crypto.randomUUID();
         <section class="settings-card"><h2>工作區授權</h2><p class="workspace-location">{{ snapshot.workspace }}</p><p class="setting-description">資料分類：{{ classificationLabels[snapshot.policy.classification] }}<br>允許的 Agent：{{ snapshot.policy.allowedProviders.map(providerLabel).join('、') || '尚未授權' }}</p><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId" @click="action('authorize-workspace')">設定工作區授權</button></section>
         <section class="settings-card"><h2>工作區外可讀取</h2><ul v-if="snapshot.policy.readRoots?.length" class="read-roots"><li v-for="root in snapshot.policy.readRoots" :key="root"><span>{{ root }}</span><button type="button" class="text-button" :disabled="!!snapshot.activeTaskId" @click="post({ version: 1, type: 'remove-read-root', requestId: newId(), path: root })">移除</button></li></ul><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId" @click="action('add-read-root')">新增資料夾…</button></section>
         <section class="settings-card"><h2>網路</h2><div class="setting-row"><span>允許 Agent 使用網路<small>命令可連網，並可使用網頁搜尋與讀取網頁</small></span><ToggleSwitch :checked="!!snapshot.policy.network" :disabled="!!snapshot.activeTaskId" label="允許 Agent 使用網路" @change="enabled => post({ version: 1, type: 'set-network', requestId: newId(), enabled })" /></div></section>
+        <section class="settings-card">
+          <h2>Agent 功能</h2>
+          <div v-for="row in featureRows" :key="row.id" class="setting-row"><span>{{ row.label }}<small>{{ row.agents }}</small></span><ToggleSwitch :checked="!!snapshot.policy.features?.includes(row.id)" :disabled="!!snapshot.activeTaskId" :label="row.label" @change="enabled => post({ version: 1, type: 'set-agent-feature', requestId: newId(), feature: row.id, enabled })" /></div>
+          <p class="setting-description">外掛與 MCP 讀取各帳號自己的設定，需在該帳號底下安裝</p>
+        </section>
         <section class="settings-card"><h2>本機紀錄</h2><p class="setting-description">{{ snapshot.conversations?.length ?? 0 }} 個對話</p><div class="settings-card-actions"><button type="button" class="secondary-button" :disabled="!snapshot.tasks.length" @click="post({ version: 1, type: 'export-conversation', requestId: newId(), format: 'markdown' })">匯出目前對話（Markdown）</button><button type="button" class="secondary-button" :disabled="!snapshot.tasks.length" @click="post({ version: 1, type: 'export-conversation', requestId: newId(), format: 'json' })">匯出目前對話（JSON）</button></div><div class="settings-card-actions"><button type="button" class="secondary-button" @click="action('backup-history')">備份歷史資料庫</button><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId || !!snapshot.discussionId" @click="action('restore-history')">從備份還原</button></div><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId || !snapshot.tasks.length" @click="action('clear-conversation')">刪除目前對話</button></section>
         <section class="settings-card"><h2>此專案的資料</h2><div class="setting-row"><span>保存這個專案的對話</span><ToggleSwitch :checked="snapshot.persistent !== false" label="保存這個專案的對話" @change="enabled => post({ version: 1, type: 'set-persistence', requestId: newId(), enabled })" /></div><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId || !!snapshot.discussionId" @click="post({ version: 1, type: 'clear-project', requestId: newId() })">刪除此專案所有紀錄</button></section>
       </template>

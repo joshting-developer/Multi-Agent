@@ -229,6 +229,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'add-read-root': await this.pickReadRoot(); break;
       case 'remove-read-root': await this.orchestrator.removeReadRoot(message.path); break;
       case 'set-network': await this.orchestrator.setNetwork(message.enabled); break;
+      case 'set-agent-feature': await this.orchestrator.setFeature(message.feature, message.enabled); break;
       case 'use-reset-credit': {
         if (!this.accounts) throw new Error('帳號管理尚未就緒。');
         const credit = message.creditId ? this.accounts.list().find(item => item.id === message.accountId)?.usage?.resetCreditList?.find(item => item.id === message.creditId) : undefined;

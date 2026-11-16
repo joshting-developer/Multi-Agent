@@ -120,3 +120,47 @@ describe('Network access for agents', () => {
     expect(networkBlocked(task('HTTP/2 200'))).toBe(false);
   });
 });
+
+describe('Optional agent features', () => {
+  it('keeps every feature off by default and records each change', async () => {
+    const { workspace } = await folders();
+    const requests: AgentRequest[] = [];
+    const capabilities = { streaming: true, readOnly: true, workspaceWrite: true, resumeSession: false, structuredOutput: true, toolApproval: false };
+    const adapter: AgentAdapter = { id: 'codex', capabilities: () => capabilities, detect: async () => ({ id: 'codex', status: 'ready', capabilities }),
+      async *execute(request) { requests.push(request); yield { type: 'complete', taskId: request.taskId }; }, cancel: async () => undefined };
+    const audits: string[] = [];
+    const repository = new SessionRepository({ get: () => undefined, update: async () => undefined }, workspace);
+    repository.audit = async event => { audits.push(event.detail); };
+    const orchestrator = new Orchestrator(new AgentRegistry([adapter]), repository, workspace, () => true, () => 0);
+    await orchestrator.setPolicy({ classification: 'personal', allowedProviders: ['codex'] }); await orchestrator.checkProviders();
+    await orchestrator.send('codex', 'x', 'read-only'); expect(requests[0]?.features).toBeUndefined();
+    await orchestrator.setFeature('mcp', true); await orchestrator.setFeature('apps', true); await orchestrator.setFeature('apps', true);
+    await orchestrator.send('codex', 'x', 'read-only'); expect(requests[1]?.features).toEqual(['apps', 'mcp']);
+    await orchestrator.setFeature('apps', false); await orchestrator.setFeature('mcp', false);
+    expect(orchestrator.state.policy).not.toHaveProperty('features');
+    expect(audits.slice(-4)).toEqual(['開放 Agent 功能：mcp', '開放 Agent 功能：apps', '關閉 Agent 功能：apps', '關閉 Agent 功能：mcp']);
+    await orchestrator.dispose();
+  });
+  it('passes only the opened features to the Codex and Claude CLIs', async () => {
+    const base = { taskId: 't', prompt: 'p', cwd: process.cwd(), timeoutMs: 3000, signal: new AbortController().signal, model: 'test-model', effort: 'low' as const };
+    const run = async (features?: AgentRequest['features']) => {
+      const codex = new FixtureProcesses('codex'); const claude = new FixtureProcesses('claude');
+      const codexAdapter = new CodexAppServerAdapter(codex, () => process.execPath, process.cwd()); await codexAdapter.detect();
+      for await (const event of codexAdapter.execute({ ...base, mode: 'workspace-write', approvalMode: 'ask', ...(features && { features }) })) void event;
+      const claudeAdapter = new ClaudeCodeAdapter(claude, () => process.execPath, process.cwd()); await claudeAdapter.detect();
+      for await (const event of claudeAdapter.execute({ ...base, mode: 'read-only', model: 'sonnet', ...(features && { features }) })) void event;
+      return { codex: codex.requests.at(-1)!.args, claude: claude.requests.at(-1)!.args };
+    };
+    const closed = await run();
+    expect(closed.codex).toEqual(expect.arrayContaining(['mcp_servers={}', 'features.apps=false', 'features.plugins=false', 'features.hooks=false']));
+    expect(closed.claude).toEqual(expect.arrayContaining(['--safe-mode', '--strict-mcp-config', '--disable-slash-commands']));
+    expect(JSON.parse(closed.claude[closed.claude.indexOf('--settings') + 1]!)).toMatchObject({ disableAllHooks: true, autoMemoryEnabled: false });
+    const open = await run(['apps', 'mcp', 'subagents', 'memory', 'hooks', 'commands']);
+    // Codex：不再強制清空 MCP、關掉外掛與 hooks，個別功能改成 true。
+    expect(open.codex).not.toContain('mcp_servers={}'); expect(open.codex).not.toContain('features.apps=false'); expect(open.codex).not.toContain('features.hooks=false');
+    // Claude：拿掉 safe-mode、空 MCP 與停用斜線指令，加入 Agent 工具與記憶；仍保留 --restricted 與 hooks 關閉。
+    expect(open.claude).not.toContain('--safe-mode'); expect(open.claude).not.toContain('--strict-mcp-config'); expect(open.claude).not.toContain('--disable-slash-commands');
+    expect(open.claude).toContain('--restricted'); expect(open.claude[open.claude.indexOf('--tools') + 1]).toBe('Read,Glob,Grep,Agent');
+    expect(JSON.parse(open.claude[open.claude.indexOf('--settings') + 1]!)).toMatchObject({ disableAllHooks: true, autoMemoryEnabled: true });
+  });
+});

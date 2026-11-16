@@ -39,8 +39,11 @@ export class ClaudeCodeAdapter extends CliAdapter {
     if (request.effort && !this.help.includes('--effort')) throw new Error('此 Claude Code 版本不支援推理強度，請更新 CLI。');
     // 圖片要走 stream-json 輸入，才能用官方的 image 區塊。
     const interactive = !!request.approvalMode || !!request.images?.length;
-    // 工作區允許連網時才開放讀取網頁與網頁搜尋。
-    const web = request.network ? ',WebFetch,WebSearch' : '';
+    // 工作區允許連網時才開放讀取網頁與網頁搜尋；開放子 Agent 時加入 Agent 工具。
+    const features = new Set(request.features ?? []);
+    // MCP、Skill、記憶、子 Agent 需要關掉 --safe-mode；--restricted 保留，檔案工具仍限制在工作區、不讀設定檔，所以外掛與 hooks 不開放。
+    const custom = (['mcp', 'commands', 'memory', 'subagents'] as const).some(item => features.has(item));
+    const web = (request.network ? ',WebFetch,WebSearch' : '') + (features.has('subagents') ? ',Agent' : '');
     const tools = (request.mode === 'workspace-write' ? (interactive ? 'Read,Glob,Grep,Edit,Write,Bash' : 'Read,Glob,Grep,Edit,Write') : 'Read,Glob,Grep') + web;
     const permission = request.mode === 'read-only' ? 'plan' : request.approvalMode === 'full-access' ? 'bypassPermissions' : request.approvalMode === 'auto-review' ? 'auto' : interactive ? 'manual' : 'dontAsk';
     if (request.approvalMode === 'auto-review' && !this.detected?.approvalModes?.includes('auto-review')) throw new Error('此 Claude CLI 不支援代我核准，請更新 CLI。');
@@ -51,14 +54,14 @@ export class ClaudeCodeAdapter extends CliAdapter {
       ...(request.model ? ['--model', request.model] : []),
       ...(request.effort ? ['--effort', request.effort] : []),
       ...(request.approvalMode === 'full-access' && request.mode !== 'read-only' ? ['--dangerously-skip-permissions'] : ['--restricted']),
-      '--safe-mode', '--tools', tools, '--allowedTools', interactive ? `Read,Glob,Grep${web}` : tools,
+      ...(custom ? [] : ['--safe-mode']), '--tools', tools, '--allowedTools', interactive ? `Read,Glob,Grep${web}` : tools,
       ...(interactive ? ['--input-format', 'stream-json', '--permission-prompts', 'host', '--permission-prompt-tool', 'stdio'] : []),
       '--permission-mode', permission,
       ...roots.flatMap(root => ['--add-dir', root]),
-      '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--disable-slash-commands',
+      ...(features.has('mcp') ? [] : ['--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}']), ...(features.has('commands') ? [] : ['--disable-slash-commands']),
       ...(request.resumeSessionId ? ['--resume', request.resumeSessionId] : request.persist ? [] : ['--no-session-persistence']),
       // --safe-mode 實測已不讀 auto-memory；仍明確關掉, 避免 Participant 之間或與使用者自己的 Claude Code 經由專案記憶互相讀寫。
-      '--settings', JSON.stringify({ disableAllHooks: true, autoMemoryEnabled: false, permissions: { deny } })];
+      '--settings', JSON.stringify({ disableAllHooks: true, autoMemoryEnabled: features.has('memory'), permissions: { deny } })];
   }
   protected override inputStream(request: AgentRequest) {
     if (!request.approvalMode && !request.images?.length) return undefined;

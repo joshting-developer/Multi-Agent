@@ -43,6 +43,11 @@ describe('Model and settings UI', () => {
       await toggle.trigger('click');
       expect(api.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'set-network', enabled: true }));
       expect(wrapper.get('button[role="switch"][aria-label="保存這個專案的對話"]').attributes('aria-checked')).toBe('true');
+      // Agent 功能每項一個開關，預設全關。
+      const features = wrapper.findAll('.settings-card').find(card => card.text().startsWith('Agent 功能'))!;
+      expect(features.findAll('button[role="switch"]').map(item => [item.attributes('aria-label'), item.attributes('aria-checked')])).toEqual([['外掛與 Apps', 'false'], ['MCP 伺服器', 'false'], ['子 Agent', 'false'], ['瀏覽器與電腦操作', 'false'], ['記憶', 'false'], ['Hooks', 'false'], ['斜線指令與 Skill', 'false']]);
+      await features.get('button[aria-label="MCP 伺服器"]').trigger('click');
+      expect(api.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'set-agent-feature', feature: 'mcp', enabled: true }));
       await wrapper.findAll('nav button')[0]!.trigger('click');
       await wrapper.get('select[aria-label="傳送快捷鍵"]').setValue('modifier-enter');
       await wrapper.findAll('nav button')[1]!.trigger('click'); expect(wrapper.find('.settings-footer').exists()).toBe(true);

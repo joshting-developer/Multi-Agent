@@ -3,7 +3,8 @@ import { realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, parse } from 'node:path';
 import { insideOf } from '../execution/ReadRoots';
-import type { AgentId, ApprovalRequest, AuditEvent, ConversationSummary, SearchFilters, UsageSnapshot, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
+import { agentFeatures } from '../bridge/messages';
+import type { AgentFeature, AgentId, ApprovalRequest, AuditEvent, ConversationSummary, SearchFilters, UsageSnapshot, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
 import { AgentRegistry } from '../agents/AgentRegistry';
 import { assertAuthorized } from '../execution/ExecutionPolicy';
 import { ProcessError } from '../execution/ProcessManager';
@@ -128,6 +129,17 @@ export class Orchestrator {
     this.changed(); await this.flush();
     await this.auditWorkspace('policy-changed', enabled ? '允許 Agent 使用網路' : '關閉 Agent 網路');
   }
+  /** 開放或關閉一項 Agent 功能；只在沒有任務執行時改，並寫入稽核紀錄。 */
+  async setFeature(feature: AgentFeature, enabled: boolean): Promise<void> {
+    if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
+    const current = this.state.policy.features ?? [];
+    if (current.includes(feature) === enabled) return;
+    const next = enabled ? agentFeatures.filter(item => item === feature || current.includes(item)) : current.filter(item => item !== feature);
+    const { features: _previous, ...policy } = this.state.policy; void _previous;
+    this.state.policy = next.length ? { ...policy, features: next } : policy;
+    this.changed(); await this.flush();
+    await this.auditWorkspace('policy-changed', `${enabled ? '開放' : '關閉'} Agent 功能：${feature}`);
+  }
   async removeReadRoot(path: string): Promise<void> {
     if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
     const { readRoots = [], ...policy } = this.state.policy; const roots = readRoots.filter(item => item !== path);
@@ -230,7 +242,7 @@ export class Orchestrator {
     const conversationId = this.taskConversations.get(task.id) ?? this.repository.conversationId;
     if (task.attachments?.length && !this.attachmentStore) throw new Error('目前無法讀取圖片附件。');
     const images = task.attachments?.length ? await Promise.all(task.attachments.map(async item => ({ mime: item.mime, data: await this.attachmentStore!.read(conversationId, item.id) }))) : undefined;
-    for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, persist, resumeSessionId, ...(this.state.policy.readRoots?.length && { readRoots: this.state.policy.readRoots }), ...(this.state.policy.network && { network: true }), ...(env && { env }), ...(images && { images }), approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
+    for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, persist, resumeSessionId, ...(this.state.policy.readRoots?.length && { readRoots: this.state.policy.readRoots }), ...(this.state.policy.network && { network: true }), ...(this.state.policy.features?.length && { features: this.state.policy.features }), ...(env && { env }), ...(images && { images }), approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
       if (event.type === 'text-delta') {
         if (task.output.length + event.text.length > 512 * 1024) throw new Error('回應超過 512 KB 上限，已停止任務。');
         task.output += event.text;

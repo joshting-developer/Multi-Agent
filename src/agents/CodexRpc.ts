@@ -10,9 +10,10 @@ export class CodexRpc {
   respond(id: unknown, result: unknown): void { this.write({ id, result }); }
   reject(id: unknown): void { this.write({ id, error: { code: -32601, message: 'Unsupported client request' } }); }
   private write(message: unknown): void { this.send(JSON.stringify(message) + '\n'); }
-  async *messages(options: Omit<ProcessRequest, 'args' | 'onStdinReady'> & { config?: string[] }) {
+  /** unlock：執行時工作區開放的功能，不再套用預設關閉的 mcp_servers、apps、plugins、hooks。 */
+  async *messages(options: Omit<ProcessRequest, 'args' | 'onStdinReady'> & { config?: string[]; unlock?: string[] }) {
     for await (const event of this.processes.run({ ...options,
-      args: ['app-server', '--listen', 'stdio://', ...['model_provider="openai"', 'mcp_servers={}', 'features.apps=false', 'features.plugins=false', 'features.hooks=false', 'analytics.enabled=false', ...(options.config ?? [])].flatMap(value => ['-c', value])],
+      args: ['app-server', '--listen', 'stdio://', ...['model_provider="openai"', 'mcp_servers={}', 'features.apps=false', 'features.plugins=false', 'features.hooks=false', 'analytics.enabled=false'].filter(value => !options.unlock?.includes(value.split('=')[0]!)).concat(options.config ?? []).flatMap(value => ['-c', value])],
       onStdinReady: send => { this.send = send; this.request(1, 'initialize', { clientInfo: { name: 'multi_agent_workspace', version: '0.1.4' }, capabilities: { experimentalApi: true } }); }
     })) {
       if (event.type === 'exit') throw event.code ? providerFailure(event.stderr, event.code) : new Error('Codex 在完成事件前結束。');
