@@ -1,5 +1,5 @@
-import { existsSync, statSync } from 'node:fs';
-import { dirname, isAbsolute, relative } from 'node:path';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import type { Task } from '../bridge/messages';
 
 /** child 是否等於 parent 或在它底下。 */
@@ -55,4 +55,20 @@ export function blockedBy(output: string, cwd: string, policy: { network?: boole
   if (folders.length) found.push({ kind: 'read', folders });
   if (browserBlockedIn(output)) found.push({ kind: 'browser' });
   return found;
+}
+
+/**
+ * 唯讀資料夾裡不屬於工作區的部分（MA-149）。root 不包含工作區時就是 root 本身；
+ * root 是工作區的上層時，逐層列出通往工作區那條路以外的項目，讓 Claude 只對這些禁止修改，工作區仍可寫。
+ */
+export function outsideWorkspace(root: string, cwd: string): string[] {
+  if (!insideOf(cwd, root) || root === cwd) return root === cwd ? [] : [root];
+  const parts: string[] = []; let dir = root;
+  for (const segment of relative(root, cwd).split(sep)) {
+    let entries: string[] = [];
+    try { entries = readdirSync(dir); } catch { /* 讀不到就略過這一層 */ }
+    for (const entry of entries) if (entry !== segment) parts.push(join(dir, entry));
+    dir = join(dir, segment);
+  }
+  return parts;
 }

@@ -17,6 +17,8 @@ const featureRows: Array<{ id: AgentFeature; label: string; agents: string }> = 
   { id: 'memory', label: '記憶', agents: 'Codex、Claude Code' }, { id: 'hooks', label: 'Hooks', agents: 'Codex' },
   { id: 'commands', label: '斜線指令與 Skill', agents: 'Claude Code' }
 ];
+// 網路與每一項功能都開著時，「全部開放」不再可按。
+const allOpen = computed(() => !!snapshot.value.policy.network && featureRows.every(row => snapshot.value.policy.features?.includes(row.id)));
 const pathKey = (id: AgentId) => id === 'codex' ? 'codexPath' as const : 'claudePath' as const;
 const clone = (value: WorkspaceSettings): WorkspaceSettings => JSON.parse(JSON.stringify(value)) as WorkspaceSettings;
 const draft = ref(clone(defaultSettings));
@@ -64,7 +66,7 @@ const newId = () => crypto.randomUUID();
         <section class="settings-card"><h2>工作區外可讀取</h2><ul v-if="snapshot.policy.readRoots?.length" class="read-roots"><li v-for="root in snapshot.policy.readRoots" :key="root"><span>{{ root }}</span><button type="button" class="text-button" :disabled="!!snapshot.activeTaskId" @click="post({ version: 1, type: 'remove-read-root', requestId: newId(), path: root })">移除</button></li></ul><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId" @click="action('add-read-root')">新增資料夾…</button></section>
         <section class="settings-card"><h2>網路</h2><div class="setting-row"><span>允許 Agent 使用網路<small>命令可連網，並可使用網頁搜尋與讀取網頁</small></span><ToggleSwitch :checked="!!snapshot.policy.network" :disabled="!!snapshot.activeTaskId" label="允許 Agent 使用網路" @change="enabled => post({ version: 1, type: 'set-network', requestId: newId(), enabled })" /></div></section>
         <section class="settings-card">
-          <h2>Agent 功能</h2>
+          <div class="settings-card-heading"><h2>Agent 功能</h2><span class="settings-card-actions agent-feature-actions"><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId || allOpen" @click="post({ version: 1, type: 'set-all-agent-features', requestId: newId(), enabled: true })">全部開放</button><button type="button" class="secondary-button" :disabled="!!snapshot.activeTaskId || (!snapshot.policy.features?.length && !snapshot.policy.network)" @click="post({ version: 1, type: 'set-all-agent-features', requestId: newId(), enabled: false })">全部關閉</button></span></div>
           <div v-for="row in featureRows" :key="row.id" class="setting-row"><span>{{ row.label }}<small>{{ row.agents }}</small></span><ToggleSwitch :checked="!!snapshot.policy.features?.includes(row.id)" :disabled="!!snapshot.activeTaskId" :label="row.label" @change="enabled => post({ version: 1, type: 'set-agent-feature', requestId: newId(), feature: row.id, enabled })" /></div>
           <p class="setting-description">外掛與 MCP 讀取各帳號自己的設定，需在該帳號底下安裝</p>
         </section>

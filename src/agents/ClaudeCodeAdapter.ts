@@ -1,6 +1,7 @@
 import { toolLabel } from '../bridge/labels';
 import type { ProviderStatus } from '../bridge/messages';
 import { protectedPatterns } from '../execution/ExecutionPolicy';
+import { outsideWorkspace } from '../execution/ReadRoots';
 import type { AgentRequest } from './AgentAdapter';
 import { CliAdapter, providerFailure, record, toolText, type ParsedEvent, type StreamState } from './CliAdapter';
 
@@ -49,7 +50,7 @@ export class ClaudeCodeAdapter extends CliAdapter {
     if (request.approvalMode === 'auto-review' && !this.detected?.approvalModes?.includes('auto-review')) throw new Error('此 Claude CLI 不支援代我核准，請更新 CLI。');
     // 工作區外的資料夾以 --add-dir 加入，但禁止檔案工具寫入；Claude 規則的絕對路徑以 // 開頭。
     const roots = this.help.includes('--add-dir') ? request.readRoots ?? [] : [];
-    const deny = [...protectedPatterns.flatMap(pattern => ['Read', 'Edit', 'Write', 'Grep', 'Glob'].map(tool => `${tool}(${pattern})`)), ...roots.flatMap(root => ['Edit', 'Write'].map(tool => `${tool}(/${root}/**)`))];
+    const deny = [...protectedPatterns.flatMap(pattern => ['Read', 'Edit', 'Write', 'Grep', 'Glob'].map(tool => `${tool}(${pattern})`)), ...roots.flatMap(root => outsideWorkspace(root, request.cwd)).flatMap(path => ['Edit', 'Write'].flatMap(tool => [`${tool}(/${path})`, `${tool}(/${path}/**)`]))];
     return ['--print', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
       ...(request.model ? ['--model', request.model] : []),
       ...(request.effort ? ['--effort', request.effort] : []),

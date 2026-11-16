@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { webviewMessageSchema, type AgentId, type HostToWebview, type Task, type WebviewToHost } from '../bridge/messages';
+import { webviewMessageSchema, type AgentId, type HostToWebview, type Task, type WebviewToHost, agentFeatures } from '../bridge/messages';
 import { Orchestrator } from '../orchestration/Orchestrator';
 import { HybridCoordinator } from '../orchestration/HybridCoordinator';
 import { providerLabel } from '../bridge/labels';
@@ -263,6 +263,13 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'add-read-root': await this.pickReadRoot(); break;
       case 'remove-read-root': await this.orchestrator.removeReadRoot(message.path); break;
       case 'set-network': await this.orchestrator.setNetwork(message.enabled); break;
+      case 'set-all-agent-features': {
+        // 全部開放：網路與所有 Agent 功能一次打開；包含在沙盒外執行，所以同樣要原生確認。全部關閉不用確認。
+        if (message.enabled && !this.orchestrator.state.policy.features?.includes('host') && !await this.confirmHost()) break;
+        await this.orchestrator.setNetwork(message.enabled);
+        for (const feature of agentFeatures) await this.orchestrator.setFeature(feature, message.enabled);
+        break;
+      }
       case 'set-agent-feature': {
         // 操作這台 Mac 會讓 Codex 在沙盒外執行命令，開啟前要原生確認。
         if (message.feature === 'host' && message.enabled && !await this.confirmHost()) break;

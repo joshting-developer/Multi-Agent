@@ -219,6 +219,14 @@ describe('Asking for blocked permissions while a task runs', () => {
       // 關閉不需要確認。
       receive!({ version: 1, requestId: 'h3', type: 'set-agent-feature', feature: 'host', enabled: false });
       await vi.waitFor(() => expect(orchestrator.state.policy.features).toBeUndefined()); expect(nativeWindow.showWarningMessage).toHaveBeenCalledTimes(2);
+      // 全部開放：確認一次後網路與所有功能都打開；全部關閉不用確認。
+      nativeWindow.showWarningMessage.mockResolvedValueOnce('開啟');
+      receive!({ version: 1, requestId: 'h4', type: 'set-all-agent-features', enabled: true });
+      await vi.waitFor(() => expect(orchestrator.state.policy.features).toEqual(['host', 'apps', 'mcp', 'subagents', 'browser', 'memory', 'hooks', 'commands']));
+      expect(orchestrator.state.policy.network).toBe(true); expect(nativeWindow.showWarningMessage).toHaveBeenCalledTimes(3);
+      receive!({ version: 1, requestId: 'h5', type: 'set-all-agent-features', enabled: false });
+      await vi.waitFor(() => expect(orchestrator.state.policy.features).toBeUndefined());
+      expect(orchestrator.state.policy.network).toBeUndefined(); expect(nativeWindow.showWarningMessage).toHaveBeenCalledTimes(3);
     } finally { controller.dispose(); await orchestrator.dispose(); nativeWindow.showWarningMessage.mockReset(); }
   });
 });

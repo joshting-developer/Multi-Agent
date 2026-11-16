@@ -107,14 +107,15 @@ export class Orchestrator {
     this.state.policy = policy; this.changed(); await this.flush();
     await this.auditWorkspace('policy-changed', `${policy.classification}: ${policy.allowedProviders.join(', ') || '無'}`);
   }
-  /** 允許 Agent 唯讀工作區外的資料夾；只收已存在的絕對路徑資料夾，不收工作區內、根目錄或家目錄本身。 */
+  /** 允許 Agent 唯讀工作區外或上層的資料夾；只收已存在的絕對路徑資料夾，不收工作區內、根目錄或家目錄本身。 */
   async addReadRoot(path: string): Promise<string> {
     if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
     if (!isAbsolute(path)) throw new Error('請選擇資料夾的完整路徑。');
     const root = await realpath(path);
     if (!(await stat(root)).isDirectory()) throw new Error('只能允許讀取資料夾。');
     if (root === '/' || root === homedir() || root === parse(root).root) throw new Error('不能允許讀取整個磁碟或家目錄，請選擇更明確的資料夾。');
-    if (insideOf(root, this.cwd) || insideOf(this.cwd, root)) throw new Error('這個資料夾和工作區重疊，請選擇工作區外的資料夾。');
+    // 上層資料夾可以（上層唯讀、工作區仍可寫）；工作區本身或裡面的資料夾本來就能讀，不用加。
+    if (insideOf(root, this.cwd)) throw new Error('這個資料夾在工作區裡，本來就能讀取。');
     const roots = this.state.policy.readRoots ?? [];
     if (roots.includes(root)) return root;
     if (roots.length >= 20) throw new Error('最多允許 20 個資料夾。');

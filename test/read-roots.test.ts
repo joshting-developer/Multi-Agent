@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { blockedBy, blockedFolders, networkBlocked } from '../src/execution/ReadRoots';
+import { blockedBy, blockedFolders, networkBlocked, outsideWorkspace } from '../src/execution/ReadRoots';
 import { protectedFiles } from '../src/execution/ExecutionPolicy';
 import { CodexAppServerAdapter } from '../src/agents/CodexAppServerAdapter';
 import { ClaudeCodeAdapter } from '../src/agents/ClaudeCodeAdapter';
@@ -51,7 +51,7 @@ describe('Reading folders outside the workspace', () => {
     const orchestrator = new Orchestrator(new AgentRegistry([adapter]), new SessionRepository({ get: () => undefined, update: async () => undefined }, workspace), workspace, () => true, () => 10000);
     await orchestrator.setPolicy({ classification: 'personal', allowedProviders: ['codex'] }); await orchestrator.checkProviders();
     await expect(orchestrator.addReadRoot(homedir())).rejects.toThrow('家目錄');
-    await expect(orchestrator.addReadRoot(join(workspace))).rejects.toThrow('重疊');
+    await expect(orchestrator.addReadRoot(join(workspace))).rejects.toThrow('本來就能讀取');
     await expect(orchestrator.addReadRoot(join(outside, 'skill', 'SKILL.md'))).rejects.toThrow('資料夾');
     await expect(orchestrator.addReadRoot('relative')).rejects.toThrow('完整路徑');
     expect(await orchestrator.addReadRoot(join(outside, 'skill', '..'))).toBe(outside);
@@ -215,5 +215,28 @@ describe('Operating this Mac', () => {
     // 唯讀任務不受影響。
     const readOnly = await start({ features: ['host'], mode: 'read-only' });
     expect(readOnly.params).toMatchObject({ approvalPolicy: 'never' }); expect(readOnly.params).not.toHaveProperty('sandbox');
+  });
+});
+
+describe('Reading a parent of the workspace', () => {
+  it('lets agents read sibling projects while the workspace itself stays writable', async () => {
+    const parent = await realpath(await mkdtemp(join(tmpdir(), 'multi-agent-parent-'))); dirs.push(parent);
+    const workspace = join(parent, 'apps', 'tracker'); await mkdir(workspace, { recursive: true });
+    await mkdir(join(parent, 'common-skills')); await writeFile(join(parent, 'README.md'), 'x'); await mkdir(join(parent, 'apps', 'other'));
+    expect(outsideWorkspace(parent, workspace).sort()).toEqual([join(parent, 'README.md'), join(parent, 'apps', 'other'), join(parent, 'common-skills')].sort());
+    const requests: AgentRequest[] = [];
+    const capabilities = { streaming: true, readOnly: true, workspaceWrite: true, resumeSession: false, structuredOutput: true, toolApproval: false };
+    const adapter: AgentAdapter = { id: 'codex', capabilities: () => capabilities, detect: async () => ({ id: 'codex', status: 'ready', capabilities }), async *execute(request) { requests.push(request); yield { type: 'complete', taskId: request.taskId }; }, cancel: async () => undefined };
+    const orchestrator = new Orchestrator(new AgentRegistry([adapter]), new SessionRepository({ get: () => undefined, update: async () => undefined }, workspace), workspace, () => true, () => 0);
+    await orchestrator.setPolicy({ classification: 'personal', allowedProviders: ['codex'] }); await orchestrator.checkProviders();
+    expect(await orchestrator.addReadRoot(parent)).toBe(parent);
+    await orchestrator.dispose();
+    // Claude：加入上層，但只禁止修改工作區以外的部分。
+    const claude = new FixtureProcesses('claude'); const claudeAdapter = new ClaudeCodeAdapter(claude, () => process.execPath, workspace); await claudeAdapter.detect();
+    for await (const event of claudeAdapter.execute({ taskId: 't', prompt: 'p', cwd: workspace, timeoutMs: 3000, signal: new AbortController().signal, mode: 'workspace-write', model: 'sonnet', effort: 'low', readRoots: [parent] })) void event;
+    const args = claude.requests.at(-1)!.args; const deny: string[] = JSON.parse(args[args.indexOf('--settings') + 1]!).permissions.deny;
+    expect(args[args.indexOf('--add-dir') + 1]).toBe(parent);
+    expect(deny).toEqual(expect.arrayContaining([`Edit(/${join(parent, 'common-skills')}/**)`, `Write(/${join(parent, 'README.md')})`]));
+    expect(deny.some(rule => rule.includes(workspace) || rule === `Edit(/${parent}/**)`)).toBe(false);
   });
 });
