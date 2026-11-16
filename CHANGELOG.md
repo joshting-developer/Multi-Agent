@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.25 — 2026-11-16
+
+- Claude 執行命令改用 bash（和 Codex 一致），`echo =====` 這類寫法不會再因 zsh 失敗。
+- 機密保護縮小到登入憑證（`.claude/.credentials.json`、`.codex/auth.json`），專案裡 `.claude`、`.codex` 的 skill 與設定可以讀。
+- 歷史資料庫仍為 schema v6，可直接從 0.1.24 升級。
+
 ## 0.1.24 — 2026-11-16
 
 - Codex 的命令記下執行資料夾與結束碼：錯誤紀錄與對話裡展開命令時都看得到；輸出導到檔案時錯誤紀錄會註明沒有輸出。
