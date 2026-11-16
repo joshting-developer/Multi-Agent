@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.23 — 2026-11-16
+
+- 修正 Codex 沙盒內 git、系統 python3（xcrun 錯誤）與 Homebrew 的 docker 無法執行：沙盒另外唯讀開發工具與 git、docker 設定，並可寫系統暫存資料夾。
+- 歷史資料庫仍為 schema v6，可直接從 0.1.22 升級。
+
 ## 0.1.22 — 2026-11-16
 
 - 新增錯誤紀錄：失敗的命令、失敗的任務、擴充與畫面的錯誤都記在歷史資料庫的 `error_log`，升級時會補上既有紀錄裡的失敗。查法見 docs/architecture.md。
