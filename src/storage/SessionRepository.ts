@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ConversationDatabase, type ConversationExport } from './ConversationDatabase';
+import { ConversationDatabase, type ConversationExport, type ErrorEntry } from './ConversationDatabase';
 import type { AgentId, AuditEvent, ConversationSummary, SearchFilters } from '../bridge/messages';
 import { z } from 'zod';
 import { agentFeatures, agentIdSchema, taskSchema, type Task, type WorkspacePolicy } from '../bridge/messages';
@@ -96,6 +96,12 @@ export class SessionRepository {
   /** 清除目前專案在資料庫與記憶體中的所有對話。 */
   async clearProject(): Promise<void> { this.memory.clear(); this.known.clear(); await this.requireDatabase().clearProject(); }
   async audit(event: AuditEvent): Promise<void> { await this.database?.audit(event); }
+  /** 錯誤紀錄；這個專案關掉保存對話時只記摘要，不記命令與輸出。 */
+  async logError(entry: ErrorEntry): Promise<void> {
+    if (!this.database) return;
+    const { detail, ...rest } = entry;
+    await this.database.logError(this.persistent ? entry : rest); void detail;
+  }
   private requireDatabase(): ConversationDatabase { if (!this.database) throw new Error('目前沒有可用的歷史資料庫。'); return this.database; }
   exportConversation(id: string): ConversationExport { return this.requireDatabase().exportConversation(id); }
   backup(target: string): Promise<void> { return this.requireDatabase().backup(target); }

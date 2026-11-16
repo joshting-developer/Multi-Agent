@@ -28,7 +28,7 @@ Claude 使用官方 stream-json 輸入／輸出與 control_request/control_respo
 
 使用 sql.js 的 SQLite WASM，避免 native addon 的 Electron／Node ABI 問題；WASM 隨 VSIX 打包。資料庫存於 Extension `globalStorageUri`，所有對話與政策依 workspace canonical root 隔離。
 
-目前 schema version 5：`conversations`、`runs`、`metadata`、`participants`、`messages`、`discussion_rounds`、`discussion_summaries`、`audit_events`。`audit_events` 記錄工具開始／完成／失敗、核准要求與決定、停止、跨 Provider 資料轉交（連到 run），以及工作區授權變更和完整存取（工作區層級，沒有 run）；只存種類與 200 字以內的工具名稱、核准標題或 Provider，不存命令、檔案差異、工具輸出或認證資料。Run 保存完整使用者／Agent 訊息、模型、強度、核准模式、狀態及原生 Session 參照；`participants` 以各自 ID 保存 Provider、Role 與原生 Session，`messages` 每個 Run 各有一筆 user／agent 訊息，ID 建立後不變。未指定 Participant 的 Run 歸到該 Provider 的 `solo` Participant；指定時以 `architect`／`critic` 角色保存，同一 ID 不得改綁 Provider 或角色。Orchestrator 只回放同一 Participant 的歷史並帶入角色指示，每次只執行一方，不自動啟動另一方。`DiscussionCoordinator` 是唯一建立討論輪次的地方：兩方依序唯讀發言，只轉交上一輪可見輸出；每輪以 `discussion_rounds` 保存 roundNo、senderParticipantId、runId、messageId。討論期間 Orchestrator 拒絕一般送出與切換對話，失敗或取消時停止並保留已完成回合。回合上限由 Coordinator 以程式強制：開始 2–8 輪，延長只能由使用者對已完成的討論操作且總計不超過 8 輪；每次發言（含失敗）計入呼叫預算，每次開始或延長另保留 1 次總結。正常完成後由新的中立 summarizer Participant 唯讀總結，只拿到各輪可見輸出並標明 A／B 與輪次；`discussion_summaries` 記錄總結訊息與涵蓋到的輪次，來源可經 `discussion_rounds` 回溯。結論只能由使用者帶入輸入框後自行送出，不會自動寫程式。某輪遇到額度用完或頻率受限時（Adapter 以 `ProviderFailure.kind` 區分 quota／rate-limit），討論進入等待決定並保持鎖定：頻率受限可重試；可改由另一個已授權、可用的 Provider 以新的代替 Participant 接手該角色，交給它目前為止的可見對話；或結束。10 分鐘未決定視同結束。失敗的那次保留紀錄但不占用輪次，不自動代替。Stop 中止當輪子程序群組，回合之間按下也會阻止後續回合。跨 Agent 討論（例如 Claude 提案、Codex 審查）開始前逐一檢查每個 Provider 的工作區授權，一方獲准不代表另一方；不允許時說明原因並指出可用的單 Agent。每輪送出時仍重新檢查，回合之間撤銷授權會讓討論停止。每個 Participant 使用自己 Provider 的模型與強度。v1 開啟時依既有 Run 回填，原 `task_json` 不變。資料庫新版本不會被舊插件降版。
+目前 schema version 6：`conversations`、`runs`、`metadata`、`participants`、`messages`、`discussion_rounds`、`discussion_summaries`、`audit_events`、`error_log`。`audit_events` 記錄工具開始／完成／失敗、核准要求與決定、停止、跨 Provider 資料轉交（連到 run），以及工作區授權變更和完整存取（工作區層級，沒有 run）；只存種類與 200 字以內的工具名稱、核准標題或 Provider，不存命令、檔案差異、工具輸出或認證資料。Run 保存完整使用者／Agent 訊息、模型、強度、核准模式、狀態及原生 Session 參照；`participants` 以各自 ID 保存 Provider、Role 與原生 Session，`messages` 每個 Run 各有一筆 user／agent 訊息，ID 建立後不變。未指定 Participant 的 Run 歸到該 Provider 的 `solo` Participant；指定時以 `architect`／`critic` 角色保存，同一 ID 不得改綁 Provider 或角色。Orchestrator 只回放同一 Participant 的歷史並帶入角色指示，每次只執行一方，不自動啟動另一方。`DiscussionCoordinator` 是唯一建立討論輪次的地方：兩方依序唯讀發言，只轉交上一輪可見輸出；每輪以 `discussion_rounds` 保存 roundNo、senderParticipantId、runId、messageId。討論期間 Orchestrator 拒絕一般送出與切換對話，失敗或取消時停止並保留已完成回合。回合上限由 Coordinator 以程式強制：開始 2–8 輪，延長只能由使用者對已完成的討論操作且總計不超過 8 輪；每次發言（含失敗）計入呼叫預算，每次開始或延長另保留 1 次總結。正常完成後由新的中立 summarizer Participant 唯讀總結，只拿到各輪可見輸出並標明 A／B 與輪次；`discussion_summaries` 記錄總結訊息與涵蓋到的輪次，來源可經 `discussion_rounds` 回溯。結論只能由使用者帶入輸入框後自行送出，不會自動寫程式。某輪遇到額度用完或頻率受限時（Adapter 以 `ProviderFailure.kind` 區分 quota／rate-limit），討論進入等待決定並保持鎖定：頻率受限可重試；可改由另一個已授權、可用的 Provider 以新的代替 Participant 接手該角色，交給它目前為止的可見對話；或結束。10 分鐘未決定視同結束。失敗的那次保留紀錄但不占用輪次，不自動代替。Stop 中止當輪子程序群組，回合之間按下也會阻止後續回合。跨 Agent 討論（例如 Claude 提案、Codex 審查）開始前逐一檢查每個 Provider 的工作區授權，一方獲准不代表另一方；不允許時說明原因並指出可用的單 Agent。每輪送出時仍重新檢查，回合之間撤銷授權會讓討論停止。每個 Participant 使用自己 Provider 的模型與強度。v1 開啟時依既有 Run 回填，原 `task_json` 不變。資料庫新版本不會被舊插件降版。
 
 一般任務可在背景執行：任務屬於送出當下的對話，切換或新增對話只改變檢視，執行中與排隊中的對話保留在記憶體並持續寫回原對話。同一 workspace 由單一序列執行器依送出順序執行，最多 3 個排隊，排隊中的任務可直接取消；歷史列表標示執行中、排隊中、等待核准，核准卡標示背景對話。有執行中或排隊任務的對話不能刪除。討論進行中仍鎖住切換。VS Code 關閉時執行中與排隊中的任務標為已中斷，不宣稱會在背景持續執行。目前對話有任務執行中時，輸入框仍可輸入，送出的訊息先放在 Webview 的待送清單（只存在記憶體，記下加入當下的 Agent、模型、權限與圖片），可編輯或移除；該任務正常完成後自動送出第一則，失敗或停止時保留在清單等使用者按送出。Agent 支援時可「立即補充」：Codex 用官方 `turn/steer` 帶 `expectedTurnId` 送進同一個 turn，被拒絕只讓那次補充失敗、不中斷任務，成功後補充存成任務步驟裡的一則使用者訊息（step kind `steer`），顯示在 Agent 回覆中被補充的位置，原本的使用者訊息不變；送出到被接受之間對話裡先顯示傳送中，被拒絕就放回待送清單最前面。之後的上下文與匯出都會帶入補充內容（MA-142）；Claude 尚未提供，只能排隊。討論進行中不開放（MA-120）。
 
@@ -57,3 +57,21 @@ WASM 模式採 SQLite 交易後原子匯出單檔，短生命週期寫入鎖避�
 保留 VS Code Secondary Sidebar 原生分頁，VS Code 1.106 前有 Activity Bar fallback。齒輪設定使用獨立 Vue 編輯分頁。
 
 依 [quiet-workspace-ui](../skills/quiet-workspace-ui/SKILL.md)，常用介面顯示工作、選項及結果；不加填充式空狀態、重複操作教學。CLI 路徑、版本、模型來源、自訂 ID 放展開區。保留實際錯誤、必要欄位限制與高影響操作確認。
+
+## 錯誤紀錄（MA-151）
+
+`error_log` 依專案（root）記錄四種錯誤，排錯時直接查資料庫即可：
+
+| source | 內容 |
+| --- | --- |
+| `tool` | 失敗的工具步驟：工具名稱、命令第一行；detail 有完整命令與輸出（已遮罩、截斷） |
+| `task` | 任務失敗：錯誤訊息；detail 有額度／頻率分類、模型、權限與堆疊 |
+| `extension` | 擴充處理畫面請求時的錯誤：請求種類與訊息 |
+| `webview` | 畫面的執行期錯誤：訊息與堆疊 |
+
+刪除對話不會連帶刪除錯誤紀錄，整個資料庫只保留最近 5000 筆。專案關掉「保存對話」時只記摘要，不記命令與輸出。查最近的錯誤：
+
+```bash
+sqlite3 -readonly ~/Library/Application\ Support/Code/User/globalStorage/local-workspace.multi-agent-workspace/conversations.sqlite \
+  "SELECT datetime(created_at/1000,'unixepoch','localtime'), source, provider, summary FROM error_log WHERE root LIKE '%TaskTracker%' ORDER BY created_at DESC LIMIT 20"
+```

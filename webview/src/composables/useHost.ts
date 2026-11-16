@@ -4,6 +4,14 @@ import type { WorkspaceSettings } from '../../../src/bridge/preferences';
 
 declare function acquireVsCodeApi(): { postMessage(message: WebviewToHost): void; getState(): unknown; setState(value: unknown): void };
 const api = acquireVsCodeApi();
+/** 畫面的執行期錯誤交給 Host 記到錯誤紀錄（MA-151）；同一個訊息只回報一次，避免重複洗版。 */
+const reported = new Set<string>();
+export function reportClientError(error: unknown): void {
+  const message = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
+  if (reported.has(message) || reported.size > 50) return;
+  reported.add(message);
+  try { api.postMessage({ version: 1, type: 'client-error', requestId: crypto.randomUUID(), message, ...(error instanceof Error && error.stack && { stack: error.stack.slice(0, 8000) }) }); } catch { /* Host 不在時忽略 */ }
+}
 export function useHost() {
   const snapshot = ref<Snapshot>({ workspace: '', policy: { classification: 'unclassified', allowedProviders: [] }, providers: [], tasks: [], checking: false, trusted: false });
   const error = ref('');

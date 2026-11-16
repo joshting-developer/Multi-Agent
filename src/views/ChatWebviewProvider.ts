@@ -51,7 +51,11 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     this.disposables.push(webview.onDidReceiveMessage((raw: unknown) => {
       const parsed = webviewMessageSchema.safeParse(raw);
       if (!parsed.success) { this.post({ version: 1, type: 'error', message: '輸入格式不正確，請檢查模型、路徑與數值。' }, webview); return; }
-      void this.handle(parsed.data, webview, surface).catch(error => this.post({ version: 1, type: 'error', requestId: parsed.data.requestId, message: error instanceof Error ? error.message : '操作失敗。' }, webview));
+      void this.handle(parsed.data, webview, surface).catch(error => {
+        const message = error instanceof Error ? error.message : '操作失敗。';
+        this.orchestrator.logError('extension', `${parsed.data.type}：${message}`, undefined, error instanceof Error ? error.stack : undefined);
+        this.post({ version: 1, type: 'error', requestId: parsed.data.requestId, message }, webview);
+      });
     }));
   }
   private post(message: HostToWebview, target?: vscode.Webview): void {
@@ -263,6 +267,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'add-read-root': await this.pickReadRoot(); break;
       case 'remove-read-root': await this.orchestrator.removeReadRoot(message.path); break;
       case 'set-network': await this.orchestrator.setNetwork(message.enabled); break;
+      case 'client-error': this.orchestrator.logError('webview', `${surface}：${message.message}`, undefined, message.stack); break;
       case 'set-all-agent-features': {
         // 全部開放：網路與所有 Agent 功能一次打開；包含在沙盒外執行，所以同樣要原生確認。全部關閉不用確認。
         if (message.enabled && !this.orchestrator.state.policy.features?.includes('host') && !await this.confirmHost()) break;

@@ -7,6 +7,10 @@ import { ConversationDatabase } from '../src/storage/ConversationDatabase';
 import { toMarkdown } from '../src/storage/Export';
 import { SessionRepository } from '../src/storage/SessionRepository';
 import type { Task } from '../src/bridge/messages';
+import { Orchestrator } from '../src/orchestration/Orchestrator';
+import { AgentRegistry } from '../src/agents/AgentRegistry';
+import type { AgentAdapter } from '../src/agents/AgentAdapter';
+import { ProviderFailure } from '../src/agents/CliAdapter';
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const policy = { classification: 'personal' as const, allowedProviders: ['codex' as const] };
@@ -76,7 +80,7 @@ describe('SQLite conversation history', () => {
     const { db } = await setup();
     await db.save('one', '快取設計', [task('r1', '要用哪種快取？'), { ...task('r2', '再想想'), status: 'failed', error: '額度不足', rejected: true, steps: [{ kind: 'tool', id: 't', name: 'Read', status: 'done' }] }], policy);
     const data = db.exportConversation('one');
-    expect(data).toMatchObject({ format: 'multi-agent-conversation', schemaVersion: 5, root: '/project', conversation: { id: 'one', title: '快取設計' } });
+    expect(data).toMatchObject({ format: 'multi-agent-conversation', schemaVersion: 6, root: '/project', conversation: { id: 'one', title: '快取設計' } });
     expect(data.runs.map(run => [run.id, run.status])).toEqual([['r1', 'completed'], ['r2', 'failed']]);
     expect(data.messages.map(message => [message.runId, message.senderType])).toEqual([['r1', 'user'], ['r1', 'agent'], ['r2', 'user'], ['r2', 'agent']]);
     expect(data.messages.every(message => message.id.length > 10)).toBe(true);
@@ -172,5 +176,59 @@ describe('Steer messages in exports', () => {
     const run = { id: 'r', provider: 'codex', mode: 'read-only', prompt: '修 bug', output: 'ok', status: 'completed', startedAt: 0, steps: [{ kind: 'text', text: 'ok' }, { kind: 'steer', text: '也補測試', at: 1 }] } as Task;
     const markdown = toMarkdown({ conversation: { id: 'c', title: 't', createdAt: 0, updatedAt: 0 }, root: '/w', exportedAt: 'now', schemaVersion: 5, runs: [run] } as unknown as Parameters<typeof toMarkdown>[0]);
     expect(markdown).toContain('**使用者**\n\n修 bug'); expect(markdown).toContain('**使用者補充**\n\n也補測試');
+  });
+});
+describe('Error log', () => {
+  it('records failed commands and failed tasks per project with redacted details', async () => {
+    const { db } = await setup();
+    const capabilities = { streaming: true, readOnly: true, workspaceWrite: true, resumeSession: false, structuredOutput: true, toolApproval: false };
+    let run = 0;
+    const adapter: AgentAdapter = { id: 'codex', capabilities: () => capabilities, detect: async () => ({ id: 'codex', status: 'ready', capabilities }), cancel: async () => undefined,
+      async *execute(request) {
+        run++;
+        yield { type: 'tool', taskId: request.taskId, id: 'c', tool: 'commandExecution', phase: 'end', success: false, input: 'npm run build', output: 'EPERM rmdir dist token=sk-secret1234567890abcdef' };
+        if (run === 2) throw new ProviderFailure('額度已用完', 'quota');
+        yield { type: 'complete', taskId: request.taskId };
+      } };
+    const orchestrator = new Orchestrator(new AgentRegistry([adapter]), new SessionRepository({ get: () => undefined, update: async () => undefined }, '/project', db), '/project', () => true, () => 0);
+    await orchestrator.setPolicy(policy); await orchestrator.checkProviders();
+    await orchestrator.send('codex', 'build', 'workspace-write', { model: 'gpt', effort: 'high' });
+    await orchestrator.send('codex', 'build again', 'workspace-write', { model: 'gpt', effort: 'high' });
+    orchestrator.logError('extension', 'save-settings：CLI 路徑必須是絕對路徑');
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const errors = db.errors();
+    expect(errors.map(entry => [entry.source, entry.summary])).toEqual([
+      ['extension', 'save-settings：CLI 路徑必須是絕對路徑'], ['task', '額度已用完'], ['tool', 'commandExecution：npm run build'], ['tool', 'commandExecution：npm run build']
+    ]);
+    expect(errors[1]).toMatchObject({ provider: 'codex', runId: orchestrator.state.tasks[1]!.id, detail: expect.stringContaining('類型：quota') });
+    expect(errors[2]!.detail).toContain('EPERM rmdir dist'); expect(errors[2]!.detail).not.toContain('sk-secret1234567890abcdef');
+    // 關掉保存對話時只記摘要，不記命令與輸出。
+    await db.setPersistent(false);
+    await new SessionRepository({ get: () => undefined, update: async () => undefined }, '/project', db).logError({ at: Date.now(), source: 'tool', summary: 'x', detail: 'secret output' });
+    expect(db.errors(1)[0]).toEqual({ root: '/project', at: expect.any(Number), source: 'tool', summary: 'x' });
+    await orchestrator.dispose(); await db.close();
+  });
+  it('backfills failures already stored in earlier runs when upgrading the database', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'multi-agent-db-')); roots.push(root); const path = join(root, 'history.sqlite');
+    const sql = await initSqlJs({ wasmBinary: new Uint8Array(await readFile(wasm)).buffer }); const legacy = new sql.Database();
+    legacy.exec(`CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+      CREATE TABLE conversations(id TEXT PRIMARY KEY,root TEXT NOT NULL,title TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
+      CREATE TABLE runs(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,provider TEXT NOT NULL,started_at INTEGER NOT NULL,search_body TEXT NOT NULL,task_json TEXT NOT NULL);
+      PRAGMA user_version=1;`);
+    const failed: Task = { ...task('r1', 'build'), status: 'failed', error: '額度已用完', failureKind: 'quota', endedAt: 9, steps: [{ kind: 'tool', id: 'c', name: 'commandExecution', status: 'failed', input: 'npm run build', output: 'EPERM' }, { kind: 'tool', id: 'd', name: 'commandExecution', status: 'done', input: 'ls' }] };
+    legacy.run("INSERT INTO conversations VALUES('one','/project','舊',1,4)");
+    legacy.run('INSERT INTO runs VALUES(?,?,?,?,?,?)', [failed.id, 'one', failed.provider, failed.startedAt, 'x', JSON.stringify(failed)]);
+    await writeFile(path, legacy.export()); legacy.close();
+    const db = await ConversationDatabase.open(path, '/project', wasm);
+    expect(db.errors().map(entry => [entry.source, entry.summary, entry.runId])).toEqual(expect.arrayContaining([['tool', 'commandExecution：npm run build', 'r1'], ['task', '額度已用完', 'r1']]));
+    expect(db.errors()).toHaveLength(2);
+    await db.close();
+  });
+  it('keeps only the most recent entries', async () => {
+    const { db } = await setup();
+    for (let index = 0; index < 5005; index++) await db.logError({ at: index, source: 'tool', summary: `e${index}` });
+    const all = db.errors(10000);
+    expect(all).toHaveLength(5000); expect(all.at(-1)?.summary).toBe('e5'); expect(all[0]?.summary).toBe('e5004');
+    await db.close();
   });
 });

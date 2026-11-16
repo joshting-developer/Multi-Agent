@@ -104,6 +104,7 @@ export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('set-network'), enabled: z.boolean() }),
   z.object({ ...base, type: z.literal('set-agent-feature'), feature: z.enum(agentFeatures), enabled: z.boolean() }),
   z.object({ ...base, type: z.literal('set-all-agent-features'), enabled: z.boolean() }),
+  z.object({ ...base, type: z.literal('client-error'), message: z.string().max(2000), stack: z.string().max(8000).optional() }),
   z.object({ ...base, type: z.literal('use-reset-credit'), accountId: z.string().min(1).max(100), creditId: z.string().min(1).max(200).optional() }),
   z.object({ ...base, type: z.literal('select-account'), provider: agentIdSchema, accountId: z.string().min(1).max(100) }),
   z.object({ ...base, type: z.literal('set-account-preferences'), accountId: z.string().min(1).max(100), preferences: z.object({ model: modelIdSchema, effort: effortSchema, approvalMode: z.enum(approvalModes) }) }),

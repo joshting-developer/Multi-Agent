@@ -6,6 +6,9 @@ import type { AgentId, AuditEvent, ConversationSummary, SearchFilters, Task, Wor
 import { agentIdSchema, taskSchema } from '../bridge/messages';
 
 export interface StoredParticipant { id: string; provider: AgentId; role: string; nativeSessionId?: string }
+/** 一筆錯誤：tool 是失敗的工具步驟，task 是任務失敗，extension 是擴充處理請求的錯誤，webview 是畫面的執行期錯誤。 */
+export interface ErrorEntry { at: number; source: 'tool' | 'task' | 'extension' | 'webview'; summary: string; detail?: string; provider?: AgentId; conversationId?: string; runId?: string }
+const maxErrors = 5000;
 export interface StoredRound { discussionId: string; roundNo: number; senderParticipantId: string; runId: string; messageId: string }
 export interface StoredAudit extends AuditEvent { runId?: string }
 /** 單一對話的完整匯出：保留各自的 ID、專案 scope、schema 版本與狀態，供人閱讀或另存。 */
@@ -31,7 +34,7 @@ export class ConversationDatabase {
   }
   private migrate(db: Database) {
     const version = Number(db.exec('PRAGMA user_version')[0]?.values[0]?.[0] ?? 0);
-    if (version > 5) throw new Error('歷史資料庫版本較新，請更新插件後再開啟。');
+    if (version > 6) throw new Error('歷史資料庫版本較新，請更新插件後再開啟。');
     db.exec(`PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY,root TEXT NOT NULL,title TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
@@ -55,6 +58,13 @@ export class ConversationDatabase {
         CREATE INDEX audit_events_run ON audit_events(run_id);
         CREATE INDEX audit_events_root_time ON audit_events(root,created_at);
         PRAGMA user_version=5;`);
+    }
+    if (version < 6) {
+      // v6（MA-151）：錯誤紀錄。刪除對話不會連帶刪除，排錯時仍查得到；只保留最近 maxErrors 筆。
+      db.exec(`CREATE TABLE error_log(root TEXT NOT NULL,conversation_id TEXT,run_id TEXT,provider TEXT,source TEXT NOT NULL,summary TEXT NOT NULL,detail TEXT,created_at INTEGER NOT NULL);
+        CREATE INDEX error_log_root_time ON error_log(root,created_at);
+        PRAGMA user_version=6;`);
+      this.backfillErrors(db);
     }
     // 舊紀錄等所有資料表都建好後才回填，回填與一般寫入走同一條 writeRun。
     if (version < 2) {
@@ -223,6 +233,30 @@ export class ConversationDatabase {
       discussionId: String(row.discussion_id), roundNo: Number(row.round_no), senderParticipantId: String(row.participant_id), runId: String(row.run_id), messageId: String(row.message_id)
     }));
   }
+  /** 升級到 v6 時，從既有紀錄補上失敗的工具步驟與失敗的任務，舊的錯誤也查得到。 */
+  private backfillErrors(db: Database) {
+    const result = db.exec('SELECT c.root,r.conversation_id,r.id,r.provider,r.started_at,r.task_json FROM runs r JOIN conversations c ON c.id=r.conversation_id ORDER BY r.started_at');
+    for (const row of result[0]?.values ?? []) {
+      const [root = null, conversationId = null, runId = null, provider = null, startedAt = 0, json = '{}'] = row;
+      let task: Task; try { task = taskSchema.parse(JSON.parse(String(json))); } catch { continue; }
+      const at = Number(task.endedAt ?? startedAt);
+      for (const step of task.steps ?? []) if (step.kind === 'tool' && step.status === 'failed')
+        db.run('INSERT INTO error_log VALUES(?,?,?,?,?,?,?,?)', [root, conversationId, runId, provider, 'tool', `${step.name}：${(step.input ?? '').split('\n', 1)[0]!.slice(0, 200)}`, [step.input && `輸入：\n${step.input}`, step.output && `輸出：\n${step.output}`].filter(Boolean).join('\n\n') || null, at]);
+      if (task.status === 'failed') db.run('INSERT INTO error_log VALUES(?,?,?,?,?,?,?,?)', [root, conversationId, runId, provider, 'task', (task.error ?? '任務失敗').slice(0, 500), task.failureKind ? `類型：${task.failureKind}` : null, at]);
+    }
+    db.run('DELETE FROM error_log WHERE rowid <= (SELECT max(rowid) FROM error_log) - ?', [maxErrors]);
+  }
+  /** 記一筆錯誤（MA-151）；只留最近 maxErrors 筆。 */
+  logError(entry: ErrorEntry): Promise<void> {
+    return this.mutate(db => {
+      db.run('INSERT INTO error_log VALUES(?,?,?,?,?,?,?,?)', [this.root, entry.conversationId ?? null, entry.runId ?? null, entry.provider ?? null, entry.source, entry.summary.slice(0, 500), entry.detail?.slice(0, 8000) ?? null, entry.at]);
+      db.run('DELETE FROM error_log WHERE rowid <= (SELECT max(rowid) FROM error_log) - ?', [maxErrors]);
+    });
+  }
+  errors(limit = 50): Array<ErrorEntry & { root: string }> {
+    return this.rows('SELECT * FROM error_log WHERE root=? ORDER BY created_at DESC,rowid DESC LIMIT ?', [this.root, limit]).map(row => ({ root: String(row.root), at: Number(row.created_at), source: row.source as ErrorEntry['source'], summary: String(row.summary),
+      ...(typeof row.conversation_id === 'string' && { conversationId: row.conversation_id }), ...(typeof row.run_id === 'string' && { runId: row.run_id }), ...(typeof row.provider === 'string' && { provider: row.provider as ErrorEntry['provider'] }), ...(typeof row.detail === 'string' && { detail: row.detail }) }));
+  }
   audit(event: AuditEvent): Promise<void> {
     return this.mutate(db => { db.run('INSERT INTO audit_events VALUES(?,?,?,?,?,?)', [this.root, null, null, event.kind, event.detail, event.at]); });
   }
@@ -266,7 +300,7 @@ export class ConversationDatabase {
     try {
       candidate = new this.sql.Database(bytes);
       const version = Number(candidate.exec('PRAGMA user_version')[0]?.values[0]?.[0] ?? 0);
-      if (version > 5) throw new Error('備份來自較新的版本，請更新插件後再還原。');
+      if (version > 6) throw new Error('備份來自較新的版本，請更新插件後再還原。');
       if (!candidate.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name IN ('conversations','runs')")[0]?.values.length) throw new Error('這不是 Multi-Agent 的歷史資料庫備份。');
     } catch (error) { throw error instanceof Error && /備份|版本/.test(error.message) ? error : new Error('無法讀取備份檔，請確認檔案是 Multi-Agent 的歷史資料庫。'); }
     finally { candidate?.close(); }

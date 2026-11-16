@@ -224,6 +224,7 @@ export class Orchestrator {
       if (task.status === 'cancelled') this.audit(task, 'cancelled', '使用者停止');
       task.error = error instanceof Error ? error.message : '未知的執行錯誤。';
       if (task.status === 'failed' && error instanceof ProviderFailure && error.kind) task.failureKind = error.kind;
+      if (task.status === 'failed') this.logError('task', task.error, task, [task.failureKind && `類型：${task.failureKind}`, task.model && `模型：${task.model}`, `權限：${task.mode} · ${task.approvalMode ?? 'ask'}`, error instanceof Error && error.stack].filter(Boolean).join('\n'));
     } finally {
       // 失敗、拒絕或 Stop 後不留下一直「執行中」的工具。
       for (const step of task.steps ?? []) if (step.kind === 'tool' && step.status === 'running') step.status = task.status === 'completed' ? 'done' : 'stopped';
@@ -232,6 +233,11 @@ export class Orchestrator {
       this.active = undefined; this.state.activeTaskId = undefined; this.state.activeConversationId = undefined; this.taskConversations.delete(task.id);
       this.changed(); await this.flush().catch(this.storageError);
     }
+  }
+  /** 記一筆錯誤到本機資料庫（MA-151）；寫入失敗不影響任務。輸入、輸出在呼叫前已遮罩。 */
+  logError(source: 'tool' | 'task' | 'extension' | 'webview', summary: string, task?: Task, detail?: string): void {
+    const conversationId = task ? this.taskConversations.get(task.id) ?? this.repository.conversationId : undefined;
+    void this.repository.logError({ at: Date.now(), source, summary: redact(summary, 500), ...(detail && { detail: redact(detail, 8000) }), ...(task && { provider: task.provider, runId: task.id }), ...(conversationId && { conversationId }) }).catch(() => undefined);
   }
   /** 工作區層級的授權事件（授權變更、完整存取）不屬於單次執行，直接寫入稽核紀錄。 */
   auditWorkspace(kind: AuditEvent['kind'], detail: string): Promise<void> { return this.repository.audit({ at: Date.now(), kind, detail: detail.slice(0, 200) }); }
@@ -274,6 +280,7 @@ export class Orchestrator {
       if (event.output) step.output = redact(event.output, outputLimit);
       if (event.output) for (const blocked of blockedBy(event.output ?? '', this.cwd, this.state.policy)) this.onBlocked?.(task, blocked);
       this.audit(task, event.success === false ? 'tool-failed' : 'tool-end', event.tool);
+      if (event.success === false) this.logError('tool', `${event.tool}：${(step.input ?? '').split('\n', 1)[0]!.slice(0, 200)}`, task, [step.input && `輸入：\n${step.input}`, step.output && `輸出：\n${step.output}`].filter(Boolean).join('\n\n'));
     }
   }
   private audit(task: Task, kind: AuditEvent['kind'], detail: string): void {
