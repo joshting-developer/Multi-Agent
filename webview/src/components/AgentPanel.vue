@@ -4,6 +4,7 @@ import type { AccountSummary, AgentId, ProviderStatus } from '../../../src/bridg
 import { providerLabel } from '../../../src/bridge/labels';
 import { approvalLabels, approvalModes, concretePreferences, effortLabels, type AccountPreferences, type ApprovalMode, type ModelOption, type ReasoningEffort } from '../../../src/bridge/preferences';
 import type { ChatKind, HybridMember } from '../queue';
+import ChatIcon from './ChatIcon.vue';
 const props = defineProps<{
   kind: ChatKind; accounts: AccountSummary[]; selectedAccounts: Partial<Record<AgentId, string>>; provider: AgentId;
   models: Record<AgentId, ModelOption[]>; providers: ProviderStatus[]; preferencesOf: (account: AccountSummary) => AccountPreferences; busy: boolean;
@@ -63,7 +64,7 @@ const problem = computed(() => {
   <!-- 三種送出方式都在這裡選帳號；每個帳號的模型、強度、核准方式各自記住。 -->
   <div class="mode-bar">
     <details ref="menu" class="model-menu agent-menu" @keydown.esc="menu?.removeAttribute('open')">
-      <summary :aria-label="kind === 'solo' ? '執行的帳號與模型' : kind === 'discussion' ? '討論的帳號' : '混合模式的成員'" :title="summary">{{ summary }}</summary>
+      <summary :aria-label="kind === 'solo' ? '執行的帳號與模型' : kind === 'discussion' ? '討論的帳號' : '混合模式的成員'" :title="summary"><span class="agent-summary">{{ summary }}</span><ChatIcon name="chevron" class="agent-chevron" /></summary>
       <div class="model-popover agent-popover">
         <p v-if="!rows.length" class="muted">沒有已登入的帳號，請到設定 → 帳號登入</p>
         <ul class="agent-rows">
