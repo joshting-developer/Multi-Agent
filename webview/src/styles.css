@@ -211,3 +211,11 @@ mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inh
 .agent-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-chevron { flex-shrink: 0; width: 14px; height: 14px; color: var(--vscode-descriptionForeground); transition: transform .12s ease-out; }
 .agent-menu[open] .agent-chevron { transform: rotate(180deg); }
+/* 沒有已登入帳號時的登入入口：每個 Agent 一列，API Key 展開在同一個區塊。 */
+.login-card { display: grid; gap: 8px; margin-bottom: 8px; }
+.login-provider { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); border-radius: var(--radius-l); }
+.login-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.login-row strong { font-weight: 600; }
+.login-actions { display: flex; gap: 6px; }
+.login-key { display: flex; gap: 6px; }
+.login-key input { flex: 1; min-width: 0; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: var(--radius-m); padding: 6px 8px; }

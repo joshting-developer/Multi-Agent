@@ -11,6 +11,7 @@ import DiscussionBar from './components/DiscussionBar.vue';
 import QueuedMessages from './components/QueuedMessages.vue';
 import HybridBar from './components/HybridBar.vue';
 import AgentPanel from './components/AgentPanel.vue';
+import LoginCard from './components/LoginCard.vue';
 import type { ChatKind, HybridMember, QueuedMessage } from './queue';
 import { concretePreferences, defaultSettings, type AccountPreferences, type ProviderPreferences } from '../../src/bridge/preferences';
 const { steer, historyRequested, snapshot, error, running, submitting, draftRevision, post, send, draft, draftFor, saveDraft, searchConversations, searchResults, historySearching, navigating, navigate } = useHost();
@@ -134,6 +135,13 @@ function chooseSolo(provider: AgentId, accountId: string) {
   selected.value = provider; userSelected.value = true;
   if (accountId !== snapshot.value.selectedAccounts?.[provider]) selectAccount(provider, accountId);
 }
+// 一個已登入的帳號都沒有時（檢查中不算），聊天畫面直接提供 Claude、Codex 的登入入口。
+const needsLogin = computed(() => !!snapshot.value.accounts && !snapshot.value.accounts.some(account => account.loggedIn !== false));
+function login(provider: AgentId, accountId?: string) {
+  if (accountId) post({ version: 1, type: 'account-terminal', requestId: crypto.randomUUID(), accountId, action: 'login' });
+  else post({ version: 1, type: 'add-account', requestId: crypto.randomUUID(), provider });
+}
+function loginWithKey(provider: AgentId, apiKey: string) { post({ version: 1, type: 'add-account', requestId: crypto.randomUUID(), provider, apiKey }); }
 function setAccountPreferences(accountId: string, value: AccountPreferences) { post({ version: 1, type: 'set-account-preferences', requestId: crypto.randomUUID(), accountId, preferences: value }); }
 // 只在目前對話含有該混合任務時顯示進度與離開的成員。
 const hybrid = computed(() => snapshot.value.hybrid && snapshot.value.tasks.some(task => task.hybrid?.id === snapshot.value.hybrid!.id) ? snapshot.value.hybrid : undefined);
@@ -170,7 +178,7 @@ function cancel() {
 <template>
   <main class="workspace">
     <header class="chat-toolbar"><button type="button" class="conversation-title text-button" :disabled="navigationLocked" :aria-expanded="historyShown" @click="historyShown = !historyShown; historyQuery = ''; historyFilters = {}">{{ historyShown ? '歷史對話' : conversationTitle }}</button><div><span v-if="!historyShown" class="mode-tabs" role="group" aria-label="送出方式"><button v-for="item in kinds" :key="item.id" type="button" :aria-pressed="kind === item.id" :disabled="busy" @click="kind = item.id">{{ item.label }}</button></span><button type="button" class="icon-button" aria-label="歷史對話" :disabled="navigationLocked" :aria-pressed="historyShown" @click="historyShown = !historyShown; historyQuery = ''; historyFilters = {}"><ChatIcon name="history" /></button><button type="button" class="icon-button" aria-label="新增對話" :disabled="navigationLocked" @click="action('new-conversation'); historyShown = false"><ChatIcon name="new" /></button></div></header>
-    <AgentPanel v-if="!historyShown" :kind="kind" :accounts="snapshot.accounts ?? []" :selected-accounts="snapshot.selectedAccounts ?? {}" :provider="selected" :models="catalog" :providers="snapshot.providers" :preferences-of="preferencesOf" :busy="busy" @solo="chooseSolo" @preferences="setAccountPreferences" @team="(members, lead) => team = { members, lead }" @rounds="value => rounds = value" />
+    <AgentPanel v-if="!historyShown && !needsLogin" :kind="kind" :accounts="snapshot.accounts ?? []" :selected-accounts="snapshot.selectedAccounts ?? {}" :provider="selected" :models="catalog" :providers="snapshot.providers" :preferences-of="preferencesOf" :busy="busy" @solo="chooseSolo" @preferences="setAccountPreferences" @team="(members, lead) => team = { members, lead }" @rounds="value => rounds = value" />
     <p v-if="historyShown && error" class="error notice" role="alert">{{ error }}</p>
     <HistoryPanel v-if="historyShown" :conversations="history" :active-id="snapshot.conversationId" :busy="navigationLocked" :searching="historySearching" :providers="snapshot.policy.allowedProviders" @search="historySearch" @open="openConversation" @rename="renameConversation" @delete="deleteConversation" />
     <Conversation v-else :key="snapshot.conversationId" :tasks="snapshot.tasks" :focus="focus" :has-earlier="!!snapshot.hasEarlier" :external-changes="snapshot.externalChanges ?? 0" @earlier="post({ version: 1, type: 'load-earlier', requestId: newRequestId() })" @reload="snapshot.conversationId && openConversation(snapshot.conversationId)" @reject="rejectAnswer" />
@@ -180,6 +188,7 @@ function cancel() {
       <DiscussionBar v-if="discussion && !error && !notice" :discussion="discussion" :busy="busy" :summary-ready="!!summaryTask" :alternatives="alternatives" @extend="extendDiscussion" @adopt="adoptSummary" @resolve="resolveDiscussion" />
       <HybridBar v-if="hybrid && !error" :hybrid="hybrid" />
       <ApprovalCard v-for="request in snapshot.approvals ?? []" :key="request.id" :request="request" :background="!!request.conversationId && request.conversationId !== snapshot.conversationId" @answer="answerApproval" />
+      <LoginCard v-if="needsLogin" :accounts="snapshot.accounts ?? []" :busy="snapshot.checking" @login="login" @api-key="loginWithKey" />
       <QueuedMessages v-if="queued.length" :items="queued" :can-steer="canSteer" :can-send="canSend && !busy" :running="running" @steer="steerQueued" @send="sendQueued" @edit="editQueued" @remove="take" />
       <Composer :insert="insert" :approval-mode="soloPreferences.approvalMode" :supported-approval-modes="snapshot.providers.find(item => item.id === selected)?.approvalModes" :busy="composerBusy" :running="running || !!snapshot.discussionId" :can-send="canSend" :can-write="canWrite" :kind="kind" :kind-ready="kindReady" :send-shortcut="settings.sendShortcut" :default-mode="settings.defaultMode" :initial-draft="draft" :draft-revision="draftRevision" @send="compose" @cancel="cancel" @draft="saveDraft" />
     </div>

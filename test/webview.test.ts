@@ -283,6 +283,36 @@ describe('Vue chat', () => {
     } finally { wrapper.unmount(); vi.unstubAllGlobals(); }
   });
 });
+describe('Login when no account is signed in', () => {
+  it('offers official and API key login for Claude and Codex until one account is signed in', async () => {
+    const api = { postMessage: vi.fn(), getState: () => undefined, setState: vi.fn() };
+    vi.stubGlobal('acquireVsCodeApi', () => api); vi.resetModules();
+    const { default: App } = await import('../webview/src/App.vue');
+    const wrapper = mount(App);
+    const deliver = async (accounts: unknown[]) => { window.dispatchEvent(new MessageEvent('message', { data: { version: 1, type: 'snapshot', snapshot: { workspace: '/w', trusted: true, checking: false, tasks: [], policy: { classification: 'personal', allowedProviders: ['codex', 'claude'] }, providers: [], accounts } } })); await nextTick(); };
+    const posted = (type: string) => api.postMessage.mock.calls.map(([message]) => message).filter(message => message.type === type);
+    try {
+      await deliver([]);
+      expect(wrapper.findAll('.login-provider strong').map(item => item.text())).toEqual(['Claude Code', 'Codex']);
+      expect(wrapper.find('.agent-menu').exists()).toBe(false);
+      await wrapper.findAll('.login-provider')[0]!.findAll('button').find(button => button.text() === '官方登入')!.trigger('click');
+      expect(posted('add-account')).toEqual([expect.objectContaining({ provider: 'claude' })]); expect(posted('add-account')[0]).not.toHaveProperty('apiKey');
+      // API Key 展開輸入框後新增，送出後清空收起。
+      await wrapper.findAll('.login-provider')[1]!.findAll('button').find(button => button.text() === 'API Key')!.trigger('click');
+      await wrapper.get('input[aria-label="OpenAI API Key"]').setValue('sk-test');
+      await wrapper.get('.login-key').trigger('submit');
+      expect(posted('add-account').at(-1)).toEqual(expect.objectContaining({ provider: 'codex', apiKey: 'sk-test' })); expect(wrapper.find('.login-key').exists()).toBe(false);
+      // 已有但未登入的帳號，官方登入改成登入那個帳號，不另外新增。
+      await deliver([{ id: 'c1', provider: 'codex', name: '工作', loggedIn: false }]);
+      await wrapper.findAll('.login-provider')[1]!.findAll('button').find(button => button.text() === '官方登入')!.trigger('click');
+      expect(posted('account-terminal')).toEqual([expect.objectContaining({ accountId: 'c1', action: 'login' })]);
+      // 檢查中（loggedIn 未知）或任一帳號已登入時不顯示。
+      await deliver([{ id: 'c1', provider: 'codex', name: '工作' }]); expect(wrapper.find('.login-card').exists()).toBe(false);
+      await deliver([{ id: 'c1', provider: 'codex', name: '工作', loggedIn: true }]); expect(wrapper.find('.login-card').exists()).toBe(false);
+      expect(wrapper.find('.agent-menu').exists()).toBe(true);
+    } finally { wrapper.unmount(); vi.unstubAllGlobals(); }
+  });
+});
 describe('Hybrid mode', () => {
   it('picks members with a lead and shows per-stage speakers and who left', async () => {
     const { default: HybridBar } = await import('../webview/src/components/HybridBar.vue');
