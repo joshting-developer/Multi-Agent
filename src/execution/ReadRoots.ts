@@ -17,9 +17,14 @@ const absolutePath = /(?:^|[\s'"=(])(\/[^\s'"`;|&<>():]+)/g;
  */
 export function blockedFolders(task: Task, cwd: string, roots: string[] = []): string[] {
   const folders = new Set<string>();
-  for (const step of task.steps ?? []) {
-    if (step.kind !== 'tool') continue;
-    for (const match of (step.output ?? '').split('\n').filter(line => denied.test(line)).join('\n').matchAll(absolutePath)) {
+  for (const step of task.steps ?? []) if (step.kind === 'tool') for (const folder of foldersIn(step.output ?? '', cwd, roots)) folders.add(folder);
+  return [...folders].slice(0, 5);
+}
+/** 一段工具輸出裡被權限擋下、位於工作區外且尚未授權的資料夾。 */
+export function foldersIn(output: string, cwd: string, roots: string[] = []): string[] {
+  const folders = new Set<string>();
+  {
+    for (const match of output.split('\n').filter(line => denied.test(line)).join('\n').matchAll(absolutePath)) {
       const path = match[1]!.replace(/[.,]+$/, '');
       if (insideOf(path, cwd) || roots.some(root => insideOf(path, root)) || !existsSync(path)) continue;
       const folder = statSync(path).isDirectory() ? path : dirname(path);
@@ -33,4 +38,21 @@ const offline = /Could not resolve host|Temporary failure in name resolution|nod
 /** 這次執行的工具輸出是否出現連不上網的錯誤；只看工具輸出，用來提示允許網路。 */
 export function networkBlocked(task: Task): boolean {
   return (task.steps ?? []).some(step => step.kind === 'tool' && offline.test(step.output ?? ''));
+}
+/** 一段工具輸出是否是連不上網的錯誤。 */
+export const offlineIn = (output: string): boolean => offline.test(output);
+
+const browserCrash = /browserType\.launch|Target page, context or browser has been closed|Failed to launch the browser process|Chrome(?:ium)? (?:failed to start|crashed)/i;
+/** 一段工具輸出是否是瀏覽器（Playwright、Puppeteer）在沙盒內啟動失敗；macOS 沙盒內 Chrome 無法啟動。 */
+export const browserBlockedIn = (output: string): boolean => browserCrash.test(output);
+/** 執行中被擋下的權限種類，Host 據此詢問使用者。 */
+export type Blocked = { kind: 'network' } | { kind: 'read'; folders: string[] } | { kind: 'browser' };
+/** 一個命令的輸出被擋下的原因；工作區已允許的就不再回報。 */
+export function blockedBy(output: string, cwd: string, policy: { network?: boolean; readRoots?: string[] }): Blocked[] {
+  const found: Blocked[] = [];
+  if (!policy.network && offlineIn(output)) found.push({ kind: 'network' });
+  const folders = foldersIn(output, cwd, policy.readRoots);
+  if (folders.length) found.push({ kind: 'read', folders });
+  if (browserBlockedIn(output)) found.push({ kind: 'browser' });
+  return found;
 }

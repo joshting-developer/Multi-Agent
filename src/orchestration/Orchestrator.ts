@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, parse } from 'node:path';
-import { insideOf } from '../execution/ReadRoots';
+import { blockedBy, insideOf, type Blocked } from '../execution/ReadRoots';
 import { agentFeatures } from '../bridge/messages';
 import type { AgentFeature, AgentId, ApprovalRequest, AuditEvent, ConversationSummary, SearchFilters, UsageSnapshot, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
 import { AgentRegistry } from '../agents/AgentRegistry';
@@ -36,6 +36,8 @@ export class Orchestrator {
   readonly state: Snapshot;
   /** 執行中官方回報的額度狀態，交給帳號管理記錄（依執行時的帳號）。 */
   onUsage?: (provider: AgentId, accountId: string | undefined, usage: UsageSnapshot) => void;
+  /** 命令因為沒網路、工作區外讀取或瀏覽器在沙盒內無法啟動而失敗時，立即通知 Host 詢問使用者。 */
+  onBlocked?: (task: Task, blocked: Blocked) => void;
   /** 每次執行時讀取的回覆語言指示（設定 → 回覆語言）；沒有時不加。 */
   languageInstruction?: () => string | undefined;
   /** 使用者貼上圖片的本機儲存；未設定時不接受附件。 */
@@ -269,6 +271,7 @@ export class Orchestrator {
     if (event.phase === 'end') {
       step.status = event.success === false ? 'failed' : 'done';
       if (event.output) step.output = redact(event.output, outputLimit);
+      if (event.output) for (const blocked of blockedBy(event.output ?? '', this.cwd, this.state.policy)) this.onBlocked?.(task, blocked);
       this.audit(task, event.success === false ? 'tool-failed' : 'tool-end', event.tool);
     }
   }
@@ -294,6 +297,8 @@ export class Orchestrator {
     const steps = active.task.steps ??= active.task.output ? [{ kind: 'text', text: active.task.output }] : [];
     steps.push({ kind: 'steer', text, at: Date.now() }); this.changed();
   }
+  /** 等到目前沒有任務在執行（排隊的也跑完）；權限要等任務之間才能改。 */
+  async whenIdle(): Promise<void> { while (this.active) await this.active.finished; }
   async cancel(taskId?: string): Promise<void> {
     // 排隊中的任務直接取消，不會啟動。
     const queued = taskId ? [...this.live.values()].flat().find(task => task.id === taskId && task.status === 'queued') : undefined;

@@ -15,7 +15,7 @@
 
 ## CLI
 
-Codex 的要求／代我核准使用原生 filesystem profile，工作區依檔案模式 read/write，`.git`、`.agents`、`.vscode` 保留唯讀，常見機密檔（`.env`、`.env.*`、`*.pem`、`*.key`、`credentials*`、`secrets*`，以及 `.ssh`、`.aws`、`.codex`、`.claude` 資料夾）在每次執行前掃描工作區、以實際路徑 deny（略過 node_modules、.git 等，有深度與數量上限；Codex 沙盒的萬用字元 deny 會讓工作區內所有資料夾都不能刪除或搬移，MA-143），執行中才新增的機密檔不在名單內；命令網路預設關閉。工作區授權可另外開啟「允許 Agent 使用網路」（設定 → 工作區與資料，寫入稽核紀錄）：開啟後 Codex profile 的 network 改為 enabled、`web_search` 改為 live，Claude 多開放 WebFetch、WebSearch；檔案權限不變。命令因為沒有網路失敗時（例如 `Could not resolve host`）會提示一次，由使用者決定是否允許，不會自動開啟（MA-135）。需要額外權限時走官方核准。完整存取使用允許 root 寫入與網路的獨立 profile。管理政策仍然有效。
+Codex 的要求／代我核准使用原生 filesystem profile，工作區依檔案模式 read/write，`.git`、`.agents`、`.vscode` 保留唯讀，常見機密檔（`.env`、`.env.*`、`*.pem`、`*.key`、`credentials*`、`secrets*`，以及 `.ssh`、`.aws`、`.codex`、`.claude` 資料夾）在每次執行前掃描工作區、以實際路徑 deny（略過 node_modules、.git 等，有深度與數量上限；Codex 沙盒的萬用字元 deny 會讓工作區內所有資料夾都不能刪除或搬移，MA-143），執行中才新增的機密檔不在名單內；命令網路預設關閉。工作區授權可另外開啟「允許 Agent 使用網路」（設定 → 工作區與資料，寫入稽核紀錄）：開啟後 Codex profile 的 network 改為 enabled、`web_search` 改為 live，Claude 多開放 WebFetch、WebSearch；檔案權限不變。命令一失敗就檢查輸出：沒有網路、工作區外的資料夾被擋、或瀏覽器在沙盒內無法啟動，立刻跳出詢問（MA-135、MA-145）。一般聊天可選「允許並重新執行」：停止目前任務、開放權限，再用同樣的帳號、模型與核准方式送出接續訊息；「允許」則等任務之間才生效。瀏覽器只能改用完整存取重跑，仍要原生確認。討論與混合只提供「允許」。同一個任務同一種權限只問一次，不會自動開啟。需要額外權限時走官方核准。完整存取使用允許 root 寫入與網路的獨立 profile。管理政策仍然有效。
 
 Claude 的要求／代我核准使用 restricted + safe-mode，檔案工具限於工作目錄，授權寫入時另提供 Bash。Bash 授權經官方 Manual／auto 流程；**restricted 的檔案工具限制不等於 Bash 的 OS sandbox**。本版不宣稱 Claude Shell 有與 Codex 同等的 OS 級隔離。完整存取移除 restricted 並明確使用 bypassPermissions。常見機密路徑 deny 對檔案工具有效，不能保證攔截任意子程序間接讀取。
 

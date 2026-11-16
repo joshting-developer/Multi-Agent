@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { blockedFolders, networkBlocked } from '../src/execution/ReadRoots';
+import { blockedBy, blockedFolders, networkBlocked } from '../src/execution/ReadRoots';
 import { protectedFiles } from '../src/execution/ExecutionPolicy';
 import { CodexAppServerAdapter } from '../src/agents/CodexAppServerAdapter';
 import { ClaudeCodeAdapter } from '../src/agents/ClaudeCodeAdapter';
@@ -180,5 +180,17 @@ describe('Protected secret files for Codex', () => {
     const profile = codex.requests.at(-1)!.args.find(value => value.startsWith('permissions.multi_agent={'))!;
     expect(profile).toContain('".env"="deny"'); expect(profile).toContain('"config/server.key"="deny"'); expect(profile).toContain('".ssh"="deny"');
     expect(profile).not.toContain('**');
+  });
+});
+
+describe('Detecting blocked permissions in one command', () => {
+  it('reports network, outside folders and browser launch failures that the workspace has not allowed yet', async () => {
+    const { workspace, outside } = await folders();
+    expect(blockedBy('curl: (6) Could not resolve host: x', workspace, {})).toEqual([{ kind: 'network' }]);
+    expect(blockedBy('curl: (6) Could not resolve host: x', workspace, { network: true })).toEqual([]);
+    expect(blockedBy(`cat: ${outside}/skill/SKILL.md: Operation not permitted`, workspace, {})).toEqual([{ kind: 'read', folders: [join(outside, 'skill')] }]);
+    expect(blockedBy(`cat: ${outside}/skill/SKILL.md: Operation not permitted`, workspace, { readRoots: [outside] })).toEqual([]);
+    expect(blockedBy('browserType.launch: Target page, context or browser has been closed', workspace, {})).toEqual([{ kind: 'browser' }]);
+    expect(blockedBy('all good', workspace, {})).toEqual([]);
   });
 });

@@ -167,3 +167,37 @@ describe('Webview to native agent execution', () => {
   });
 });
 
+describe('Asking for blocked permissions while a task runs', () => {
+  it('asks as soon as a command has no network, then stops, allows and continues with the same account', async () => {
+    const requests: AgentRequest[] = [];
+    const capabilities = { streaming: true, readOnly: true, workspaceWrite: true, resumeSession: false, structuredOutput: true, toolApproval: false };
+    const adapter: AgentAdapter = {
+      id: 'codex', capabilities: () => capabilities, detect: async () => ({ id: 'codex', status: 'ready', capabilities }),
+      async *execute(request) {
+        requests.push(request);
+        if (requests.length === 1) {
+          yield { type: 'tool', taskId: request.taskId, id: 'c', tool: 'commandExecution', phase: 'end', success: false, input: 'curl https://example.com', output: 'curl: (6) Could not resolve host: example.com' };
+          // 第一個任務在被停止前一直執行，確認詢問是在執行中跳出。
+          await new Promise<void>(resolve => request.signal.addEventListener('abort', () => resolve(), { once: true }));
+        }
+        yield { type: 'complete', taskId: request.taskId };
+      },
+      cancel: async () => undefined
+    };
+    const orchestrator = new Orchestrator(new AgentRegistry([adapter]), new SessionRepository({ get: () => undefined, update: async () => undefined }, '/workspace'), '/workspace', () => true, () => 0);
+    await orchestrator.setPolicy({ classification: 'personal', allowedProviders: ['codex'] }); await orchestrator.checkProviders();
+    const controller = new ChatWebviewProvider(vscode.Uri.file('/extension'), orchestrator);
+    nativeWindow.showWarningMessage.mockReset(); nativeWindow.showWarningMessage.mockImplementation(async () => '允許並重新執行');
+    try {
+      const first = orchestrator.send('codex', '抓網頁', 'workspace-write', { model: 'm', effort: 'high', accountId: 'acc' }, 'auto-review');
+      await vi.waitFor(() => expect(requests).toHaveLength(2));
+      await first;
+      expect(nativeWindow.showWarningMessage).toHaveBeenCalledWith('Codex 的命令沒有網路可用。要允許這個工作區的 Agent 使用網路嗎？', '允許並重新執行', '允許');
+      expect(orchestrator.state.tasks[0]!.status).toBe('cancelled'); expect(orchestrator.state.policy.network).toBe(true);
+      // 接續的任務沿用原本的帳號、模型、權限與核准方式，並帶著網路。
+      expect(requests[1]).toMatchObject({ network: true, mode: 'workspace-write', approvalMode: 'auto-review', model: 'm', effort: 'high' });
+      expect(orchestrator.state.tasks[1]).toMatchObject({ prompt: '剛才的命令因為沒有網路而失敗，現在已開放網路。請從中斷的地方繼續。', accountId: 'acc' });
+      expect(nativeWindow.showWarningMessage).toHaveBeenCalledTimes(1);
+    } finally { controller.dispose(); await orchestrator.dispose(); nativeWindow.showWarningMessage.mockReset(); }
+  });
+});

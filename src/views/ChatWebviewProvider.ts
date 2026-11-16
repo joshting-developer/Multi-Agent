@@ -11,7 +11,7 @@ import { configureWebview } from './WebviewDocument';
 import type { AccountService } from '../accounts/AccountService';
 import { toMarkdown } from '../storage/Export';
 import { writeFile } from 'node:fs/promises';
-import { blockedFolders, networkBlocked } from '../execution/ReadRoots';
+import type { Blocked } from '../execution/ReadRoots';
 
 export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly webviews = new Set<vscode.Webview>();
@@ -39,6 +39,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     });
     if (settings) this.disposables.push({ dispose: settings.subscribe(() => this.snapshot()) });
     if (accounts) this.disposables.push({ dispose: accounts.subscribe(() => this.snapshot()) });
+    orchestrator.onBlocked = (task, blocked) => { void this.promptBlocked(task, blocked).catch(error => vscode.window.showErrorMessage(error instanceof Error ? error.message : '無法修改權限。')); };
   }
   resolveWebviewView(view: vscode.WebviewView): void {
     this.attach(view.webview, 'chat');
@@ -93,24 +94,49 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     const root = await this.orchestrator.addReadRoot(folder.fsPath);
     void vscode.window.showInformationMessage(`已允許讀取 ${root}，重新送出就能讀取。`);
   }
-  /** 執行中被 sandbox 擋下的工作區外讀取：跳通知讓使用者決定是否授權，同一個資料夾在這個視窗只問一次。 */
-  private async offerReadRoots(task: Task): Promise<void> {
-    const folders = blockedFolders(task, this.orchestrator.state.workspace, this.orchestrator.state.policy.readRoots).filter(folder => !this.offeredFolders.has(folder));
-    if (!folders.length) return;
-    for (const folder of folders) this.offeredFolders.add(folder);
+  private readonly asked = new Set<string>();
+  /**
+   * 命令一被擋下就詢問（MA-145）：一般聊天可「允許並重新執行」，停止目前任務、開放權限後用同樣的帳號與模型送出接續訊息；
+   * 「允許」等任務之間才生效。討論與混合只提供「允許」。同一個任務同一種權限只問一次，資料送往哪裡仍由使用者決定。
+   */
+  private async promptBlocked(task: Task, blocked: Blocked): Promise<void> {
+    const keys = blocked.kind === 'read' ? blocked.folders.map(folder => `${task.id}:read:${folder}`) : [`${task.id}:${blocked.kind}`];
+    if (keys.every(key => this.asked.has(key))) return;
+    for (const key of keys) this.asked.add(key);
     const name = task.provider === 'claude' ? 'Claude' : 'Codex';
-    const answer = await vscode.window.showWarningMessage(`${name} 沒有權限讀取工作區外的 ${folders.join('、')}。要允許這個專案讀取嗎？`, '選擇資料夾…');
-    if (answer) await this.pickReadRoot(folders[0]).catch(error => vscode.window.showErrorMessage(error instanceof Error ? error.message : '無法加入資料夾。'));
+    const solo = !task.participantId && !task.discussionId && !task.hybrid;
+    const rerun = '允許並重新執行';
+    if (blocked.kind === 'browser') {
+      // macOS 沙盒內 Chrome 無法啟動，只能用完整存取重跑；完整存取仍要原生確認。
+      if (!solo || task.approvalMode === 'full-access') return;
+      const answer = await vscode.window.showWarningMessage(`${name} 在沙盒內無法啟動瀏覽器（macOS 沙盒的限制）。要用完整存取重新執行嗎？`, '用完整存取重新執行');
+      if (answer && await this.grantFullAccess(task.provider)) await this.rerun(task, '剛才在沙盒內無法啟動瀏覽器，現在改用完整存取。請從中斷的地方繼續。', 'full-access');
+      return;
+    }
+    const what = blocked.kind === 'network' ? '的命令沒有網路可用。要允許這個工作區的 Agent 使用網路嗎？' : `無法讀取工作區外的 ${blocked.folders.join('、')}。要允許這個專案唯讀這些資料夾嗎？`;
+    const answer = await vscode.window.showWarningMessage(`${name} ${what}`, ...(solo ? [rerun, '允許'] : ['允許']));
+    if (!answer) return;
+    if (answer === rerun && this.orchestrator.state.activeTaskId === task.id) await this.orchestrator.cancel(task.id);
+    await this.orchestrator.whenIdle();
+    if (blocked.kind === 'network') await this.orchestrator.setNetwork(true);
+    else for (const folder of blocked.folders) await this.orchestrator.addReadRoot(folder);
+    if (answer === rerun) await this.rerun(task, blocked.kind === 'network' ? '剛才的命令因為沒有網路而失敗，現在已開放網路。請從中斷的地方繼續。' : `剛才無法讀取 ${blocked.folders.join('、')}，現在已允許唯讀。請從中斷的地方繼續。`);
+    else void vscode.window.showInformationMessage(blocked.kind === 'network' ? '已允許這個工作區使用網路，下一個任務開始生效。' : '已允許讀取，下一個任務開始生效。');
   }
-  private readonly offeredFolders = new Set<string>();
-  private networkOffered = false;
-  /** 任務的命令因為沒有網路而失敗時提示一次；允許後之後的任務才會連網，不會重跑這次。 */
-  private async offerNetwork(task: Task): Promise<void> {
-    if (this.networkOffered || this.orchestrator.state.policy.network || !networkBlocked(task)) return;
-    this.networkOffered = true;
-    const name = task.provider === 'claude' ? 'Claude' : 'Codex';
-    const answer = await vscode.window.showWarningMessage(`${name} 的命令沒有網路可用。要允許這個工作區的 Agent 使用網路嗎？`, '允許網路');
-    if (answer) await this.orchestrator.setNetwork(true).catch(error => vscode.window.showErrorMessage(error instanceof Error ? error.message : '無法修改網路設定。'));
+  /** 用原任務的帳號、模型與權限送出接續訊息。 */
+  private async rerun(task: Task, text: string, approvalMode = task.approvalMode): Promise<void> {
+    await this.orchestrator.whenIdle();
+    const preferences = task.model && task.effort ? { model: task.model, effort: task.effort, ...(task.accountId && { accountId: task.accountId }) } : undefined;
+    await this.orchestrator.send(task.provider, text, task.mode, preferences, approvalMode ?? 'ask');
+  }
+  /** 完整存取在這個視窗第一次使用前要原生確認，並寫入稽核紀錄。 */
+  private async grantFullAccess(provider: AgentId): Promise<boolean> {
+    if (this.fullAccessGrants.has(provider)) return true;
+    const answer = await vscode.window.showWarningMessage('完整存取會允許 Agent 存取工作區外的檔案、執行命令與使用網路。本次 VS Code 視窗中要啟用嗎？', { modal: true }, '啟用完整存取');
+    if (answer !== '啟用完整存取') return false;
+    this.fullAccessGrants.add(provider);
+    await this.orchestrator.auditWorkspace('full-access-granted', provider);
+    return true;
   }
   /** 明確選擇的帳號優先，其次是該 Provider 目前選定的帳號；每個環節（A、B、總結、代替）都各自帶入。 */
   private preferencesFor(provider: AgentId, explicit?: ProviderPreferences, accountId?: string): ProviderPreferences | undefined {
@@ -313,10 +339,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
           if (approvalMode === 'full-access' && message.mode !== 'read-only' && !this.fullAccessGrants.has(message.provider)) {
             this.approvalPending = true;
             try {
-              const answer = await vscode.window.showWarningMessage('完整存取會允許 Agent 存取工作區外的檔案、執行命令與使用網路。本次 VS Code 視窗中要啟用嗎？', { modal: true }, '啟用完整存取');
-              if (answer !== '啟用完整存取') return;
-              this.fullAccessGrants.add(message.provider);
-              await this.orchestrator.auditWorkspace('full-access-granted', message.provider);
+              if (!await this.grantFullAccess(message.provider)) return;
             } finally { this.approvalPending = false; }
           }
           if (!message.text && !message.attachments?.length) throw new Error('請輸入訊息或貼上圖片。');
@@ -325,8 +348,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
           const execution = this.orchestrator.send(message.provider, message.text || '請看附加的圖片。', message.mode, preferences, approvalMode, { attachments });
           // 任務已排入原對話；之後切換檢視或背景事件都不再影響這個請求的草稿。
           this.snapshot(); this.post({ version: 1, type: 'request-accepted', requestId: message.requestId }, source);
-          const finished = await execution;
-          void this.offerReadRoots(finished); void this.offerNetwork(finished);
+          await execution;
         }
         finally { this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); }
         break;
