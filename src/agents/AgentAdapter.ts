@@ -13,6 +13,8 @@ export interface AgentRequest {
   images?: Array<{ mime: string; data: string }>;
   /** 工作區外允許唯讀的資料夾（使用者在工作區授權中加入的 realpath）。 */
   readRoots?: string[];
+  /** 工作區允許連網時為 true；沙盒內的命令才能連網，並開放網頁搜尋與讀取網頁工具。 */
+  network?: boolean;
   approve?: (request: Omit<ApprovalRequest, 'id' | 'taskId' | 'provider'>) => Promise<boolean>;
 }
 export type AgentEvent =

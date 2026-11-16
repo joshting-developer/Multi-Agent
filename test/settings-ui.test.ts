@@ -33,6 +33,10 @@ describe('Model and settings UI', () => {
       expect(wrapper.findAll('nav button').map(button => button.text())).toEqual(['一般', '工作區與資料', '帳號']);
       expect(wrapper.find('input[aria-label="Codex CLI 路徑"]').exists()).toBe(true);
       await wrapper.findAll('nav button')[2]!.trigger('click'); expect(wrapper.find('.settings-footer').exists()).toBe(false);
+      // 工作區與資料可以開關 Agent 網路。
+      await wrapper.findAll('nav button')[1]!.trigger('click');
+      await wrapper.get('input[aria-label="允許 Agent 使用網路"]').setValue(true);
+      expect(api.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'set-network', enabled: true }));
       await wrapper.findAll('nav button')[0]!.trigger('click');
       await wrapper.get('select[aria-label="傳送快捷鍵"]').setValue('modifier-enter');
       await wrapper.findAll('nav button')[1]!.trigger('click'); expect(wrapper.find('.settings-footer').exists()).toBe(true);

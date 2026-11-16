@@ -11,7 +11,7 @@ import { configureWebview } from './WebviewDocument';
 import type { AccountService } from '../accounts/AccountService';
 import { toMarkdown } from '../storage/Export';
 import { writeFile } from 'node:fs/promises';
-import { blockedFolders } from '../execution/ReadRoots';
+import { blockedFolders, networkBlocked } from '../execution/ReadRoots';
 
 export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly webviews = new Set<vscode.Webview>();
@@ -103,6 +103,15 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     if (answer) await this.pickReadRoot(folders[0]).catch(error => vscode.window.showErrorMessage(error instanceof Error ? error.message : '無法加入資料夾。'));
   }
   private readonly offeredFolders = new Set<string>();
+  private networkOffered = false;
+  /** 任務的命令因為沒有網路而失敗時提示一次；允許後之後的任務才會連網，不會重跑這次。 */
+  private async offerNetwork(task: Task): Promise<void> {
+    if (this.networkOffered || this.orchestrator.state.policy.network || !networkBlocked(task)) return;
+    this.networkOffered = true;
+    const name = task.provider === 'claude' ? 'Claude' : 'Codex';
+    const answer = await vscode.window.showWarningMessage(`${name} 的命令沒有網路可用。要允許這個工作區的 Agent 使用網路嗎？`, '允許網路');
+    if (answer) await this.orchestrator.setNetwork(true).catch(error => vscode.window.showErrorMessage(error instanceof Error ? error.message : '無法修改網路設定。'));
+  }
   /** 明確選擇的帳號優先，其次是該 Provider 目前選定的帳號；每個環節（A、B、總結、代替）都各自帶入。 */
   private preferencesFor(provider: AgentId, explicit?: ProviderPreferences, accountId?: string): ProviderPreferences | undefined {
     // 沒有明確帶入時，先用該帳號記住的設定，再用該 Agent 的預設。
@@ -219,6 +228,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'account-terminal': this.openAccountTerminal(message.accountId, message.action); break;
       case 'add-read-root': await this.pickReadRoot(); break;
       case 'remove-read-root': await this.orchestrator.removeReadRoot(message.path); break;
+      case 'set-network': await this.orchestrator.setNetwork(message.enabled); break;
       case 'use-reset-credit': {
         if (!this.accounts) throw new Error('帳號管理尚未就緒。');
         const credit = message.creditId ? this.accounts.list().find(item => item.id === message.accountId)?.usage?.resetCreditList?.find(item => item.id === message.creditId) : undefined;
@@ -314,7 +324,8 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
           const execution = this.orchestrator.send(message.provider, message.text || '請看附加的圖片。', message.mode, preferences, approvalMode, { attachments });
           // 任務已排入原對話；之後切換檢視或背景事件都不再影響這個請求的草稿。
           this.snapshot(); this.post({ version: 1, type: 'request-accepted', requestId: message.requestId }, source);
-          void this.offerReadRoots(await execution);
+          const finished = await execution;
+          void this.offerReadRoots(finished); void this.offerNetwork(finished);
         }
         finally { this.post({ version: 1, type: 'request-settled', requestId: message.requestId }, source); }
         break;

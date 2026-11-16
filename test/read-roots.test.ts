@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { blockedFolders } from '../src/execution/ReadRoots';
+import { blockedFolders, networkBlocked } from '../src/execution/ReadRoots';
 import { CodexAppServerAdapter } from '../src/agents/CodexAppServerAdapter';
 import { ClaudeCodeAdapter } from '../src/agents/ClaudeCodeAdapter';
 import { AgentRegistry } from '../src/agents/AgentRegistry';
@@ -74,5 +74,49 @@ describe('Reading folders outside the workspace', () => {
     const args = claude.requests.at(-1)!.args;
     expect(args[args.indexOf('--add-dir') + 1]).toBe('/tmp/shared skills');
     expect(JSON.parse(args[args.indexOf('--settings') + 1]!).permissions.deny).toEqual(expect.arrayContaining(['Edit(//tmp/shared skills/**)', 'Write(//tmp/shared skills/**)']));
+  });
+});
+
+describe('Network access for agents', () => {
+  it('stays off by default and is turned on per workspace with an audit entry', async () => {
+    const { workspace } = await folders();
+    const requests: AgentRequest[] = [];
+    const capabilities = { streaming: true, readOnly: true, workspaceWrite: true, resumeSession: false, structuredOutput: true, toolApproval: false };
+    const adapter: AgentAdapter = { id: 'codex', capabilities: () => capabilities, detect: async () => ({ id: 'codex', status: 'ready', capabilities }),
+      async *execute(request) { requests.push(request); yield { type: 'complete', taskId: request.taskId }; }, cancel: async () => undefined };
+    const audits: string[] = [];
+    const repository = new SessionRepository({ get: () => undefined, update: async () => undefined }, workspace);
+    repository.audit = async event => { audits.push(event.detail); };
+    const orchestrator = new Orchestrator(new AgentRegistry([adapter]), repository, workspace, () => true, () => 0);
+    await orchestrator.setPolicy({ classification: 'personal', allowedProviders: ['codex'] }); await orchestrator.checkProviders();
+    await orchestrator.send('codex', 'fetch', 'read-only');
+    expect(requests[0]?.network).toBeUndefined();
+    await orchestrator.setNetwork(true); await orchestrator.send('codex', 'fetch', 'read-only');
+    expect(requests[1]?.network).toBe(true); expect(orchestrator.state.policy.network).toBe(true);
+    await orchestrator.setNetwork(false); await orchestrator.send('codex', 'fetch', 'read-only');
+    expect(requests[2]?.network).toBeUndefined(); expect(orchestrator.state.policy).not.toHaveProperty('network');
+    expect(audits.slice(-2)).toEqual(['允許 Agent 使用網路', '關閉 Agent 網路']);
+    await orchestrator.dispose();
+  });
+  it('opens the Codex sandbox network and web search, and gives Claude web tools, only when allowed', async () => {
+    const base = { taskId: 't', prompt: 'p', cwd: process.cwd(), timeoutMs: 3000, signal: new AbortController().signal, model: 'test-model', effort: 'low' as const };
+    for (const network of [false, true]) {
+      const codex = new FixtureProcesses('codex'); const claude = new FixtureProcesses('claude');
+      const codexAdapter = new CodexAppServerAdapter(codex, () => process.execPath, process.cwd());
+      for await (const event of codexAdapter.execute({ ...base, mode: 'workspace-write', approvalMode: 'ask', ...(network && { network }) })) void event;
+      const args = codex.requests.at(-1)!.args;
+      expect(args.find(value => value.startsWith('permissions.multi_agent={'))).toContain(`network={enabled=${network}}`);
+      expect(args).toContain(`web_search="${network ? 'live' : 'disabled'}"`);
+      const claudeAdapter = new ClaudeCodeAdapter(claude, () => process.execPath, process.cwd()); await claudeAdapter.detect();
+      for await (const event of claudeAdapter.execute({ ...base, mode: 'read-only', model: 'sonnet', ...(network && { network }) })) void event;
+      const tools = claude.requests.at(-1)!.args[claude.requests.at(-1)!.args.indexOf('--tools') + 1];
+      expect(tools).toBe(network ? 'Read,Glob,Grep,WebFetch,WebSearch' : 'Read,Glob,Grep');
+    }
+  });
+  it('recognizes commands that failed for lack of network', () => {
+    const task = (output: string) => ({ id: 't', provider: 'codex', mode: 'read-only', prompt: '', output: '', status: 'completed', startedAt: 1, steps: [tool('curl https://example.com', output)] }) as Task;
+    expect(networkBlocked(task('curl: (6) Could not resolve host: example.com'))).toBe(true);
+    expect(networkBlocked(task('Error: getaddrinfo ENOTFOUND registry.npmjs.org'))).toBe(true);
+    expect(networkBlocked(task('HTTP/2 200'))).toBe(false);
   });
 });

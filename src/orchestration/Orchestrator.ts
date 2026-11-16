@@ -119,6 +119,15 @@ export class Orchestrator {
     await this.auditWorkspace('policy-changed', `允許唯讀：${root}`);
     return root;
   }
+  /** 允許或關閉這個工作區的 Agent 連網；只在沒有任務執行時改，並寫入稽核紀錄。 */
+  async setNetwork(enabled: boolean): Promise<void> {
+    if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
+    if (!!this.state.policy.network === enabled) return;
+    const { network: _previous, ...policy } = this.state.policy; void _previous;
+    this.state.policy = enabled ? { ...policy, network: true } : policy;
+    this.changed(); await this.flush();
+    await this.auditWorkspace('policy-changed', enabled ? '允許 Agent 使用網路' : '關閉 Agent 網路');
+  }
   async removeReadRoot(path: string): Promise<void> {
     if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
     const { readRoots = [], ...policy } = this.state.policy; const roots = readRoots.filter(item => item !== path);
@@ -221,7 +230,7 @@ export class Orchestrator {
     const conversationId = this.taskConversations.get(task.id) ?? this.repository.conversationId;
     if (task.attachments?.length && !this.attachmentStore) throw new Error('目前無法讀取圖片附件。');
     const images = task.attachments?.length ? await Promise.all(task.attachments.map(async item => ({ mime: item.mime, data: await this.attachmentStore!.read(conversationId, item.id) }))) : undefined;
-    for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, persist, resumeSessionId, ...(this.state.policy.readRoots?.length && { readRoots: this.state.policy.readRoots }), ...(env && { env }), ...(images && { images }), approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
+    for await (const event of this.registry.get(task.provider).execute({ taskId: task.id, prompt, cwd: this.cwd, mode: task.mode, model: task.model, effort: task.effort, approvalMode: task.approvalMode, persist, resumeSessionId, ...(this.state.policy.readRoots?.length && { readRoots: this.state.policy.readRoots }), ...(this.state.policy.network && { network: true }), ...(env && { env }), ...(images && { images }), approve: request => this.requestApproval(task, request, controller.signal), signal: controller.signal, timeoutMs: this.timeoutMs() })) {
       if (event.type === 'text-delta') {
         if (task.output.length + event.text.length > 512 * 1024) throw new Error('回應超過 512 KB 上限，已停止任務。');
         task.output += event.text;

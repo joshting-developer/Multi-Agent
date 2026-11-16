@@ -37,7 +37,8 @@ export const taskSchema = z.object({
 export type Task = z.infer<typeof taskSchema>;
 export type Classification = 'unclassified' | 'personal' | 'company' | 'restricted';
 /** readRoots：使用者允許 Agent 唯讀的工作區外資料夾（realpath）。 */
-export interface WorkspacePolicy { classification: Classification; allowedProviders: AgentId[]; readRoots?: string[] }
+/** network：允許 Agent 的命令連網、使用網頁搜尋與讀取網頁；預設關閉（MA-135）。 */
+export interface WorkspacePolicy { classification: Classification; allowedProviders: AgentId[]; readRoots?: string[]; network?: boolean }
 export interface ProviderStatus {
   id: AgentId;
   status: 'not-installed' | 'installed' | 'authenticated' | 'ready' | 'error' | 'unknown';
@@ -95,6 +96,7 @@ export const webviewMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('account-terminal'), accountId: z.string().min(1).max(100), action: z.enum(['login', 'logout']) }),
   z.object({ ...base, type: z.literal('add-read-root') }),
   z.object({ ...base, type: z.literal('remove-read-root'), path: z.string().min(1).max(4096) }),
+  z.object({ ...base, type: z.literal('set-network'), enabled: z.boolean() }),
   z.object({ ...base, type: z.literal('use-reset-credit'), accountId: z.string().min(1).max(100), creditId: z.string().min(1).max(200).optional() }),
   z.object({ ...base, type: z.literal('select-account'), provider: agentIdSchema, accountId: z.string().min(1).max(100) }),
   z.object({ ...base, type: z.literal('set-account-preferences'), accountId: z.string().min(1).max(100), preferences: z.object({ model: modelIdSchema, effort: effortSchema, approvalMode: z.enum(approvalModes) }) }),

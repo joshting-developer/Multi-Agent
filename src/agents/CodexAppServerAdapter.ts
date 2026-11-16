@@ -86,8 +86,8 @@ export class CodexAppServerAdapter extends CodexAdapter {
     const readRoots = (request.readRoots ?? []).map(root => `,${JSON.stringify(root)}="read"`).join('');
     const config = [
       'features.shell_tool=true', ...['multi_agent', 'apps', 'plugins', 'hooks', 'browser_use', 'computer_use', 'memories'].filter(name => this.hasFeature(name)).map(name => `features.${name}=false`),
-      'shell_environment_policy.inherit="core"', 'web_search="disabled"',
-      ...(sandboxed ? [`permissions.multi_agent={filesystem={":minimal"="read",":workspace_roots"={${rules.join(',')}}${readRoots}},network={enabled=false}}`, 'default_permissions="multi_agent"'] : ['permissions.multi_agent_full={filesystem={":root"="write"},network={enabled=true}}', 'default_permissions="multi_agent_full"'])
+      'shell_environment_policy.inherit="core"', `web_search="${request.network ? 'live' : 'disabled'}"`,
+      ...(sandboxed ? [`permissions.multi_agent={filesystem={":minimal"="read",":workspace_roots"={${rules.join(',')}}${readRoots}},network={enabled=${request.network ? 'true' : 'false'}}}`, 'default_permissions="multi_agent"'] : ['permissions.multi_agent_full={filesystem={":root"="write"},network={enabled=true}}', 'default_permissions="multi_agent_full"'])
     ];
     let threadId: string | undefined;
     const outputs = new Map<string, string>();

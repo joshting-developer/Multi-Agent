@@ -28,3 +28,9 @@ export function blockedFolders(task: Task, cwd: string, roots: string[] = []): s
   }
   return [...folders].slice(0, 5);
 }
+
+const offline = /Could not resolve host|Temporary failure in name resolution|nodename nor servname provided|getaddrinfo (?:ENOTFOUND|EAI_AGAIN)|Network is unreachable|network access is (?:disabled|blocked)/i;
+/** 這次執行的工具輸出是否出現連不上網的錯誤；只看工具輸出，用來提示允許網路。 */
+export function networkBlocked(task: Task): boolean {
+  return (task.steps ?? []).some(step => step.kind === 'tool' && offline.test(step.output ?? ''));
+}

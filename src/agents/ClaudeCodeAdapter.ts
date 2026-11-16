@@ -39,7 +39,9 @@ export class ClaudeCodeAdapter extends CliAdapter {
     if (request.effort && !this.help.includes('--effort')) throw new Error('此 Claude Code 版本不支援推理強度，請更新 CLI。');
     // 圖片要走 stream-json 輸入，才能用官方的 image 區塊。
     const interactive = !!request.approvalMode || !!request.images?.length;
-    const tools = request.mode === 'workspace-write' ? (interactive ? 'Read,Glob,Grep,Edit,Write,Bash' : 'Read,Glob,Grep,Edit,Write') : 'Read,Glob,Grep';
+    // 工作區允許連網時才開放讀取網頁與網頁搜尋。
+    const web = request.network ? ',WebFetch,WebSearch' : '';
+    const tools = (request.mode === 'workspace-write' ? (interactive ? 'Read,Glob,Grep,Edit,Write,Bash' : 'Read,Glob,Grep,Edit,Write') : 'Read,Glob,Grep') + web;
     const permission = request.mode === 'read-only' ? 'plan' : request.approvalMode === 'full-access' ? 'bypassPermissions' : request.approvalMode === 'auto-review' ? 'auto' : interactive ? 'manual' : 'dontAsk';
     if (request.approvalMode === 'auto-review' && !this.detected?.approvalModes?.includes('auto-review')) throw new Error('此 Claude CLI 不支援代我核准，請更新 CLI。');
     // 工作區外的資料夾以 --add-dir 加入，但禁止檔案工具寫入；Claude 規則的絕對路徑以 // 開頭。
@@ -49,7 +51,7 @@ export class ClaudeCodeAdapter extends CliAdapter {
       ...(request.model ? ['--model', request.model] : []),
       ...(request.effort ? ['--effort', request.effort] : []),
       ...(request.approvalMode === 'full-access' && request.mode !== 'read-only' ? ['--dangerously-skip-permissions'] : ['--restricted']),
-      '--safe-mode', '--tools', tools, '--allowedTools', interactive ? 'Read,Glob,Grep' : tools,
+      '--safe-mode', '--tools', tools, '--allowedTools', interactive ? `Read,Glob,Grep${web}` : tools,
       ...(interactive ? ['--input-format', 'stream-json', '--permission-prompts', 'host', '--permission-prompt-tool', 'stdio'] : []),
       '--permission-mode', permission,
       ...roots.flatMap(root => ['--add-dir', root]),
