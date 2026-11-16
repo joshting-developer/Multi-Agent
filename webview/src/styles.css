@@ -200,3 +200,8 @@ mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inh
 .agent-fields { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 4px; padding-left: 20px; }
 .agent-fields select { border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, transparent)); padding: 4px 6px; }
 .agent-problem { flex-basis: 100%; margin: 0; }
+.toggle-switch { position: relative; flex-shrink: 0; width: 36px; height: 20px; min-height: 20px; padding: 0; border-radius: 10px; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); background: var(--vscode-input-background); }
+.toggle-switch:hover:not(:disabled) { background: var(--vscode-input-background); border-color: var(--vscode-focusBorder); }
+.toggle-knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--vscode-descriptionForeground); transition: transform .12s ease-out, background-color .12s ease-out; }
+.toggle-switch[aria-checked="true"], .toggle-switch[aria-checked="true"]:hover:not(:disabled) { background: var(--vscode-button-background); border-color: var(--vscode-button-background); }
+.toggle-switch[aria-checked="true"] .toggle-knob { transform: translateX(16px); background: var(--vscode-button-foreground); }

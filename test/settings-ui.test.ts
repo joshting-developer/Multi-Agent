@@ -35,8 +35,14 @@ describe('Model and settings UI', () => {
       await wrapper.findAll('nav button')[2]!.trigger('click'); expect(wrapper.find('.settings-footer').exists()).toBe(false);
       // 工作區與資料可以開關 Agent 網路。
       await wrapper.findAll('nav button')[1]!.trigger('click');
-      await wrapper.get('input[aria-label="允許 Agent 使用網路"]').setValue(true);
+      // 只有開關本身能切換；點標題與說明不會改設定。
+      const toggle = wrapper.get('button[role="switch"][aria-label="允許 Agent 使用網路"]');
+      expect(toggle.attributes('aria-checked')).toBe('false');
+      await toggle.element.closest('.setting-row')!.querySelector('span')!.click();
+      expect(api.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'set-network' }));
+      await toggle.trigger('click');
       expect(api.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'set-network', enabled: true }));
+      expect(wrapper.get('button[role="switch"][aria-label="保存這個專案的對話"]').attributes('aria-checked')).toBe('true');
       await wrapper.findAll('nav button')[0]!.trigger('click');
       await wrapper.get('select[aria-label="傳送快捷鍵"]').setValue('modifier-enter');
       await wrapper.findAll('nav button')[1]!.trigger('click'); expect(wrapper.find('.settings-footer').exists()).toBe(true);
