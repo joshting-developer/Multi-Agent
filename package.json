@@ -2,7 +2,7 @@
   "name": "multi-agent-workspace",
   "displayName": "Multi-Agent Workspace",
   "description": "Claude Code and Codex in a simple chat beside VS Code Chat.",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "publisher": "local-workspace",
   "private": true,
   "license": "UNLICENSED",
