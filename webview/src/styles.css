@@ -229,3 +229,4 @@ mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inh
 @keyframes steer-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .steer-spinner { animation: none; border-right-color: var(--vscode-descriptionForeground); } }
 .tool-step summary .failed { flex: none; white-space: nowrap; }
+.agent-rows input { accent-color: var(--vscode-button-background); }

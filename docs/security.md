@@ -51,4 +51,4 @@ Git push、部署、破壞性操作要求人工授權的意圖會傳給 Agent；
 
 - **Agent 功能（MA-140）**：設定 → 工作區與資料可逐項開放外掛與 Apps、MCP 伺服器、子 Agent、瀏覽器與電腦操作、記憶、Hooks、斜線指令與 Skill，預設全關，按工作區記住並寫稽核紀錄，任務執行中不能改。開放後 Codex 不再強制清空 MCP、關閉對應的官方 feature；Claude 拿掉 `--safe-mode`、空 MCP 設定與停用斜線指令，子 Agent 加入 `Agent` 工具。Claude 仍保留 `--restricted`（檔案工具限制在工作區、不讀使用者與專案設定檔），所以外掛與 hooks 只開放給 Codex。外掛與 MCP 讀取各帳號自己的設定資料夾，不讀 `~/.codex`、`~/.claude`。檔案權限、沙盒與網路規則不受這些開關影響。
 
-- **操作這台 Mac（MA-146）**：Agent 功能的一項，只影響 Codex。實測 macOS 沙盒內 Chrome 一啟動就崩潰（給整台電腦寫入權限也一樣），MA 的工作區沙盒也無法執行 Homebrew 的 docker；開啟後 Codex 的可編輯任務改在沙盒外執行（sandbox danger-full-access、網路開啟），核准改成 `untrusted`：要求核准時非唯讀命令都要使用者核准，代我核准時交給 Codex 的審查逐一判斷；完整存取與唯讀任務不受影響。開啟前要原生確認並寫稽核紀錄。瀏覽器在沙盒內啟動失敗時，詢問改成開啟這項並重新執行。
+- **操作這台 Mac（MA-146）**：Agent 功能的一項，只影響 Codex。實測 macOS 沙盒內 Chrome 一啟動就崩潰（給整台電腦寫入權限也一樣），MA 的工作區沙盒也無法執行 Homebrew 的 docker；開啟後 Codex 的可編輯任務改在沙盒外執行（sandbox danger-full-access、網路開啟），要求核准時核准改成 `untrusted`，非唯讀命令都要使用者核准；代我核准時維持 `on-request`，Codex 要求的核准交給它自己的審查（`untrusted` 的請求會直接送給使用者，MA-148）；完整存取與唯讀任務不受影響。開啟前要原生確認並寫稽核紀錄。瀏覽器在沙盒內啟動失敗時，詢問改成開啟這項並重新執行。

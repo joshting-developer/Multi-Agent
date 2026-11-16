@@ -203,8 +203,12 @@ describe('Operating this Mac', () => {
       let text = ''; for await (const event of adapter.execute({ ...base, mode: 'workspace-write', approvalMode: 'auto-review', ...request })) if (event.type === 'text-delta') text += event.text;
       return { params: JSON.parse(text) as Record<string, unknown>, args: codex.requests.at(-1)!.args };
     };
+    // 代我核准：沙盒外執行，核准交給 Codex 自己的審查，不再每個命令都問使用者。
     const host = await start({ features: ['host'] });
-    expect(host.params).toMatchObject({ sandbox: 'danger-full-access', approvalPolicy: 'untrusted', approvalsReviewer: 'auto_review' });
+    expect(host.params).toMatchObject({ sandbox: 'danger-full-access', approvalPolicy: 'on-request', approvalsReviewer: 'auto_review' });
+    // 要求核准：非唯讀命令都要使用者核准。
+    const ask = await start({ features: ['host'], approvalMode: 'ask' });
+    expect(ask.params).toMatchObject({ sandbox: 'danger-full-access', approvalPolicy: 'untrusted', approvalsReviewer: 'user' });
     expect(host.args).toContain('default_permissions="multi_agent_full"');
     const normal = await start({});
     expect(normal.params).toMatchObject({ approvalPolicy: 'on-request' }); expect(normal.params).not.toHaveProperty('sandbox');

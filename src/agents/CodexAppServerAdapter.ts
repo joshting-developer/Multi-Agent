@@ -83,7 +83,8 @@ export class CodexAppServerAdapter extends CodexAdapter {
     if (request.signal.aborted) abort(); this.running.set(request.taskId, controller);
     const rpc = new CodexRpc(this.processes);
     // 操作這台 Mac（MA-146）：macOS 沙盒內 Chrome 會崩潰、Homebrew 的程式也無法執行，所以改在沙盒外執行；
-    // 仍保留核准：untrusted 讓非唯讀命令都要核准（要求核准）或交給 Codex 審查（代我核准）。
+    // 仍保留核准：要求核准時用 untrusted，非唯讀命令都要使用者核准；代我核准時用 on-request，
+    // Codex 要求的核准交給它自己的審查。untrusted 的請求會直接送給使用者、不經審查（MA-148）。
     const host = !!request.features?.includes('host') && request.mode !== 'read-only' && approvalMode !== 'full-access';
     const sandboxed = !host && (approvalMode !== 'full-access' || request.mode === 'read-only');
     const rules = ['"."="' + (request.mode === 'read-only' ? 'read' : 'write') + '"', '".git"="read"', '".agents"="read"', '".vscode"="read"', ...protectedFiles(request.cwd).map(path => `${JSON.stringify(path)}="deny"`)];
@@ -115,7 +116,7 @@ export class CodexAppServerAdapter extends CodexAdapter {
           rpc.request(2, request.resumeSessionId ? 'thread/resume' : 'thread/start', {
             ...(request.resumeSessionId ? { threadId: request.resumeSessionId, excludeTurns: true } : { ephemeral: !request.persist }),
             model: request.model, cwd: request.cwd,
-            approvalPolicy: request.mode === 'read-only' || approvalMode === 'full-access' ? 'never' : host ? 'untrusted' : 'on-request',
+            approvalPolicy: request.mode === 'read-only' || approvalMode === 'full-access' ? 'never' : host && approvalMode === 'ask' ? 'untrusted' : 'on-request',
             approvalsReviewer: approvalMode === 'auto-review' ? 'auto_review' : 'user',
             ...(sandboxed ? {} : { sandbox: 'danger-full-access' }),
             config: sandboxed ? { default_permissions: 'multi_agent' } : {},
