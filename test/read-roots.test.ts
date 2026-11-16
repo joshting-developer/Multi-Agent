@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { blockedBy, blockedFolders, networkBlocked, outsideWorkspace } from '../src/execution/ReadRoots';
-import { protectedFiles } from '../src/execution/ExecutionPolicy';
+import { protectedFiles, toolchainPaths } from '../src/execution/ExecutionPolicy';
 import { CodexAppServerAdapter } from '../src/agents/CodexAppServerAdapter';
 import { ClaudeCodeAdapter } from '../src/agents/ClaudeCodeAdapter';
 import { AgentRegistry } from '../src/agents/AgentRegistry';
@@ -238,5 +238,20 @@ describe('Reading a parent of the workspace', () => {
     expect(args[args.indexOf('--add-dir') + 1]).toBe(parent);
     expect(deny).toEqual(expect.arrayContaining([`Edit(/${join(parent, 'common-skills')}/**)`, `Write(/${join(parent, 'README.md')})`]));
     expect(deny.some(rule => rule.includes(workspace) || rule === `Edit(/${parent}/**)`)).toBe(false);
+  });
+});
+
+describe('Developer tools inside the Codex sandbox', () => {
+  it('lets the sandbox read developer tools and write the user temp folders that xcrun needs', async () => {
+    const { workspace } = await folders();
+    const toolchain = toolchainPaths();
+    expect(toolchain.write.length).toBeGreaterThan(0);
+    const codex = new FixtureProcesses('codex'); const adapter = new CodexAppServerAdapter(codex, () => process.execPath, workspace);
+    for await (const event of adapter.execute({ taskId: 't', prompt: 'p', cwd: workspace, timeoutMs: 3000, signal: new AbortController().signal, mode: 'read-only', approvalMode: 'ask', model: 'test-model', effort: 'low' })) void event;
+    const profile = codex.requests.at(-1)!.args.find(value => value.startsWith('permissions.multi_agent={'))!;
+    for (const path of toolchain.read) expect(profile).toContain(`${JSON.stringify(path)}="read"`);
+    for (const path of toolchain.write) expect(profile).toContain(`${JSON.stringify(path)}="write"`);
+    // 工作區本身仍依任務權限：唯讀任務不能寫工作區。
+    expect(profile).toContain('"."="read"');
   });
 });

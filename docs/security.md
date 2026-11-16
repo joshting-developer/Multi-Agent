@@ -54,3 +54,5 @@ Git push、部署、破壞性操作要求人工授權的意圖會傳給 Agent；
 - **操作這台 Mac（MA-146）**：Agent 功能的一項，只影響 Codex。實測 macOS 沙盒內 Chrome 一啟動就崩潰（給整台電腦寫入權限也一樣），MA 的工作區沙盒也無法執行 Homebrew 的 docker；開啟後 Codex 的可編輯任務改在沙盒外執行（sandbox danger-full-access、網路開啟），要求核准時核准改成 `untrusted`，非唯讀命令都要使用者核准；代我核准時維持 `on-request`，Codex 要求的核准交給它自己的審查（`untrusted` 的請求會直接送給使用者，MA-148）；完整存取與唯讀任務不受影響。開啟前要原生確認並寫稽核紀錄。瀏覽器在沙盒內啟動失敗時，詢問改成開啟這項並重新執行。
 
 - **上層資料夾唯讀與全部開放（MA-149）**：工作區外可讀取允許加入包含工作區的上層資料夾，上層唯讀、工作區仍可寫；Codex 以 profile 的路徑規則處理，Claude 加入上層後只對工作區以外的項目禁止 Edit／Write。整個磁碟、家目錄本身與工作區內的資料夾仍不收。Agent 功能的「全部開放」一次打開網路與所有功能，因為包含沙盒外執行，同樣要原生確認；「全部關閉」不用確認。
+
+- **沙盒內的開發工具（MA-153）**：Codex 沙盒另外唯讀 Command Line Tools、/opt/homebrew、/usr/local、~/.docker、~/.gitconfig、~/.config/git（存在才加），並可寫使用者的暫存與快取資料夾（/var/folders/…/T、C），讓 /usr/bin/git、python3、Homebrew 的 docker 能在沙盒內執行。工作區規則與機密檔保護不變；~/.docker 可能含 registry 登入資訊，Agent 讀得到。

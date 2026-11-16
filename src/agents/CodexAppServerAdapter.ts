@@ -5,7 +5,7 @@ import { CodexRpc, readCodexAccount } from './CodexRpc';
 import { providerFailure, record, SessionUnavailable, toolText, windowLabel } from './CliAdapter';
 import { randomUUID } from 'node:crypto';
 import type { AgentFeature, ResetCreditOutcome, UsageSnapshot } from '../bridge/messages';
-import { protectedFiles } from '../execution/ExecutionPolicy';
+import { protectedFiles, toolchainPaths } from '../execution/ExecutionPolicy';
 
 /** Codex 官方功能名稱對應到工作區的開關。 */
 const codexFeatures: Record<string, AgentFeature> = { multi_agent: 'subagents', apps: 'apps', plugins: 'apps', hooks: 'hooks', browser_use: 'browser', computer_use: 'browser', memories: 'memory' };
@@ -89,7 +89,8 @@ export class CodexAppServerAdapter extends CodexAdapter {
     const sandboxed = !host && (approvalMode !== 'full-access' || request.mode === 'read-only');
     const rules = ['"."="' + (request.mode === 'read-only' ? 'read' : 'write') + '"', '".git"="read"', '".agents"="read"', '".vscode"="read"', ...protectedFiles(request.cwd).map(path => `${JSON.stringify(path)}="deny"`)];
     // 工作區外的資料夾只加 read；寫入、網路仍依原本的 profile。
-    const readRoots = (request.readRoots ?? []).map(root => `,${JSON.stringify(root)}="read"`).join('');
+    const toolchain = toolchainPaths();
+    const readRoots = [...(request.readRoots ?? []), ...toolchain.read].map(root => `,${JSON.stringify(root)}="read"`).join('') + toolchain.write.map(path => `,${JSON.stringify(path)}="write"`).join('');
     // 工作區開放的功能才打開；其餘維持關閉。MCP 用帳號自己設定資料夾裡的設定。
     const allowed = new Set(request.features ?? []);
     const unlock = [...(allowed.has('mcp') ? ['mcp_servers'] : []), ...(allowed.has('apps') ? ['features.apps', 'features.plugins'] : []), ...(allowed.has('hooks') ? ['features.hooks'] : [])];

@@ -1,5 +1,6 @@
-import { readdirSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { existsSync, readdirSync, realpathSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { basename, dirname, join, relative } from 'node:path';
 import type { AgentId, WorkspacePolicy } from '../bridge/messages';
 export function assertAuthorized(policy: WorkspacePolicy, provider: AgentId, trusted: boolean): void {
   if (!trusted) throw new Error('請先信任此 VS Code 工作區。');
@@ -35,4 +36,17 @@ export function protectedFiles(root: string, limits = { depth: 8, entries: 20000
   };
   walk(root, 0);
   return found;
+}
+
+/**
+ * 沙盒內一般開發工具需要的系統路徑（MA-153）：Command Line Tools（/usr/bin/git、python3 的轉接程式）、Homebrew、
+ * docker 與 git 的設定唯讀；xcrun 的暫存與快取資料夾可寫。只回傳實際存在的路徑。
+ */
+export function toolchainPaths(): { read: string[]; write: string[] } {
+  const real = (path: string) => { try { return realpathSync(path); } catch { return undefined; } };
+  const read = ['/Library/Developer/CommandLineTools', '/opt/homebrew', '/usr/local', join(homedir(), '.docker'), join(homedir(), '.gitconfig'), join(homedir(), '.config', 'git')].filter(path => existsSync(path));
+  const temp = real(tmpdir());
+  // macOS 的使用者暫存在 /var/folders/…/T，同層的 C 是快取；xcrun 兩邊都會寫。
+  const write = temp ? [temp, ...(basename(temp) === 'T' ? [real(join(dirname(temp), 'C'))].filter((path): path is string => !!path) : [])] : [];
+  return { read, write };
 }
