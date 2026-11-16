@@ -255,3 +255,19 @@ describe('Developer tools inside the Codex sandbox', () => {
     expect(profile).toContain('"."="read"');
   });
 });
+
+describe('Claude shell and agent config folders', () => {
+  it('runs Claude commands with bash and only protects login credentials inside .claude and .codex', async () => {
+    const { workspace } = await folders();
+    await mkdir(join(workspace, '.claude', 'skills'), { recursive: true }); await writeFile(join(workspace, '.claude', 'skills', 'SKILL.md'), 'x'); await writeFile(join(workspace, '.claude', '.credentials.json'), 'x');
+    await mkdir(join(workspace, '.codex')); await writeFile(join(workspace, '.codex', 'auth.json'), 'x'); await writeFile(join(workspace, '.codex', 'config.toml'), 'x');
+    expect(protectedFiles(workspace).sort()).toEqual(['.claude/.credentials.json', '.codex/auth.json']);
+    const claude = new FixtureProcesses('claude'); const adapter = new ClaudeCodeAdapter(claude, () => process.execPath, workspace); await adapter.detect();
+    for await (const event of adapter.execute({ taskId: 't', prompt: 'p', cwd: workspace, timeoutMs: 3000, signal: new AbortController().signal, mode: 'read-only', model: 'sonnet', effort: 'low' })) void event;
+    const run = claude.requests.at(-1)!;
+    expect(run.env?.CLAUDE_CODE_SHELL).toBe('/bin/bash');
+    const deny: string[] = JSON.parse(run.args[run.args.indexOf('--settings') + 1]!).permissions.deny;
+    expect(deny).toEqual(expect.arrayContaining(['Read(**/.claude/.credentials.json)', 'Read(**/.codex/auth.json)']));
+    expect(deny).not.toContain('Read(**/.claude/**)');
+  });
+});

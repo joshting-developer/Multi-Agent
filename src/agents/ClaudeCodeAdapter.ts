@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { toolLabel } from '../bridge/labels';
 import type { ProviderStatus } from '../bridge/messages';
 import { protectedPatterns } from '../execution/ExecutionPolicy';
@@ -36,6 +37,8 @@ export class ClaudeCodeAdapter extends CliAdapter {
     // 登入狀態屬於各帳號自己的目錄（設定 → 帳號），偵測只看 CLI 是否可用，不讀官方預設目錄的登入。
     return { id: this.id, version: version.stdout.trim(), capabilities, approvalModes: this.help.includes('auto') ? ['ask', 'auto-review', 'full-access'] : ['ask', 'full-access'], status: 'ready' };
   }
+  /** Claude Code 預設用使用者的 zsh 執行命令，`echo =====` 這類寫法在 zsh 會失敗；和 Codex 一樣改用 bash（MA-160）。 */
+  protected override runEnv(): Record<string, string> | undefined { return existsSync('/bin/bash') ? { CLAUDE_CODE_SHELL: '/bin/bash' } : undefined; }
   protected arguments(request: AgentRequest): string[] {
     if (request.effort && !this.help.includes('--effort')) throw new Error('此 Claude Code 版本不支援推理強度，請更新 CLI。');
     // 圖片要走 stream-json 輸入，才能用官方的 image 區塊。

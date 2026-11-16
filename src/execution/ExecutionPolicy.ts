@@ -8,11 +8,12 @@ export function assertAuthorized(policy: WorkspacePolicy, provider: AgentId, tru
   if (!policy.allowedProviders.includes(provider)) throw new Error('此 Provider 尚未獲得目前工作區的資料使用授權。');
 }
 
-export const protectedPatterns = ['**/.env', '**/.env.*', '**/*.pem', '**/*.key', '**/.ssh/**', '**/.aws/**', '**/.codex/**', '**/.claude/**', '**/credentials*', '**/secrets*'];
+// .codex、.claude 只擋登入憑證；專案裡的 .claude 放 skill 與設定，要讀得到（MA-160）。
+export const protectedPatterns = ['**/.env', '**/.env.*', '**/*.pem', '**/*.key', '**/.ssh/**', '**/.aws/**', '**/.codex/auth.json', '**/.claude/.credentials.json', '**/credentials*', '**/secrets*'];
 
-/** 機密檔名（檔案）與機密資料夾；給 protectedFiles 掃描工作區用。 */
+/** 機密檔名（檔案）與機密資料夾；.codex、.claude 只擋裡面的登入憑證。給 protectedFiles 掃描工作區用。 */
 const secretFile = /^(\.env(\..+)?|.+\.(pem|key)|credentials.*|secrets.*)$/i;
-const secretFolder = /^\.(ssh|aws|codex|claude)$/;
+const secretFolder = /^\.(ssh|aws)$/;
 const skipFolders = new Set(['node_modules', '.git', '.venv', 'venv', 'vendor', 'target', '.next', '.nuxt', '.turbo', '.cache']);
 /**
  * 列出工作區內實際存在的機密檔與機密資料夾（相對路徑），給 Codex 沙盒逐一設 deny。
@@ -31,7 +32,7 @@ export function protectedFiles(root: string, limits = { depth: 8, entries: 20000
       if (entry.isDirectory()) {
         if (secretFolder.test(entry.name)) found.push(relative(root, path));
         else if (!skipFolders.has(entry.name)) walk(path, depth + 1);
-      } else if (secretFile.test(entry.name)) found.push(relative(root, path));
+      } else if (secretFile.test(entry.name) || (entry.name === 'auth.json' && basename(dir) === '.codex') || (entry.name === '.credentials.json' && basename(dir) === '.claude')) found.push(relative(root, path));
     }
   };
   walk(root, 0);

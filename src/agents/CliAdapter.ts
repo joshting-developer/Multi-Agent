@@ -44,6 +44,8 @@ export abstract class CliAdapter implements AgentAdapter {
     return this.detected?.capabilities ?? { streaming: false, readOnly: false, workspaceWrite: false, resumeSession: false, toolApproval: false, structuredOutput: false };
   }
   protected abstract inspect(command: string): Promise<ProviderStatus>;
+  /** 每次執行額外帶的環境變數；預設沒有。 */
+  protected runEnv(): Record<string, string> | undefined { return undefined; }
   protected probe(command: string, args: string[], env?: Record<string, string>) {
     return this.processes.collect({ command, args, cwd: this.detectionCwd, timeoutMs: 12000, ...(env && { env: { ...process.env, ...env } }) });
   }
@@ -76,7 +78,7 @@ export abstract class CliAdapter implements AgentAdapter {
     const inputStream = this.inputStream(request);
     try {
       for await (const event of this.processes.run({
-        command: this.command, args: this.arguments(request), cwd: request.cwd, input: request.prompt, ...(request.env && { env: { ...process.env, ...request.env } }),
+        command: this.command, args: this.arguments(request), cwd: request.cwd, input: request.prompt, ...((request.env || this.runEnv()) && { env: { ...process.env, ...this.runEnv(), ...request.env } }),
         timeoutMs: request.timeoutMs, signal: controller.signal,
         onStdinReady: inputStream ? write => { send = write; inputStream(write); } : undefined
       })) {

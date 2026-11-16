@@ -15,7 +15,7 @@
 
 ## CLI
 
-Codex 的要求／代我核准使用原生 filesystem profile，工作區依檔案模式 read/write，`.git`、`.agents`、`.vscode` 保留唯讀，常見機密檔（`.env`、`.env.*`、`*.pem`、`*.key`、`credentials*`、`secrets*`，以及 `.ssh`、`.aws`、`.codex`、`.claude` 資料夾）在每次執行前掃描工作區、以實際路徑 deny（略過 node_modules、.git 等，有深度與數量上限；Codex 沙盒的萬用字元 deny 會讓工作區內所有資料夾都不能刪除或搬移，MA-143），執行中才新增的機密檔不在名單內；命令網路預設關閉。工作區授權可另外開啟「允許 Agent 使用網路」（設定 → 工作區與資料，寫入稽核紀錄）：開啟後 Codex profile 的 network 改為 enabled、`web_search` 改為 live，Claude 多開放 WebFetch、WebSearch；檔案權限不變。命令一失敗就檢查輸出：沒有網路、工作區外的資料夾被擋、或瀏覽器在沙盒內無法啟動，立刻跳出詢問（MA-135、MA-145）。一般聊天可選「允許並重新執行」：停止目前任務、開放權限，再用同樣的帳號、模型與核准方式送出接續訊息；「允許」則等任務之間才生效。瀏覽器只能改用完整存取重跑，仍要原生確認。討論與混合只提供「允許」。同一個任務同一種權限只問一次，不會自動開啟。需要額外權限時走官方核准。完整存取使用允許 root 寫入與網路的獨立 profile。管理政策仍然有效。
+Codex 的要求／代我核准使用原生 filesystem profile，工作區依檔案模式 read/write，`.git`、`.agents`、`.vscode` 保留唯讀，常見機密檔（`.env`、`.env.*`、`*.pem`、`*.key`、`credentials*`、`secrets*`、`.ssh`、`.aws` 資料夾，以及 `.codex/auth.json`、`.claude/.credentials.json` 登入憑證；專案裡 `.codex`、`.claude` 的 skill 與設定可讀，MA-160）在每次執行前掃描工作區、以實際路徑 deny（略過 node_modules、.git 等，有深度與數量上限；Codex 沙盒的萬用字元 deny 會讓工作區內所有資料夾都不能刪除或搬移，MA-143），執行中才新增的機密檔不在名單內；命令網路預設關閉。工作區授權可另外開啟「允許 Agent 使用網路」（設定 → 工作區與資料，寫入稽核紀錄）：開啟後 Codex profile 的 network 改為 enabled、`web_search` 改為 live，Claude 多開放 WebFetch、WebSearch；檔案權限不變。命令一失敗就檢查輸出：沒有網路、工作區外的資料夾被擋、或瀏覽器在沙盒內無法啟動，立刻跳出詢問（MA-135、MA-145）。一般聊天可選「允許並重新執行」：停止目前任務、開放權限，再用同樣的帳號、模型與核准方式送出接續訊息；「允許」則等任務之間才生效。瀏覽器只能改用完整存取重跑，仍要原生確認。討論與混合只提供「允許」。同一個任務同一種權限只問一次，不會自動開啟。需要額外權限時走官方核准。完整存取使用允許 root 寫入與網路的獨立 profile。管理政策仍然有效。
 
 Claude 的要求／代我核准使用 restricted + safe-mode，檔案工具限於工作目錄，授權寫入時另提供 Bash。Bash 授權經官方 Manual／auto 流程；**restricted 的檔案工具限制不等於 Bash 的 OS sandbox**。本版不宣稱 Claude Shell 有與 Codex 同等的 OS 級隔離。完整存取移除 restricted 並明確使用 bypassPermissions。常見機密路徑 deny 對檔案工具有效，不能保證攔截任意子程序間接讀取。
 
@@ -56,3 +56,5 @@ Git push、部署、破壞性操作要求人工授權的意圖會傳給 Agent；
 - **上層資料夾唯讀與全部開放（MA-149）**：工作區外可讀取允許加入包含工作區的上層資料夾，上層唯讀、工作區仍可寫；Codex 以 profile 的路徑規則處理，Claude 加入上層後只對工作區以外的項目禁止 Edit／Write。整個磁碟、家目錄本身與工作區內的資料夾仍不收。Agent 功能的「全部開放」一次打開網路與所有功能，因為包含沙盒外執行，同樣要原生確認；「全部關閉」不用確認。
 
 - **沙盒內的開發工具（MA-153）**：Codex 沙盒另外唯讀 Command Line Tools、/opt/homebrew、/usr/local、~/.docker、~/.gitconfig、~/.config/git（存在才加），並可寫使用者的暫存與快取資料夾（/var/folders/…/T、C），讓 /usr/bin/git、python3、Homebrew 的 docker 能在沙盒內執行。工作區規則與機密檔保護不變；~/.docker 可能含 registry 登入資訊，Agent 讀得到。
+
+- **Claude 的命令用 bash（MA-160）**：Claude Code 預設用使用者的 zsh，`echo =====` 等寫法會被 zsh 當成命令路徑展開而失敗；MA 執行 Claude 時帶 `CLAUDE_CODE_SHELL=/bin/bash`，和 Codex 一致。
