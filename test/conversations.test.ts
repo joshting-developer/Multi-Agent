@@ -186,7 +186,8 @@ describe('Error log', () => {
     const adapter: AgentAdapter = { id: 'codex', capabilities: () => capabilities, detect: async () => ({ id: 'codex', status: 'ready', capabilities }), cancel: async () => undefined,
       async *execute(request) {
         run++;
-        yield { type: 'tool', taskId: request.taskId, id: 'c', tool: 'commandExecution', phase: 'end', success: false, input: 'npm run build', output: 'EPERM rmdir dist token=sk-secret1234567890abcdef' };
+        yield { type: 'tool', taskId: request.taskId, id: 'c', tool: 'commandExecution', phase: 'end', success: false, input: 'npm run build', output: 'EPERM rmdir dist token=sk-secret1234567890abcdef', cwd: '/project/frontend', exitCode: 2 };
+        yield { type: 'tool', taskId: request.taskId, id: 'd', tool: 'commandExecution', phase: 'end', success: false, input: 'npm test > log.txt', cwd: '/project', exitCode: 1 };
         if (run === 2) throw new ProviderFailure('額度已用完', 'quota');
         yield { type: 'complete', taskId: request.taskId };
       } };
@@ -198,10 +199,14 @@ describe('Error log', () => {
     await new Promise(resolve => setTimeout(resolve, 50));
     const errors = db.errors();
     expect(errors.map(entry => [entry.source, entry.summary])).toEqual([
-      ['extension', 'save-settings：CLI 路徑必須是絕對路徑'], ['task', '額度已用完'], ['tool', 'commandExecution：npm run build'], ['tool', 'commandExecution：npm run build']
+      ['extension', 'save-settings：CLI 路徑必須是絕對路徑'], ['task', '額度已用完'], ['tool', 'commandExecution：npm test > log.txt'], ['tool', 'commandExecution：npm run build'], ['tool', 'commandExecution：npm test > log.txt'], ['tool', 'commandExecution：npm run build']
     ]);
+    // 執行資料夾在專案內記相對路徑、根目錄不記；結束碼與沒有輸出都寫進 detail。
+    expect(errors[3]!.detail).toContain('執行資料夾：frontend · 結束碼：2'); expect(errors[2]!.detail).toContain('執行資料夾：（專案根目錄） · 結束碼：1');
+    expect(errors[2]!.detail).toContain('輸出：（沒有輸出，可能導到檔案）');
+    expect(orchestrator.state.tasks[0]!.steps?.filter(step => step.kind === 'tool')).toEqual([expect.objectContaining({ cwd: 'frontend', exitCode: 2 }), expect.not.objectContaining({ cwd: expect.anything() })]);
     expect(errors[1]).toMatchObject({ provider: 'codex', runId: orchestrator.state.tasks[1]!.id, detail: expect.stringContaining('類型：quota') });
-    expect(errors[2]!.detail).toContain('EPERM rmdir dist'); expect(errors[2]!.detail).not.toContain('sk-secret1234567890abcdef');
+    expect(errors[3]!.detail).toContain('EPERM rmdir dist'); expect(errors[3]!.detail).not.toContain('sk-secret1234567890abcdef');
     // 關掉保存對話時只記摘要，不記命令與輸出。
     await db.setPersistent(false);
     await new SessionRepository({ get: () => undefined, update: async () => undefined }, '/project', db).logError({ at: Date.now(), source: 'tool', summary: 'x', detail: 'secret output' });

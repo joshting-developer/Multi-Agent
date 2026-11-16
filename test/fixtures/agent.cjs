@@ -61,7 +61,7 @@ if (args.includes('--version')) {
       else if (scenario === 'tools') {
         emit({ method: 'item/started', params: { item: { id: 'r', type: 'reasoning' } } });
         emit({ method: 'item/started', params: { item: { id: 'c', type: 'commandExecution', command: 'ls missing' } } });
-        emit({ method: 'item/completed', params: { item: { id: 'c', type: 'commandExecution', command: 'ls missing', status: 'failed', aggregatedOutput: 'No such file' } } });
+        emit({ method: 'item/completed', params: { item: { id: 'c', type: 'commandExecution', command: 'ls missing', cwd: '/w/frontend', exitCode: 1, status: 'failed', aggregatedOutput: 'No such file' } } });
         finish();
       } else if (scenario === 'changes') {
         const item = { id: 'f', type: 'fileChange', status: 'completed', changes: [{ path: 'a.txt', kind: { type: 'add' } }, { path: 'b.txt', kind: { type: 'update', move_path: 'c.txt' } }, { path: 'd.txt', kind: 'delete' }] };

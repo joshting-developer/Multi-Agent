@@ -23,7 +23,7 @@ export type AgentEvent =
   | { type: 'text-delta'; taskId: string; text: string }
   | { type: 'activity'; taskId: string; text: string }
   | { type: 'usage'; taskId: string; usage: UsageSnapshot }
-  | { type: 'tool'; taskId: string; id: string; tool: string; phase: 'start' | 'end'; success?: boolean; input?: string; output?: string }
+  | { type: 'tool'; taskId: string; id: string; tool: string; phase: 'start' | 'end'; success?: boolean; input?: string; output?: string; cwd?: string; exitCode?: number }
   | { type: 'complete'; taskId: string; sessionId?: string };
 export interface AccountState { loggedIn: boolean; account?: ProviderStatus['account'] }
 export interface AgentAdapter {

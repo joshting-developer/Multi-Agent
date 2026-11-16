@@ -130,6 +130,10 @@ describe('Vue chat', () => {
     expect(tools[0]!.findAll('.tool-io pre').map(pre => pre.text())).toEqual(['notes.txt\nmore', 'body']);
     expect(tools[2]!.find('.tool-io').exists()).toBe(false);
     timeline.unmount();
+    // 不在專案根目錄執行的命令顯示資料夾，結束碼不是 0 時顯示結束碼。
+    const located = mount(Conversation, { props: { tasks: [{ id: 'l', provider: 'codex' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, prompt: '跑', output: '', steps: [{ kind: 'tool' as const, id: 'x', name: 'commandExecution', status: 'failed' as const, input: 'npm test', cwd: 'frontend', exitCode: 1 }, { kind: 'tool' as const, id: 'y', name: 'commandExecution', status: 'done' as const, input: 'ls', exitCode: 0 }] }] } });
+    expect(located.findAll('.tool-step').map(step => step.findAll('.tool-io span').map(label => label.text()))).toEqual([['資料夾', '輸入', '結束碼'], ['輸入']]);
+    located.unmount();
     // 執行中補充的訊息顯示成對話裡另一則使用者訊息，原訊息不變。
     const steered = mount(Conversation, { props: { tasks: [{ id: 's', provider: 'codex' as const, mode: 'read-only' as const, status: 'completed' as const, startedAt: 1, prompt: '修 bug', output: '先看再補', steps: [{ kind: 'text' as const, text: '先看' }, { kind: 'steer' as const, text: '也補測試', at: 2 }, { kind: 'text' as const, text: '再補' }] }] } });
     expect(steered.findAll('.user-message').map(item => item.text())).toEqual(['修 bug', '也補測試']);

@@ -146,6 +146,7 @@ export class CodexAppServerAdapter extends CodexAdapter {
             if (message.method === 'item/started') yield { type: 'activity', taskId: request.taskId, text: `處理中：${toolLabel(String(item.type ?? 'tool'))}` };
             const done = message.method === 'item/completed';
             yield { type: 'tool', taskId: request.taskId, id, tool: String(item.type ?? 'tool'), phase: done ? 'end' : 'start', input: codexInput(item),
+              ...(typeof item.cwd === 'string' && item.cwd && { cwd: item.cwd }), ...(done && typeof item.exitCode === 'number' && { exitCode: item.exitCode }),
               ...(done && { success: !['failed', 'declined'].includes(String(item.status)), output: toolText(item.aggregatedOutput ?? item.result ?? item.error) }) };
           }
         }

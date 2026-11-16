@@ -90,8 +90,10 @@ const statusLabel = (task: Task) => ({ queued: '排隊中', running: '執行中'
             <div v-else-if="step.kind === 'steer'" class="message user-message steer-message"><p class="prompt">{{ step.text }}</p></div>
             <details v-else :class="['tool-step', step.status]">
               <summary><span class="tool-dot" role="img" :aria-label="toolStatus[step.status]"></span><strong>{{ toolLabel(step.name) }}</strong><span v-if="step.status === 'failed'" class="failed">失敗</span><span class="tool-summary">{{ summaryLine(step) }}</span></summary>
+              <div v-if="step.cwd" class="tool-io"><span>資料夾</span><pre>{{ step.cwd }}</pre></div>
               <div v-if="step.input" class="tool-io"><span>輸入</span><pre>{{ step.input }}</pre></div>
               <div v-if="step.output" class="tool-io"><span>輸出</span><pre>{{ step.output }}</pre></div>
+              <div v-if="step.exitCode" class="tool-io"><span>結束碼</span><pre>{{ step.exitCode }}</pre></div>
             </details>
           </template>
         </template>

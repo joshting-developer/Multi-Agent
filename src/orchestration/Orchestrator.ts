@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { isAbsolute, parse } from 'node:path';
+import { isAbsolute, parse, relative } from 'node:path';
 import { blockedBy, insideOf, type Blocked } from '../execution/ReadRoots';
 import { agentFeatures } from '../bridge/messages';
 import type { AgentFeature, AgentId, ApprovalRequest, AuditEvent, ConversationSummary, SearchFilters, UsageSnapshot, ExecutionMode, ParticipantRole, Snapshot, Task, WorkspacePolicy } from '../bridge/messages';
@@ -275,12 +275,15 @@ export class Orchestrator {
     }
     if (step.kind !== 'tool') return;
     if (event.input) step.input = redact(event.input, inputLimit);
+    // 執行資料夾只在不是專案根目錄時記，專案內用相對路徑（MA-158）。
+    if (event.cwd) { const where = relative(this.cwd, event.cwd); if (where) step.cwd = where.startsWith('..') || isAbsolute(where) ? event.cwd : where; }
+    if (event.exitCode !== undefined) step.exitCode = event.exitCode;
     if (event.phase === 'end') {
       step.status = event.success === false ? 'failed' : 'done';
       if (event.output) step.output = redact(event.output, outputLimit);
       if (event.output) for (const blocked of blockedBy(event.output ?? '', this.cwd, this.state.policy)) this.onBlocked?.(task, blocked);
       this.audit(task, event.success === false ? 'tool-failed' : 'tool-end', event.tool);
-      if (event.success === false) this.logError('tool', `${event.tool}：${(step.input ?? '').split('\n', 1)[0]!.slice(0, 200)}`, task, [step.input && `輸入：\n${step.input}`, step.output && `輸出：\n${step.output}`].filter(Boolean).join('\n\n'));
+      if (event.success === false) this.logError('tool', `${event.tool}：${(step.input ?? '').split('\n', 1)[0]!.slice(0, 200)}`, task, [`執行資料夾：${step.cwd ?? '（專案根目錄）'}${step.exitCode !== undefined ? ` · 結束碼：${step.exitCode}` : ''}`, step.input && `輸入：\n${step.input}`, step.output ? `輸出：\n${step.output}` : '輸出：（沒有輸出，可能導到檔案）'].filter(Boolean).join('\n\n'));
     }
   }
   private audit(task: Task, kind: AuditEvent['kind'], detail: string): void {

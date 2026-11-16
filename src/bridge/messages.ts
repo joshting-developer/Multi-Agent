@@ -15,7 +15,8 @@ export type AuditEvent = z.infer<typeof auditEventSchema>;
 /** 執行過程依實際順序保存：Agent 文字與工具交錯；工具 IN／OUT 已遮罩並截斷。 */
 export const stepSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('text'), text: z.string() }),
-  z.object({ kind: z.literal('tool'), id: z.string(), name: z.string(), status: z.enum(['running', 'done', 'failed', 'stopped']), input: z.string().optional(), output: z.string().optional() }),
+  /** cwd：不在專案根目錄執行時的資料夾（相對路徑，專案外為絕對路徑）；exitCode：命令的結束碼（MA-158）。 */
+  z.object({ kind: z.literal('tool'), id: z.string(), name: z.string(), status: z.enum(['running', 'done', 'failed', 'stopped']), input: z.string().optional(), output: z.string().optional(), cwd: z.string().max(4096).optional(), exitCode: z.number().int().optional() }),
   /** 執行中使用者補充給 Agent 的訊息（MA-142），放在被補充的位置，原本的使用者訊息不變。 */
   z.object({ kind: z.literal('steer'), text: z.string(), at: z.number() })
 ]);

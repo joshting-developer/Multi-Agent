@@ -105,7 +105,7 @@ export abstract class CliAdapter implements AgentAdapter {
 export interface StreamState {
   text: string; itemText: Map<string, string>; completed: boolean; emitted: boolean; sessionId?: string; tools?: Map<string, string>;
 }
-export type ParsedEvent = { type: 'text-delta'; text: string } | { type: 'activity'; text: string } | { type: 'tool'; id: string; tool: string; phase: 'start' | 'end'; success?: boolean; input?: string; output?: string } | { type: 'usage'; usage: UsageSnapshot };
+export type ParsedEvent = { type: 'text-delta'; text: string } | { type: 'activity'; text: string } | { type: 'tool'; id: string; tool: string; phase: 'start' | 'end'; success?: boolean; input?: string; output?: string; cwd?: string; exitCode?: number } | { type: 'usage'; usage: UsageSnapshot };
 /** 工具輸入／結果轉成可讀文字；遮罩與截斷由 Orchestrator 統一處理。 */
 export function toolText(value: unknown): string | undefined {
   if (value === undefined || value === null || value === '') return undefined;
