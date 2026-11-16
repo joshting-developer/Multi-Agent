@@ -219,3 +219,5 @@ mark { background: var(--vscode-editor-findMatchHighlightBackground); color: inh
 .login-actions { display: flex; gap: 6px; }
 .login-key { display: flex; gap: 6px; }
 .login-key input { flex: 1; min-width: 0; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: var(--radius-m); padding: 6px 8px; }
+.login-screen { flex: 1; min-height: 0; overflow-y: auto; display: grid; align-content: center; padding: 16px 12px; }
+.login-screen .login-card { width: 100%; max-width: 420px; margin: 0 auto; }

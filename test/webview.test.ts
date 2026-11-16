@@ -294,7 +294,9 @@ describe('Login when no account is signed in', () => {
     try {
       await deliver([]);
       expect(wrapper.findAll('.login-provider strong').map(item => item.text())).toEqual(['Claude Code', 'Codex']);
-      expect(wrapper.find('.agent-menu').exists()).toBe(false);
+      // 沒有帳號也沒有對話時只有登入入口：沒有輸入框、成員面板與模式切換。
+      expect(wrapper.find('.agent-menu').exists()).toBe(false); expect(wrapper.find('textarea').exists()).toBe(false); expect(wrapper.find('.mode-tabs').exists()).toBe(false);
+      expect(wrapper.find('.login-screen .login-card').exists()).toBe(true);
       await wrapper.findAll('.login-provider')[0]!.findAll('button').find(button => button.text() === '官方登入')!.trigger('click');
       expect(posted('add-account')).toEqual([expect.objectContaining({ provider: 'claude' })]); expect(posted('add-account')[0]).not.toHaveProperty('apiKey');
       // API Key 展開輸入框後新增，送出後清空收起。
@@ -304,12 +306,13 @@ describe('Login when no account is signed in', () => {
       expect(posted('add-account').at(-1)).toEqual(expect.objectContaining({ provider: 'codex', apiKey: 'sk-test' })); expect(wrapper.find('.login-key').exists()).toBe(false);
       // 已有但未登入的帳號，官方登入改成登入那個帳號，不另外新增。
       await deliver([{ id: 'c1', provider: 'codex', name: '工作', loggedIn: false }]);
+      expect(wrapper.find('.login-screen').exists()).toBe(true);
       await wrapper.findAll('.login-provider')[1]!.findAll('button').find(button => button.text() === '官方登入')!.trigger('click');
       expect(posted('account-terminal')).toEqual([expect.objectContaining({ accountId: 'c1', action: 'login' })]);
       // 檢查中（loggedIn 未知）或任一帳號已登入時不顯示。
       await deliver([{ id: 'c1', provider: 'codex', name: '工作' }]); expect(wrapper.find('.login-card').exists()).toBe(false);
       await deliver([{ id: 'c1', provider: 'codex', name: '工作', loggedIn: true }]); expect(wrapper.find('.login-card').exists()).toBe(false);
-      expect(wrapper.find('.agent-menu').exists()).toBe(true);
+      expect(wrapper.find('.agent-menu').exists()).toBe(true); expect(wrapper.find('textarea').exists()).toBe(true);
     } finally { wrapper.unmount(); vi.unstubAllGlobals(); }
   });
 });
