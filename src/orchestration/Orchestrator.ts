@@ -25,6 +25,8 @@ const maxEvents = 200;
 const maxTools = 100; const inputLimit = 2000; const outputLimit = 4000;
 /** 排隊上限；同一 workspace 一次只執行一個任務，避免多個 writer。 */
 const maxQueued = 3;
+/** 串流中最晚多久存一次檔；資料庫每次寫入都要重寫整個檔案。 */
+const streamPersistMs = 2000;
 const roleInstructions: Record<ParticipantRole, string> = {
   architect: 'Your role in this discussion: Architect. Propose a concrete, well-reasoned approach and state its trade-offs.',
   critic: 'Your role in this discussion: Critic. Challenge the proposal on performance, testing, security and maintainability, and suggest corrections.',
@@ -66,6 +68,15 @@ export class Orchestrator {
     this.state = { persistent: repository.persistent, hasEarlier: repository.hasEarlier(repository.conversationId, stored.tasks[0]?.startedAt) || undefined, workspace: cwd, tasks: stored.tasks, policy: stored.policy, providers: [], checking: false, trusted: isTrusted(), conversationId: repository.conversationId, conversations: this.listed, approvals: [] };
   }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  /** 串流中只有單一任務變動時的通知；不重送整份狀態（MA-168）。 */
+  subscribeTask(listener: (task: Task, conversationId: string) => void): () => void { this.taskListeners.add(listener); return () => this.taskListeners.delete(listener); }
+  private readonly taskListeners = new Set<(task: Task, conversationId: string) => void>();
+  /** 串流事件：通知這個任務變了，存檔延後合併；任務結束、核准、停止時另外立即存檔。 */
+  private streamed(task: Task): void {
+    const conversationId = this.taskConversations.get(task.id) ?? this.repository.conversationId;
+    for (const listener of this.taskListeners) listener(task, conversationId);
+    if (!this.persistTimer) this.persistTimer = setTimeout(() => { this.persistTimer = undefined; void this.flush().catch(this.storageError); }, streamPersistMs);
+  }
   private changed(persist = false): void {
     // activeTaskId 優先是目前檢視的對話正在跑的任務，沒有時是其他對話的任務（畫面據此判斷這個對話是否執行中）。
     const run = this.running.get(this.repository.conversationId) ?? this.running.values().next().value;
@@ -273,7 +284,7 @@ export class Orchestrator {
       else if (event.type === 'tool') this.toolStep(task, event);
       else if (event.type === 'usage') this.onUsage?.(task.provider, task.accountId, event.usage);
       else task.sessionId = event.sessionId;
-      this.changed(true);
+      this.streamed(task);
     }
   }
   /** 第一次出現工具時才建立步驟清單，先放入目前為止的文字，之後文字與工具依實際順序交錯。 */

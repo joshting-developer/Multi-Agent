@@ -139,6 +139,8 @@ export type WebviewToHost = z.infer<typeof webviewMessageSchema>;
 export type HostToWebview =
   | { version: 1; type: 'conversation-results'; requestId: string; conversations: ConversationSummary[] }
   | { version: 1; type: 'snapshot'; snapshot: Snapshot }
+  /** 串流中只送變動的任務；畫面只替換這一個（MA-168）。 */
+  | { version: 1; type: 'task-update'; conversationId: string; task: Task }
   | { version: 1; type: 'request-settled'; requestId: string }
   | { version: 1; type: 'show-history' }
   | { version: 1; type: 'request-accepted'; requestId: string }

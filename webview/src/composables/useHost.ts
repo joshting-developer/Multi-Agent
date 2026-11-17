@@ -44,6 +44,11 @@ export function useHost() {
         if (submitting.value) draftRevision.value++;
         submitting.value = false; pendingRequestId = undefined; pendingDiscussion = false;
       }
+    } else if (message.type === 'task-update') {
+      // 只替換目前對話裡的那個任務；其他對話的更新等切過去時由完整狀態帶入。
+      if (message.conversationId !== snapshot.value.conversationId) return;
+      const index = snapshot.value.tasks.findIndex(task => task.id === message.task.id);
+      if (index >= 0) snapshot.value.tasks.splice(index, 1, message.task);
     } else if (message.type === 'show-history') {
       historyRequested.value++;
     } else if (message.type === 'conversation-results') {

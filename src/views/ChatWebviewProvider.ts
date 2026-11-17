@@ -19,6 +19,8 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
   /** 設定頁開著時同步官方額度的週期。 */
   usageSyncMs = 5 * 60_000;
   private timer?: ReturnType<typeof setTimeout>;
+  private taskTimer?: ReturnType<typeof setTimeout>;
+  private readonly changedTasks = new Map<string, { task: Task; conversationId: string }>();
   private readonly unsubscribe: () => void;
   private readonly disposables: vscode.Disposable[] = [];
   /** 視窗重開（Extension 重新啟用）後第一次顯示聊天時先回到歷史對話；之後收合再展開仍停在原對話。 */
@@ -37,6 +39,16 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     this.unsubscribe = orchestrator.subscribe(() => {
       if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; this.snapshot(); }, 40);
     });
+    // 串流中每 100 毫秒最多送一次變動的任務，不重送整個對話。
+    const stopTasks = orchestrator.subscribeTask((task, conversationId) => {
+      this.changedTasks.set(task.id, { task, conversationId });
+      if (!this.taskTimer) this.taskTimer = setTimeout(() => {
+        this.taskTimer = undefined;
+        for (const { task: item, conversationId: id } of this.changedTasks.values()) this.post({ version: 1, type: 'task-update', conversationId: id, task: item });
+        this.changedTasks.clear();
+      }, 100);
+    });
+    this.disposables.push({ dispose: stopTasks });
     if (settings) this.disposables.push({ dispose: settings.subscribe(() => this.snapshot()) });
     if (accounts) this.disposables.push({ dispose: accounts.subscribe(() => this.snapshot()) });
     orchestrator.onBlocked = (task, blocked) => { void this.promptBlocked(task, blocked).catch(error => vscode.window.showErrorMessage(error instanceof Error ? error.message : '無法修改權限。')); };
@@ -423,7 +435,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     } finally { this.approvalPending = false; }
   }
   dispose(): void {
-    this.unsubscribe(); if (this.timer) clearTimeout(this.timer);
+    this.unsubscribe(); if (this.timer) clearTimeout(this.timer); if (this.taskTimer) clearTimeout(this.taskTimer);
     for (const disposable of this.disposables) disposable.dispose();
     this.settingsPanel?.dispose(); this.webviews.clear();
   }

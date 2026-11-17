@@ -292,6 +292,24 @@ describe('Vue chat', () => {
     } finally { wrapper.unmount(); vi.unstubAllGlobals(); }
   });
 });
+describe('Streaming task updates', () => {
+  it('replaces only the updated task in the current conversation', async () => {
+    const api = { postMessage: vi.fn(), getState: () => undefined, setState: vi.fn() };
+    vi.stubGlobal('acquireVsCodeApi', () => api); vi.resetModules();
+    const { default: App } = await import('../webview/src/App.vue');
+    const wrapper = mount(App);
+    const task = { id: 't1', provider: 'codex', mode: 'read-only', prompt: '問', output: '第一段', status: 'running', startedAt: 1 };
+    const deliver = async (data: unknown) => { window.dispatchEvent(new MessageEvent('message', { data })); await nextTick(); };
+    try {
+      await deliver({ version: 1, type: 'snapshot', snapshot: { workspace: '/w', trusted: true, checking: false, conversationId: 'c1', tasks: [task, { ...task, id: 't0', output: '舊的', status: 'completed' }], policy: { classification: 'personal', allowedProviders: ['codex'] }, providers: [], accounts: [{ id: 'a', provider: 'codex', name: 'a', loggedIn: true }], selectedAccounts: { codex: 'a' } } });
+      await deliver({ version: 1, type: 'task-update', conversationId: 'c1', task: { ...task, output: '第一段第二段' } });
+      expect(wrapper.text()).toContain('第一段第二段'); expect(wrapper.text()).toContain('舊的');
+      // 其他對話的更新不影響目前畫面。
+      await deliver({ version: 1, type: 'task-update', conversationId: 'c2', task: { ...task, output: '別的對話' } });
+      expect(wrapper.text()).not.toContain('別的對話');
+    } finally { wrapper.unmount(); vi.unstubAllGlobals(); }
+  });
+});
 describe('Login when no account is signed in', () => {
   it('offers official and API key login for Claude and Codex until one account is signed in', async () => {
     const api = { postMessage: vi.fn(), getState: () => undefined, setState: vi.fn() };

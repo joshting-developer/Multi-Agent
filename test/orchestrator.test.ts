@@ -40,6 +40,24 @@ const setup = async (adapters = [new FakeAdapter('claude'), new FakeAdapter('cod
   return { orchestrator, repository, storage, adapters };
 };
 describe('Manual orchestration', () => {
+  it('reports streaming changes per task without re-sending the whole state for every chunk', async () => {
+    class Chatty extends FakeAdapter {
+      override async *execute(request: AgentRequest): AsyncGenerator<AgentEvent> {
+        for (let index = 0; index < 50; index++) yield { type: 'text-delta' as const, taskId: request.taskId, text: `${index} ` };
+        yield { type: 'complete' as const, taskId: request.taskId };
+      }
+    }
+    const { orchestrator } = await setup([new FakeAdapter('claude'), new Chatty('codex')]);
+    let full = 0; const updates: string[] = [];
+    orchestrator.subscribe(() => { full++; });
+    orchestrator.subscribeTask((task, conversationId) => { updates.push(`${conversationId}:${task.output.length}`); });
+    await orchestrator.send('codex', 'go', 'read-only');
+    expect(updates).toHaveLength(51); expect(updates.every(item => item.startsWith(`${orchestrator.state.conversationId}:`))).toBe(true);
+    // 完整狀態只在開始、結束等狀態改變時送出，不會每個串流片段都送。
+    expect(full).toBeLessThan(10);
+    expect(orchestrator.state.tasks[0]!.output.split(' ').filter(Boolean)).toHaveLength(50);
+    await orchestrator.dispose();
+  });
   it('adds a steer to the running task only when the provider supports it', async () => {
     class Steerable extends FakeAdapter { steered: string[] = []; override capabilities() { return { ...capabilities, steer: true }; } async steer(_taskId: string, text: string) { this.steered.push(text); } }
     const codex = new Steerable('codex', true, true); const claude = new FakeAdapter('claude', true, true);
