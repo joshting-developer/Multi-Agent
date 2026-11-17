@@ -49,5 +49,8 @@ export function toolchainPaths(): { read: string[]; write: string[] } {
   const temp = real(tmpdir());
   // macOS 的使用者暫存在 /var/folders/…/T，同層的 C 是快取；xcrun 兩邊都會寫。
   const write = temp ? [temp, ...(basename(temp) === 'T' ? [real(join(dirname(temp), 'C'))].filter((path): path is string => !!path) : [])] : [];
+  // npm 的快取與紀錄寫在 ~/.npm；不能寫時 npm view／install 直接失敗（MA-169）。
+  const npm = real(join(homedir(), '.npm'));
+  if (npm) write.push(npm);
   return { read, write };
 }

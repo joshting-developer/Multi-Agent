@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
 import { blockedBy, blockedFolders, networkBlocked, outsideWorkspace } from '../src/execution/ReadRoots';
 import { protectedFiles, toolchainPaths } from '../src/execution/ExecutionPolicy';
 import { CodexAppServerAdapter } from '../src/agents/CodexAppServerAdapter';
@@ -246,6 +247,7 @@ describe('Developer tools inside the Codex sandbox', () => {
     const { workspace } = await folders();
     const toolchain = toolchainPaths();
     expect(toolchain.write.length).toBeGreaterThan(0);
+    if (existsSync(join(homedir(), '.npm'))) expect(toolchain.write).toContain(realpathSync(join(homedir(), '.npm')));
     const codex = new FixtureProcesses('codex'); const adapter = new CodexAppServerAdapter(codex, () => process.execPath, workspace);
     for await (const event of adapter.execute({ taskId: 't', prompt: 'p', cwd: workspace, timeoutMs: 3000, signal: new AbortController().signal, mode: 'read-only', approvalMode: 'ask', model: 'test-model', effort: 'low' })) void event;
     const profile = codex.requests.at(-1)!.args.find(value => value.startsWith('permissions.multi_agent={'))!;

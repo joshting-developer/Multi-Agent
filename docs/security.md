@@ -55,6 +55,6 @@ Git push、部署、破壞性操作要求人工授權的意圖會傳給 Agent；
 
 - **上層資料夾唯讀與全部開放（MA-149）**：工作區外可讀取允許加入包含工作區的上層資料夾，上層唯讀、工作區仍可寫；Codex 以 profile 的路徑規則處理，Claude 加入上層後只對工作區以外的項目禁止 Edit／Write。整個磁碟、家目錄本身與工作區內的資料夾仍不收。Agent 功能的「全部開放」一次打開網路與所有功能，因為包含沙盒外執行，同樣要原生確認；「全部關閉」不用確認。
 
-- **沙盒內的開發工具（MA-153）**：Codex 沙盒另外唯讀 Command Line Tools、/opt/homebrew、/usr/local、~/.docker、~/.gitconfig、~/.config/git（存在才加），並可寫使用者的暫存與快取資料夾（/var/folders/…/T、C），讓 /usr/bin/git、python3、Homebrew 的 docker 能在沙盒內執行。工作區規則與機密檔保護不變；~/.docker 可能含 registry 登入資訊，Agent 讀得到。
+- **沙盒內的開發工具（MA-153）**：Codex 沙盒另外唯讀 Command Line Tools、/opt/homebrew、/usr/local、~/.docker、~/.gitconfig、~/.config/git（存在才加），並可寫使用者的暫存與快取資料夾（/var/folders/…/T、C）及 npm 快取 ~/.npm（MA-169），讓 /usr/bin/git、python3、Homebrew 的 docker 能在沙盒內執行。工作區規則與機密檔保護不變；~/.docker 可能含 registry 登入資訊，Agent 讀得到。
 
 - **Claude 的命令用 bash（MA-160）**：Claude Code 預設用使用者的 zsh，`echo =====` 等寫法會被 zsh 當成命令路徑展開而失敗；MA 執行 Claude 時帶 `CLAUDE_CODE_SHELL=/bin/bash`，和 Codex 一致。
