@@ -32,7 +32,7 @@ export class ClaudeCodeAdapter extends CliAdapter {
     const help = await this.probe(command, ['--help']);
     this.help = help.stdout;
     const compatible = ['--restricted', '--safe-mode', '--tools', '--strict-mcp-config', '--include-partial-messages', '--settings', '--no-session-persistence'].every(flag => this.help.includes(flag));
-    const capabilities = { streaming: compatible, readOnly: compatible, workspaceWrite: compatible, resumeSession: compatible && this.help.includes('--resume'), toolApproval: true, structuredOutput: true };
+    const capabilities = { streaming: compatible, readOnly: compatible, workspaceWrite: compatible, resumeSession: compatible && this.help.includes('--resume'), toolApproval: true, structuredOutput: true, steer: compatible && this.canSteer() };
     if (!compatible) return { id: this.id, status: 'installed', version: version.stdout.trim(), reason: '此版本缺少 restricted / safe-mode 或串流能力，請更新 Claude Code。', capabilities };
     // 登入狀態屬於各帳號自己的目錄（設定 → 帳號），偵測只看 CLI 是否可用，不讀官方預設目錄的登入。
     return { id: this.id, version: version.stdout.trim(), capabilities, approvalModes: this.help.includes('auto') ? ['ask', 'auto-review', 'full-access'] : ['ask', 'full-access'], status: 'ready' };
@@ -43,6 +43,8 @@ export class ClaudeCodeAdapter extends CliAdapter {
     if (request.effort && !this.help.includes('--effort')) throw new Error('此 Claude Code 版本不支援推理強度，請更新 CLI。');
     // 圖片要走 stream-json 輸入，才能用官方的 image 區塊。
     const interactive = !!request.approvalMode || !!request.images?.length;
+    // 支援時一律用串流輸入，執行中才能再送補充訊息（MA-163）；權限詢問仍只在有核准模式時開。
+    const streaming = interactive || this.canSteer();
     // 工作區允許連網時才開放讀取網頁與網頁搜尋；開放子 Agent 時加入 Agent 工具。
     const features = new Set(request.features ?? []);
     // MCP、Skill、記憶、子 Agent 需要關掉 --safe-mode；--restricted 保留，檔案工具仍限制在工作區、不讀設定檔，所以外掛與 hooks 不開放。
@@ -59,7 +61,8 @@ export class ClaudeCodeAdapter extends CliAdapter {
       ...(request.effort ? ['--effort', request.effort] : []),
       ...(request.approvalMode === 'full-access' && request.mode !== 'read-only' ? ['--dangerously-skip-permissions'] : ['--restricted']),
       ...(custom ? [] : ['--safe-mode']), '--tools', tools, '--allowedTools', interactive ? `Read,Glob,Grep${web}` : tools,
-      ...(interactive ? ['--input-format', 'stream-json', '--permission-prompts', 'host', '--permission-prompt-tool', 'stdio'] : []),
+      ...(streaming ? ['--input-format', 'stream-json'] : []), ...(this.canSteer() ? ['--replay-user-messages'] : []),
+      ...(interactive ? ['--permission-prompts', 'host', '--permission-prompt-tool', 'stdio'] : []),
       '--permission-mode', permission,
       ...roots.flatMap(root => ['--add-dir', root]),
       ...(features.has('mcp') ? [] : ['--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}']), ...(features.has('commands') ? [] : ['--disable-slash-commands']),
@@ -67,15 +70,41 @@ export class ClaudeCodeAdapter extends CliAdapter {
       // --safe-mode 實測已不讀 auto-memory；仍明確關掉, 避免 Participant 之間或與使用者自己的 Claude Code 經由專案記憶互相讀寫。
       '--settings', JSON.stringify({ disableAllHooks: true, autoMemoryEnabled: features.has('memory'), permissions: { deny } })];
   }
+  /** CLI 有 --replay-user-messages 才能確認補充已被收到。 */
+  private canSteer(): boolean { return this.help.includes('--replay-user-messages') && this.help.includes('--input-format'); }
+  // 執行中的任務：補充訊息從同一條串流輸入送出，等 Claude 回報收到才算接受。
+  private readonly steering = new Map<string, { send: (value: string) => void; pending: Array<{ text: string; resolve: () => void; reject: (error: Error) => void }> }>();
+  /** 補充給執行中的任務：Claude 會排隊，在下一個步驟（例如目前的命令結束後）讀到。 */
+  async steer(taskId: string, text: string): Promise<void> {
+    const run = this.steering.get(taskId);
+    if (!run) throw new Error('任務還沒開始或已結束，請改為排隊送出。');
+    await new Promise<void>((resolve, reject) => {
+      run.pending.push({ text, resolve, reject });
+      run.send(JSON.stringify({ type: 'user', session_id: '', message: { role: 'user', content: [{ type: 'text', text }] }, parent_tool_use_id: null }) + '\n');
+    });
+  }
+  protected override finished(taskId: string): void {
+    for (const waiting of this.steering.get(taskId)?.pending ?? []) waiting.reject(new Error('任務已結束，補充沒有送出。'));
+    this.steering.delete(taskId);
+  }
   protected override inputStream(request: AgentRequest) {
-    if (!request.approvalMode && !request.images?.length) return undefined;
+    if (!request.approvalMode && !request.images?.length && !this.canSteer()) return undefined;
     return (send: (value: string) => void) => {
+      this.steering.set(request.taskId, { send, pending: [] });
       send(JSON.stringify({ type: 'control_request', request_id: 'initialize', request: { subtype: 'initialize' } }) + '\n');
       const content = request.images?.length ? [...request.images.map(image => ({ type: 'image', source: { type: 'base64', media_type: image.mime, data: image.data } })), { type: 'text', text: request.prompt }] : request.prompt;
       send(JSON.stringify({ type: 'user', session_id: '', message: { role: 'user', content }, parent_tool_use_id: null }) + '\n');
     };
   }
   protected override async handleControl(line: Record<string, unknown>, request: AgentRequest, send: (value: string) => void): Promise<boolean> {
+    // 送進去的使用者訊息會被回報一次：第一則是原本的要求，之後的是補充，依送出順序對上。
+    if (line.type === 'user' && line.isReplay) {
+      const content = record(line.message).content;
+      const text = Array.isArray(content) ? content.map(block => String(record(block).text ?? '')).join('') : String(content ?? '');
+      const run = this.steering.get(request.taskId); const index = run?.pending.findIndex(item => item.text === text) ?? -1;
+      if (run && index >= 0) run.pending.splice(index, 1)[0]!.resolve();
+      return true;
+    }
     if (line.type === 'control_response') {
       if (record(line.response).subtype === 'error') throw new Error('Claude 串流初始化或權限設定失敗，請更新 CLI。');
       return true;

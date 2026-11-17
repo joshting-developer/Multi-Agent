@@ -61,6 +61,31 @@ describe.each(['codex', 'claude'] as const)('%s official approval protocol', pro
     await expect(codex.steer('task', 'late')).rejects.toThrow('請改為排隊送出');
     await processes.dispose();
   });
+  it('steers a running Claude task through its stream input and confirms by the replayed message', async () => {
+    if (provider !== 'claude') return;
+    const { adapter, processes } = setup('steer'); const status = await adapter.detect();
+    expect(status.capabilities.steer).toBe(true);
+    const claude = adapter as ClaudeCodeAdapter; let text = ''; let accepted = false;
+    for await (const event of adapter.execute({ ...request, approvalMode: undefined, mode: 'read-only' })) {
+      if (event.type !== 'text-delta') continue;
+      text += event.text;
+      // 實際由 Orchestrator 另外呼叫，這裡不等待以免卡住事件迴圈。
+      if (event.text === 'working;') void claude.steer('task', '也看測試').then(() => { accepted = true; });
+    }
+    expect(text).toBe('working;steered:也看測試'); expect(accepted).toBe(true);
+    expect(processes.requests.at(-1)!.args).toEqual(expect.arrayContaining(['--input-format', 'stream-json', '--replay-user-messages']));
+    await expect(claude.steer('task', 'late')).rejects.toThrow('請改為排隊送出');
+    await processes.dispose();
+  });
+  it('returns a Claude steer that was not picked up before the task ended', async () => {
+    if (provider !== 'claude') return;
+    const { adapter, processes } = setup('steer'); await adapter.detect();
+    const claude = adapter as ClaudeCodeAdapter; let dropped: unknown;
+    for await (const event of adapter.execute({ ...request, approvalMode: undefined, mode: 'read-only' })) if (event.type === 'text-delta' && event.text === 'working;') void claude.steer('task', 'drop').catch(error => { dropped = error; });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(String(dropped)).toContain('任務已結束，補充沒有送出');
+    await processes.dispose();
+  });
   it('shows each Codex file change as add, update or delete with the moved path', async () => {
     if (provider !== 'codex') return;
     const { adapter, processes } = setup('changes'); await adapter.detect();

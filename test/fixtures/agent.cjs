@@ -4,7 +4,7 @@ const emit = event => process.stdout.write(JSON.stringify(event) + '\n');
 if (args.includes('--version')) {
   console.log(provider === 'claude' ? '2.1.319 (Claude Code)' : 'codex-cli 0.164.0');
 } else if (args.includes('--help')) {
-  console.log(scenario === 'old' ? '--print --json' : '--restricted --safe-mode --tools --strict-mcp-config --include-partial-messages --settings --no-session-persistence --json --ignore-user-config --ignore-rules --ephemeral --model --effort --approve-for-me --input-format --permission-prompts auto --resume --add-dir');
+  console.log(scenario === 'old' ? '--print --json' : '--restricted --safe-mode --input-format --replay-user-messages --tools --strict-mcp-config --include-partial-messages --settings --no-session-persistence --json --ignore-user-config --ignore-rules --ephemeral --model --effort --approve-for-me --input-format --permission-prompts auto --resume --add-dir');
 } else if (args[0] === 'features') {
   console.log('shell_tool stable true\nmulti_agent stable true\nunified_exec stable true\nhooks stable true\napps stable true\nplugins stable true');
 } else if (args[0] === 'login' && args[1] === '--with-api-key') {
@@ -116,6 +116,20 @@ if (args.includes('--version')) {
     const message = JSON.parse(line);
     if (message.type === 'user') emit({ type: 'control_request', request_id: 'approval', request: { subtype: 'can_use_tool', tool_name: 'Write', input: { file_path: '/synthetic/file.txt', content: 'hello' } } });
     if (message.type === 'control_response') { emit({ type: 'result', subtype: 'success', result: message.response.response.behavior }); }
+  });
+} else if (provider === 'claude' && scenario === 'steer') {
+  // 串流輸入：第一則是要求，之後的是補充；收到時回報（isReplay），補充內容為 drop 時不回報直接結束。
+  const readline = require('node:readline').createInterface({ input: process.stdin });
+  let first = true;
+  readline.on('line', line => {
+    const message = JSON.parse(line);
+    if (message.type !== 'user') return;
+    const text = Array.isArray(message.message.content) ? message.message.content.map(block => block.text ?? '').join('') : message.message.content;
+    if (first) { first = false; emit({ type: 'user', isReplay: true, message: { role: 'user', content: [{ type: 'text', text }] } }); emit({ type: 'stream_event', event: { delta: { type: 'text_delta', text: 'working;' } } }); return; }
+    if (text === 'drop') { emit({ type: 'result', subtype: 'success', result: 'ended' }); return; }
+    emit({ type: 'user', isReplay: true, message: { role: 'user', content: [{ type: 'text', text }] } });
+    emit({ type: 'stream_event', event: { delta: { type: 'text_delta', text: `steered:${text}` } } });
+    emit({ type: 'result', subtype: 'success', result: 'done' });
   });
 } else if (provider === 'claude' && scenario === 'images') {
   const readline = require('node:readline').createInterface({ input: process.stdin });

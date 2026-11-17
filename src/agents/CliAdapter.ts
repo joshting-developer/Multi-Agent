@@ -61,6 +61,8 @@ export abstract class CliAdapter implements AgentAdapter {
   protected abstract arguments(request: AgentRequest): string[];
   protected abstract parse(line: Record<string, unknown>, state: StreamState): Omit<AgentEvent, 'taskId'>[];
 
+  /** 一次執行結束（完成、失敗或停止）後呼叫；子類別清掉這次執行的狀態。 */
+  protected finished(_taskId: string): void { void _taskId; }
   protected inputStream(_request: AgentRequest): ((send: (value: string) => void) => void) | undefined { void _request; return undefined; }
   protected async handleControl(_line: Record<string, unknown>, _request: AgentRequest, _send: (value: string) => void): Promise<boolean> { void _line; void _request; void _send; return false; }
 
@@ -100,6 +102,7 @@ export abstract class CliAdapter implements AgentAdapter {
     } finally {
       request.signal.removeEventListener('abort', abort);
       this.active.delete(request.taskId);
+      this.finished(request.taskId);
     }
   }
   async cancel(taskId: string): Promise<void> { this.active.get(taskId)?.abort(); }
