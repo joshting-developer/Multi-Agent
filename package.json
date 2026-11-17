@@ -108,7 +108,7 @@
         },
         "multiAgent.claudeModel": {
           "type": "string",
-          "default": "sonnet",
+          "default": "claude-opus-5-5",
           "scope": "machine",
           "description": "Explicit claude model ID. Choose a model in Multi-Agent settings."
         },

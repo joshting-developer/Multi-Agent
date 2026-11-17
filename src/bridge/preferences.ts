@@ -23,13 +23,17 @@ export interface WorkspaceSettings {
 }
 export interface ModelOption { id: string; label: string; efforts: ReasoningEffort[]; isDefault?: boolean; recommendedEffort?: ReasoningEffort }
 export interface ModelCatalog { codex: ModelOption[]; claude: ModelOption[]; loading: boolean; error?: string }
+/** 沒選過模型的帳號預設用的模型：能做事、用量也能接受（MA-170）。強度都是中。 */
+export const defaultModels = { codex: 'gpt-6.1-sol', claude: 'claude-opus-5-5' } as const;
 export const defaultSettings: WorkspaceSettings = {
   sendShortcut: 'enter', defaultMode: 'workspace-write', codexPath: '', claudePath: '',
-  codex: { model: '', effort: 'medium' }, claude: { model: 'sonnet', effort: 'medium' }, approvalMode: 'ask', replyLanguage: 'auto'
+  codex: { model: defaultModels.codex, effort: 'medium' }, claude: { model: defaultModels.claude, effort: 'medium' }, approvalMode: 'ask', replyLanguage: 'auto'
 };
-export const claudeModels: ModelOption[] = ['opus', 'sonnet', 'haiku', 'fable'].map(id => ({
-  id, label: id[0]!.toUpperCase() + id.slice(1) + '（別名）', efforts: ['low', 'medium', 'high', 'xhigh', 'max']
-}));
+const claudeEfforts: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+export const claudeModels: ModelOption[] = [
+  { id: defaultModels.claude, label: 'Opus 5.5', efforts: claudeEfforts, isDefault: true },
+  ...['opus', 'sonnet', 'haiku', 'fable'].map(id => ({ id, label: id[0]!.toUpperCase() + id.slice(1) + '（別名）', efforts: claudeEfforts }))
+];
 export const effortLabels: Record<ReasoningEffort, string> = {
   none: '無', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '極高', max: '最高', ultra: 'Ultra'
 };

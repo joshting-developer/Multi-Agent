@@ -23,6 +23,15 @@ describe('Persistent provider and chat settings', () => {
     await expect(settings.save({ ...defaultSettings, codex: { model: 'model-a', effort: 'ultra' } })).rejects.toThrow(/不支援/);
     expect(configuration.update).not.toHaveBeenCalled();
   });
+  it('defaults to GPT-6.1-Sol and Opus 5.5 at medium effort, falling back to the Codex default when that model is gone', async () => {
+    const listed = new SettingsService({ list: async () => [{ id: 'gpt-6.1-sol', label: 'GPT-6.1-Sol', efforts: ['low', 'medium', 'high'], isDefault: true, recommendedEffort: 'low' }] });
+    await listed.refreshModels();
+    expect(listed.read().codex).toEqual({ model: 'gpt-6.1-sol', effort: 'medium' });
+    expect(listed.read().claude).toEqual({ model: 'claude-opus-5-5', effort: 'medium' });
+    expect(listed.models.claude[0]).toMatchObject({ id: 'claude-opus-5-5', label: 'Opus 5.5' });
+    const missing = service(); await missing.refreshModels();
+    expect(missing.read().codex.model).toBe('model-a');
+  });
   it('keeps a manual model ID usable when discovery is unavailable', async () => {
     const settings = new SettingsService({ list: async () => { throw new Error('offline'); } });
     await settings.refreshModels();

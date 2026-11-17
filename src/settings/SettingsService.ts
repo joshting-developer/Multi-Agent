@@ -3,7 +3,7 @@ import { isAbsolute } from 'node:path';
 import type { AgentId } from '../bridge/messages';
 import { z } from 'zod';
 import { replyLanguages } from '../bridge/preferences';
-import { claudeModels, concretePreferences, effortSchema, providerPreferencesSchema, settingsSchema, type ModelCatalog, type ProviderPreferences, type WorkspaceSettings } from '../bridge/settings';
+import { claudeModels, concretePreferences, defaultModels, effortSchema, providerPreferencesSchema, settingsSchema, type ModelCatalog, type ProviderPreferences, type WorkspaceSettings } from '../bridge/settings';
 import { CodexModelCatalog } from './CodexModelCatalog';
 
 const replyLanguageSchema = z.enum(replyLanguages);
@@ -22,9 +22,14 @@ export class SettingsService {
       sendShortcut: config.get('sendShortcut', 'enter'), defaultMode: config.get('defaultMode', 'workspace-write'),
       codexPath: config.get('codexPath', ''), claudePath: config.get('claudePath', ''),
       approvalMode: config.get('approvalMode', 'ask'), replyLanguage: replyLanguageSchema.safeParse(config.get('replyLanguage')).data ?? 'auto',
-      codex: concretePreferences({ model: config.get('codexModel', ''), effort: effortSchema.safeParse(config.get('codexEffort')).data ?? 'medium' }, this.models.codex),
-      claude: concretePreferences({ model: config.get('claudeModel', '') || 'sonnet', effort: effortSchema.safeParse(config.get('claudeEffort')).data ?? 'medium' }, this.models.claude)
+      codex: concretePreferences({ model: config.get('codexModel', '') || this.codexDefault(), effort: effortSchema.safeParse(config.get('codexEffort')).data ?? 'medium' }, this.models.codex),
+      claude: concretePreferences({ model: config.get('claudeModel', '') || defaultModels.claude, effort: effortSchema.safeParse(config.get('claudeEffort')).data ?? 'medium' }, this.models.claude)
     };
+  }
+  /** Codex 清單還沒載入或有這個模型時用預設模型；沒有時交給 Codex 標的預設。 */
+  private codexDefault(): string {
+    const list = this.models.codex;
+    return !list.length || list.some(model => model.id === defaultModels.codex) ? defaultModels.codex : '';
   }
   validate(provider: AgentId, value: ProviderPreferences): ProviderPreferences {
     const preferences = providerPreferencesSchema.parse(value);
