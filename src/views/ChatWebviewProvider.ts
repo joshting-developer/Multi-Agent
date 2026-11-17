@@ -400,7 +400,7 @@ export class ChatWebviewProvider implements vscode.WebviewViewProvider, vscode.D
     return { dispose: () => { clearInterval(timer); shown.dispose(); } };
   }
   private async authorize(): Promise<void> {
-    if (this.approvalPending || this.orchestrator.state.activeTaskId) throw new Error('請先完成或停止目前操作。');
+    if (this.approvalPending || this.orchestrator.busy) throw new Error('請先完成或停止目前操作。');
     this.approvalPending = true;
     try {
       const classification = await vscode.window.showQuickPick([

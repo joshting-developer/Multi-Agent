@@ -317,7 +317,7 @@ describe('Conversation navigation and approval lifetime', () => {
     await expect(orchestrator.send('codex', 'racing send', 'read-only')).rejects.toThrow(/切換/);
     await navigation; await orchestrator.dispose();
   });
-  it('keeps a background task writing to its own conversation while another conversation queues its own work', async () => {
+  it('runs another conversation at the same time while each task writes to its own conversation', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'multi-agent-background-'));
     try {
       let release: () => void = () => undefined;
@@ -339,11 +339,12 @@ describe('Conversation navigation and approval lifetime', () => {
       await orchestrator.newConversation(); const conversationB = orchestrator.state.conversationId!;
       expect(orchestrator.state).toMatchObject({ activeConversationId: conversationA, tasks: [] });
       expect(orchestrator.state.conversations?.find(item => item.id === conversationA)?.activity).toBe('running');
+      // 不同對話同時執行：A 還在跑時 B 不必排隊，而且先完成（MA-166）。
       const b = orchestrator.send('claude', 'B', 'read-only');
-      expect(orchestrator.state.tasks.map(task => [task.prompt, task.status])).toEqual([['B', 'queued']]);
-      release(); await Promise.all([a, b]);
-      // A 的完成只寫回 A；B 依序在 A 之後執行，且只帶 B 自己的歷史。
+      await b;
       expect(orchestrator.state.tasks.map(task => [task.prompt, task.output, task.status])).toEqual([['B', 'partial B done', 'completed']]);
+      expect(orchestrator.state.activeConversationId).toBe(conversationA);
+      release(); await a;
       expect(adapter.requests.map(request => request.prompt)).toEqual(['A', 'B']);
       expect(db.load(conversationA).map(task => [task.prompt, task.output, task.status])).toEqual([['A', 'partial A done', 'completed']]);
       await orchestrator.openConversation(conversationA);
@@ -352,6 +353,34 @@ describe('Conversation navigation and approval lifetime', () => {
       expect(db.load(conversationB).map(task => task.prompt)).toEqual(['B']);
       await orchestrator.dispose();
     } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+  it('keeps one conversation in order, stops only the chosen task and leaves other approvals waiting', async () => {
+    class Waiting extends FakeAdapter {
+      override async *execute(request: AgentRequest) {
+        this.requests.push(request);
+        if (request.prompt.startsWith('ask')) await request.approve!({ title: `核准 ${request.prompt}`, detail: 'x' });
+        else await new Promise<void>(resolve => { if (request.signal.aborted) resolve(); else request.signal.addEventListener('abort', () => resolve(), { once: true }); });
+        yield { type: 'complete' as const, taskId: request.taskId };
+      }
+    }
+    const adapter = new Waiting('codex');
+    const { orchestrator } = await setup([new FakeAdapter('claude'), adapter]);
+    const first = orchestrator.send('codex', 'long', 'workspace-write', undefined, 'ask'); const conversationA = orchestrator.state.conversationId!;
+    const second = orchestrator.send('codex', 'later', 'workspace-write', undefined, 'ask');
+    // 同一個對話依序：第二則排隊。
+    expect(orchestrator.state.tasks.map(task => task.status)).toEqual(['running', 'queued']);
+    await orchestrator.newConversation();
+    const asking = orchestrator.send('codex', 'ask B', 'workspace-write', undefined, 'ask'); const conversationB = orchestrator.state.conversationId!;
+    await vi.waitFor(() => expect(orchestrator.state.approvals?.map(item => [item.title, item.conversationId])).toEqual([['核准 ask B', conversationB]]));
+    // 停止 A 的任務只影響 A，B 的核准卡還在。
+    const aTask = (await orchestrator.openConversation(conversationA), orchestrator.state.tasks[0]!);
+    await orchestrator.cancel(aTask.id);
+    expect(orchestrator.state.approvals).toHaveLength(1);
+    orchestrator.answerApproval(orchestrator.state.approvals![0]!.id, true);
+    await Promise.all([first, asking]);
+    await orchestrator.cancel(orchestrator.state.tasks.find(task => task.prompt === 'later')?.id); await second;
+    expect(orchestrator.busy).toBe(false);
+    await orchestrator.dispose();
   });
   it('cancels a waiting approval, clears the card, and rejects a stale response', async () => {
     class ApprovingAdapter extends FakeAdapter {

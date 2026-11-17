@@ -42,15 +42,20 @@ export class Orchestrator {
   languageInstruction?: () => string | undefined;
   /** 使用者貼上圖片的本機儲存；未設定時不接受附件。 */
   attachmentStore?: AttachmentStore;
-  private active?: { task: Task; controller: AbortController; finished: Promise<void>; conversationId: string };
+  /** 執行中的任務，每個對話最多一個；不同對話可以同時執行（MA-166）。 */
+  private readonly running = new Map<string, { task: Task; controller: AbortController; finished: Promise<void>; conversationId: string }>();
+  /** 有任務在執行時不能改工作區授權、網路或 Agent 功能。 */
+  get busy(): boolean { return this.running.size > 0; }
+  private runOf(taskId: string) { return [...this.running.values()].find(run => run.task.id === taskId); }
   /** 有執行中或排隊任務的對話，切走後仍留在記憶體並持續寫回原對話。 */
   private readonly live = new Map<string, Task[]>();
-  private executor: Promise<void> = Promise.resolve();
+  /** 每個對話各自一條佇列，同一個對話依送出順序執行。 */
+  private readonly executors = new Map<string, Promise<void>>();
   private listed: ConversationSummary[] = [];
   private readonly taskConversations = new Map<string, string>();
   private navigating = false;
   private readonly listeners = new Set<() => void>();
-  private readonly approvalAnswers = new Map<string, (allow: boolean) => void>();
+  private readonly approvalAnswers = new Map<string, { taskId: string; finish: (allow: boolean) => void }>();
   private persistTimer?: ReturnType<typeof setTimeout>;
   constructor(private readonly registry: AgentRegistry, private readonly repository: SessionRepository,
     private readonly cwd: string, private readonly isTrusted: () => boolean, private readonly timeoutMs: () => number,
@@ -62,6 +67,9 @@ export class Orchestrator {
   }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   private changed(persist = false): void {
+    // activeTaskId 優先是目前檢視的對話正在跑的任務，沒有時是其他對話的任務（畫面據此判斷這個對話是否執行中）。
+    const run = this.running.get(this.repository.conversationId) ?? this.running.values().next().value;
+    this.state.activeTaskId = run?.task.id; this.state.activeConversationId = run?.conversationId;
     this.state.conversations = this.decorate(this.listed);
     for (const listener of this.listeners) listener();
     if (persist && !this.persistTimer) this.persistTimer = setTimeout(() => {
@@ -97,19 +105,19 @@ export class Orchestrator {
     });
   }
   async checkProviders(): Promise<void> {
-    if (this.state.checking || this.active) return;
+    if (this.state.checking || this.busy) return;
     this.state.checking = true; this.changed();
     try { this.state.providers = await this.registry.detect(); }
     finally { this.state.checking = false; this.changed(); }
   }
   async setPolicy(policy: WorkspacePolicy): Promise<void> {
-    if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
+    if (this.busy) throw new Error('請先停止目前任務，再修改工作區授權。');
     this.state.policy = policy; this.changed(); await this.flush();
     await this.auditWorkspace('policy-changed', `${policy.classification}: ${policy.allowedProviders.join(', ') || '無'}`);
   }
   /** 允許 Agent 唯讀工作區外或上層的資料夾；只收已存在的絕對路徑資料夾，不收工作區內、根目錄或家目錄本身。 */
   async addReadRoot(path: string): Promise<string> {
-    if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
+    if (this.busy) throw new Error('請先停止目前任務，再修改工作區授權。');
     if (!isAbsolute(path)) throw new Error('請選擇資料夾的完整路徑。');
     const root = await realpath(path);
     if (!(await stat(root)).isDirectory()) throw new Error('只能允許讀取資料夾。');
@@ -125,7 +133,7 @@ export class Orchestrator {
   }
   /** 允許或關閉這個工作區的 Agent 連網；只在沒有任務執行時改，並寫入稽核紀錄。 */
   async setNetwork(enabled: boolean): Promise<void> {
-    if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
+    if (this.busy) throw new Error('請先停止目前任務，再修改工作區授權。');
     if (!!this.state.policy.network === enabled) return;
     const { network: _previous, ...policy } = this.state.policy; void _previous;
     this.state.policy = enabled ? { ...policy, network: true } : policy;
@@ -134,7 +142,7 @@ export class Orchestrator {
   }
   /** 開放或關閉一項 Agent 功能；只在沒有任務執行時改，並寫入稽核紀錄。 */
   async setFeature(feature: AgentFeature, enabled: boolean): Promise<void> {
-    if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
+    if (this.busy) throw new Error('請先停止目前任務，再修改工作區授權。');
     const current = this.state.policy.features ?? [];
     if (current.includes(feature) === enabled) return;
     const next = enabled ? agentFeatures.filter(item => item === feature || current.includes(item)) : current.filter(item => item !== feature);
@@ -144,7 +152,7 @@ export class Orchestrator {
     await this.auditWorkspace('policy-changed', `${enabled ? '開放' : '關閉'} Agent 功能：${feature}`);
   }
   async removeReadRoot(path: string): Promise<void> {
-    if (this.active) throw new Error('請先停止目前任務，再修改工作區授權。');
+    if (this.busy) throw new Error('請先停止目前任務，再修改工作區授權。');
     const { readRoots = [], ...policy } = this.state.policy; const roots = readRoots.filter(item => item !== path);
     this.state.policy = roots.length ? { ...policy, readRoots: roots } : policy;
     this.changed(); await this.flush();
@@ -153,8 +161,8 @@ export class Orchestrator {
   assertCanSend(provider: AgentId, mode: ExecutionMode, discussionId?: string): void {
     if (this.navigating) throw new Error('正在切換對話，請稍候。');
     if (this.state.discussionId !== discussionId) throw new Error(this.state.discussionId ? '討論進行中，請等待完成或停止討論。' : '討論尚未開始。');
-    if (this.active && discussionId) throw new Error('目前已有任務執行中。請等待完成或按 Stop。');
-    if (this.pending() >= maxQueued + 1) throw new Error(`最多 ${maxQueued} 個任務排隊，請等前面的任務完成。`);
+    if (this.busy && discussionId && !this.running.has(this.repository.conversationId)) throw new Error('目前已有任務執行中。請等待完成或按 Stop。');
+    if (this.pending(this.repository.conversationId) >= maxQueued + 1) throw new Error(`這個對話最多 ${maxQueued} 個任務排隊，請等前面的任務完成。`);
     if (this.state.checking) throw new Error('正在檢查 Provider，請稍候。');
     assertAuthorized(this.state.policy, provider, this.state.trusted && this.isTrusted());
     const status = this.state.providers.find(item => item.id === provider);
@@ -172,29 +180,30 @@ export class Orchestrator {
     if (attachments?.length) task.attachments = attachments;
     // 任務屬於送出當下的對話；之後切換檢視也繼續寫回這個對話。同步排入佇列，順序與送出順序相同。
     const conversationId = this.repository.conversationId; const tasks = this.state.tasks;
-    if (this.active || this.pending()) { task.status = 'queued'; task.activity = '排隊中'; }
+    if (this.pending(conversationId)) { task.status = 'queued'; task.activity = '排隊中'; }
     tasks.push(task); this.live.set(conversationId, tasks);
-    const run = this.executor.then(() => this.start(task, conversationId, tasks));
-    this.executor = run.catch(() => undefined);
+    const run = (this.executors.get(conversationId) ?? Promise.resolve()).then(() => this.start(task, conversationId, tasks));
+    this.executors.set(conversationId, run.catch(() => undefined));
     this.changed();
     await run;
     return task;
   }
-  private pending(): number { return [...this.live.values()].reduce((count, tasks) => count + tasks.filter(task => task.status === 'queued' || task.status === 'running').length, 0); }
+  /** 指定對話（沒指定時是全部）排隊中與執行中的任務數。 */
+  private pending(conversationId?: string): number { return [...this.live.entries()].filter(([id]) => !conversationId || id === conversationId).reduce((count, [, tasks]) => count + tasks.filter(task => task.status === 'queued' || task.status === 'running').length, 0); }
   private async start(task: Task, conversationId: string, tasks: Task[]): Promise<void> {
     this.taskConversations.set(task.id, conversationId);
     if (task.status === 'cancelled') return;
     const controller = new AbortController();
     task.status = 'running'; task.startedAt = Date.now(); task.activity = '啟動官方 CLI…';
     const active = { task, controller, finished: Promise.resolve(), conversationId };
-    this.active = active; this.state.activeTaskId = task.id; this.state.activeConversationId = conversationId;
+    this.running.set(conversationId, active);
     this.changed();
     active.finished = this.execute(task, controller, tasks);
     await active.finished;
   }
   /** 討論期間只接受該討論的輪次；一般送出與切換對話都會被拒絕。 */
   beginDiscussion(id: string): void {
-    if (this.active || this.pending() || this.navigating || this.state.discussionId) throw new Error('目前已有任務或討論執行中。');
+    if (this.busy || this.pending() || this.navigating || this.state.discussionId) throw new Error('目前已有任務或討論執行中。');
     this.state.discussionId = id; this.changed();
   }
   endDiscussion(id: string): void { if (this.state.discussionId === id) { this.state.discussionId = undefined; this.changed(); } }
@@ -229,8 +238,11 @@ export class Orchestrator {
       // 失敗、拒絕或 Stop 後不留下一直「執行中」的工具。
       for (const step of task.steps ?? []) if (step.kind === 'tool' && step.status === 'running') step.status = task.status === 'completed' ? 'done' : 'stopped';
       task.endedAt = Date.now(); task.activity = undefined;
-      for (const resolve of this.approvalAnswers.values()) resolve(false);
-      this.active = undefined; this.state.activeTaskId = undefined; this.state.activeConversationId = undefined; this.taskConversations.delete(task.id);
+      // 只取消這個任務自己的核准卡，其他對話的任務不受影響。
+      for (const answer of [...this.approvalAnswers.values()].filter(item => item.taskId === task.id)) answer.finish(false);
+      const conversationId = this.taskConversations.get(task.id);
+      if (conversationId && this.running.get(conversationId)?.task.id === task.id) this.running.delete(conversationId);
+      this.taskConversations.delete(task.id);
       this.changed(); await this.flush().catch(this.storageError);
     }
   }
@@ -299,8 +311,8 @@ export class Orchestrator {
   }
   /** 把補充訊息送進執行中的任務；成功後存成對話裡的一則補充訊息，回放歷史時也帶入。 */
   async steer(taskId: string, text: string): Promise<void> {
-    const active = this.active;
-    if (!active || active.task.id !== taskId || active.task.status !== 'running') throw new Error('這個任務已經結束，請改為排隊送出。');
+    const active = this.runOf(taskId);
+    if (!active || active.task.status !== 'running') throw new Error('這個任務已經結束，請改為排隊送出。');
     const adapter = this.registry.get(active.task.provider);
     if (!adapter.steer || !adapter.capabilities().steer) throw new Error('這個 Agent 不支援補充給執行中的任務，訊息會等任務完成再送出。');
     await adapter.steer(taskId, text);
@@ -309,19 +321,21 @@ export class Orchestrator {
     steps.push({ kind: 'steer', text, at: Date.now() }); this.changed();
   }
   /** 等到目前沒有任務在執行（排隊的也跑完）；權限要等任務之間才能改。 */
-  async whenIdle(): Promise<void> { while (this.active) await this.active.finished; }
+  async whenIdle(): Promise<void> { while (this.running.size) await Promise.all([...this.running.values()].map(run => run.finished)); }
   async cancel(taskId?: string): Promise<void> {
     // 排隊中的任務直接取消，不會啟動。
     const queued = taskId ? [...this.live.values()].flat().find(task => task.id === taskId && task.status === 'queued') : undefined;
     if (queued) { queued.status = 'cancelled'; queued.endedAt = Date.now(); queued.activity = undefined; this.changed(); await this.flush(); return; }
-    if (!this.active || (taskId && this.active.task.id !== taskId)) return;
-    const active = this.active;
-    active.task.activity = '正在停止程序…'; this.changed();
-    active.controller.abort(); await this.registry.get(active.task.provider).cancel(active.task.id);
-    await active.finished;
+    // 指定任務只停那一個；沒指定時（討論、混合、工作區失去信任）全部停止。
+    const runs = taskId ? [this.runOf(taskId)].filter(run => !!run) : [...this.running.values()];
+    await Promise.all(runs.map(async active => {
+      active.task.activity = '正在停止程序…'; this.changed();
+      active.controller.abort(); await this.registry.get(active.task.provider).cancel(active.task.id);
+      await active.finished;
+    }));
   }
   async clear(): Promise<void> {
-    if (this.active) throw new Error('請先停止目前任務。');
+    if (this.running.has(this.repository.conversationId)) throw new Error('請先停止目前任務。');
     await this.deleteConversation(this.repository.conversationId);
   }
   private requestApproval(task: Task, request: Pick<ApprovalRequest, 'title' | 'detail'>, signal: AbortSignal): Promise<boolean> {
@@ -338,16 +352,16 @@ export class Orchestrator {
         this.approvalAnswers.delete(id); this.state.approvals = this.state.approvals?.filter(item => item.id !== id);
         this.changed(); resolve(allow);
       };
-      this.approvalAnswers.set(id, finish);
+      this.approvalAnswers.set(id, { taskId: task.id, finish });
       signal.addEventListener('abort', abort, { once: true });
       this.audit(task, 'approval-requested', request.title);
-      this.state.approvals!.push({ id, taskId: task.id, provider: task.provider, ...request, conversationId: this.active?.conversationId }); this.changed();
+      this.state.approvals!.push({ id, taskId: task.id, provider: task.provider, ...request, conversationId: this.taskConversations.get(task.id) }); this.changed();
     });
   }
   answerApproval(id: string, allow: boolean): void {
     const answer = this.approvalAnswers.get(id);
     if (!answer) throw new Error('此核准請求已失效。');
-    answer(allow);
+    answer.finish(allow);
   }
   /** 一般任務在背景繼續執行時可以切換或新增對話；討論進行中仍需等待或停止。 */
   private async navigate(operation: () => Promise<void>): Promise<void> {
@@ -407,7 +421,7 @@ export class Orchestrator {
   backupHistory(target: string): Promise<void> { return this.repository.backup(target); }
   /** 還原備份會取代整個資料庫，只能在沒有任何執行、排隊或討論時進行；完成後重新載入目前專案最新的對話。 */
   async restoreHistory(source: string): Promise<string> {
-    if (this.active || this.pending() || this.state.discussionId || this.navigating) throw new Error('請先停止目前任務或討論，再還原備份。');
+    if (this.busy || this.pending() || this.state.discussionId || this.navigating) throw new Error('請先停止目前任務或討論，再還原備份。');
     let previous = '';
     await this.navigate(async () => {
       await this.flush(); previous = await this.repository.restore(source);

@@ -37,7 +37,7 @@ export class HybridCoordinator {
     if (members.length < 2 || members.length > maxHybridMembers) throw new Error(`混合模式需要 2 到 ${maxHybridMembers} 個成員。`);
     if (!Number.isInteger(lead) || lead < 0 || lead >= members.length) throw new Error('請指定主帳號。');
     if (this.running) throw new Error('目前已有混合任務執行中。');
-    if (this.orchestrator.state.activeTaskId) throw new Error('請先等目前任務完成或停止。');
+    if (this.orchestrator.busy) throw new Error('請先等目前任務完成或停止。');
     // 每個成員的 Provider 各自檢查工作區授權；一方獲准不代表另一方。
     for (const provider of new Set(members.map(member => member.provider))) this.orchestrator.assertCanSend(provider, provider === members[lead]!.provider ? 'read-only' : mode);
     const state: HybridState = { id: randomUUID(), request, mode, approvalMode, members: members.map(member => ({ ...member })), lead, steps: [], status: 'running', stage: 'plan', shown: false };
