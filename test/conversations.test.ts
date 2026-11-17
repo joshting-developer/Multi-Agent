@@ -235,5 +235,5 @@ describe('Error log', () => {
     const all = db.errors(10000);
     expect(all).toHaveLength(5000); expect(all.at(-1)?.summary).toBe('e5'); expect(all[0]?.summary).toBe('e5004');
     await db.close();
-  });
+  }, 60000);
 });

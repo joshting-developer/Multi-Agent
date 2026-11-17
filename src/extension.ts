@@ -39,7 +39,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Extens
     new ClaudeCodeAdapter(processes, () => config().get<string>('claudePath', ''), context.extensionPath),
     new CodexAppServerAdapter(processes, () => config().get<string>('codexPath', ''), context.extensionPath)
   ]);
-  const accounts = new AccountService(context.globalState, join(context.globalStorageUri.fsPath, 'accounts'), registry, context.secrets);
+  const accounts = new AccountService(context.globalState, join(context.globalStorageUri.fsPath, 'accounts'), registry, context.secrets, context.workspaceState);
   const database = await ConversationDatabase.open(join(context.globalStorageUri.fsPath, 'conversations.sqlite'), cwd, join(context.extensionPath, 'dist/sqlite/sql-wasm.wasm'));
   orchestrator = new Orchestrator(registry, new SessionRepository(context.workspaceState, cwd, database), cwd,
     () => vscode.workspace.isTrusted && vscode.workspace.workspaceFolders?.length === 1 && vscode.workspace.workspaceFolders[0]?.uri.toString() === folders[0]?.uri.toString(),

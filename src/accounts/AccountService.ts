@@ -14,6 +14,7 @@ const secretKey = (id: string) => `multiAgent.apiKey.${id}`;
 export interface AccountView extends StoredAccount { loggedIn?: boolean; account?: ProviderStatus['account']; usage?: UsageSnapshot }
 interface StoredState { version: 1; accounts: StoredAccount[]; names: Record<string, string>; selected?: Partial<Record<AgentId, string>> }
 const key = 'multiAgent.accounts.v1';
+const workspaceKey = 'multiAgent.selectedAccounts.v1';
 const providers: AgentId[] = ['codex', 'claude'];
 const label = (provider: AgentId) => provider === 'claude' ? 'Claude' : 'Codex';
 
@@ -26,7 +27,8 @@ export class AccountService {
   private readonly status = new Map<string, { loggedIn: boolean; account?: ProviderStatus['account'] }>();
   private readonly listeners = new Set<() => void>();
   private readonly usage = new Map<string, UsageSnapshot>();
-  constructor(private readonly storage: StateStorage, private readonly root: string, private readonly registry: AgentRegistry, private readonly secrets?: SecretStore) {}
+  /** workspace：這個工作區自己的使用中帳號（VS Code workspaceState）；沒有時用全域的最近選擇（MA-165）。 */
+  constructor(private readonly storage: StateStorage, private readonly root: string, private readonly registry: AgentRegistry, private readonly secrets?: SecretStore, private readonly workspace?: StateStorage) {}
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   private changed() { for (const listener of this.listeners) listener(); }
   private read(): StoredState {
@@ -48,12 +50,18 @@ export class AccountService {
   /** 選過且還存在的帳號優先，否則用該來源的第一個帳號；沒有帳號的來源不列出。舊版的預設帳號選擇會落到這裡。 */
   selected(): Partial<Record<AgentId, string>> {
     const state = this.read();
-    return Object.fromEntries(providers.flatMap(provider => {
+    // 先看這個工作區自己選的，再看全域最近一次的選擇；兩個視窗各選各的，不會互相改到（MA-165）。
+    const local = this.workspace?.get<Partial<Record<AgentId, string>>>(workspaceKey) ?? {};
+    const result = Object.fromEntries(providers.flatMap(provider => {
       const own = state.accounts.filter(account => account.provider === provider);
-      const id = own.find(account => account.id === state.selected?.[provider])?.id ?? own[0]?.id;
+      const id = own.find(account => account.id === local[provider])?.id ?? own.find(account => account.id === state.selected?.[provider])?.id ?? own[0]?.id;
       return id ? [[provider, id]] : [];
-    }));
+    })) as Partial<Record<AgentId, string>>;
+    // 這個工作區還沒選過時，把現在用的帳號記下來，之後別的視窗換帳號不會影響這裡。
+    if (this.workspace && providers.some(provider => result[provider] && local[provider] !== result[provider])) void this.workspace.update(workspaceKey, { ...local, ...result });
+    return result;
   }
+
   /** 執行要用的帳號：指定且存在的帳號，否則目前選定的帳號；都沒有時要求先新增。 */
   resolve(provider: AgentId, id?: string): string {
     const account = id ? this.read().accounts.find(item => item.id === id && item.provider === provider) : undefined;
@@ -70,6 +78,8 @@ export class AccountService {
   preferences(id?: string): AccountPreferences | undefined { return id ? this.read().accounts.find(item => item.id === id)?.preferences : undefined; }
   async select(provider: AgentId, id: string): Promise<void> {
     if (this.find(id).provider !== provider) throw new Error('帳號與 Agent 不相符，請重新選擇。');
+    if (this.workspace) await this.workspace.update(workspaceKey, { ...this.workspace.get<Partial<Record<AgentId, string>>>(workspaceKey), [provider]: id });
+    // 全域只當新工作區的預設。
     const state = this.read(); state.selected = { ...state.selected, [provider]: id }; await this.write(state);
   }
   /** 帳號自己的官方 CLI 設定目錄；一定要指定帳號，不回退到官方 CLI 的預設目錄。 */

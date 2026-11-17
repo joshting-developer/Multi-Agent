@@ -99,6 +99,22 @@ describe('Multiple official CLI accounts', () => {
     expect(accounts.list().find(item => item.id === normal.id)?.usage).toMatchObject({ source: 'official', windows: [{ usedPercent: 42 }, { usedPercent: 7 }] });
     expect(accounts.list().find(item => item.id === claude.id)?.usage?.windows[0]?.usedPercent).toBe(25);
   });
+  it('keeps the active account per workspace so another window cannot switch it', async () => {
+    const { root, registry } = await setup();
+    const shared = new Memory(); const tracker = new Memory(); const guild = new Memory();
+    const first = new AccountService(shared, root, registry, undefined, tracker);
+    const work = await first.add('codex', 'work'); const home = await first.add('codex', 'home');
+    // TaskTracker 先用 work；GuildManager 開啟時記下當時的帳號，之後各選各的。
+    await first.select('codex', work.id);
+    const second = new AccountService(shared, root, registry, undefined, guild);
+    expect(second.selected().codex).toBe(work.id);
+    await second.select('codex', home.id);
+    expect(second.selected().codex).toBe(home.id);
+    expect(first.selected().codex).toBe(work.id);
+    expect(first.resolve('codex')).toBe(work.id);
+    // 新開的工作區沿用最近一次的選擇。
+    expect(new AccountService(shared, root, registry, undefined, new Memory()).selected().codex).toBe(home.id);
+  });
   it('remembers each account own model, effort and approval mode', async () => {
     const { root, registry } = await setup();
     const storage = new Memory(); const accounts = new AccountService(storage, root, registry);
